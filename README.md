@@ -21,10 +21,11 @@ npm install          # 装依赖（需要网络）
 npm run web          # 启动 dev server 并打开浏览器（默认 http://localhost:8081）
 ```
 
-`npm run web` 会先自动执行 `preweb`（即 `npm run copy-wasm`）：把两个 `.wasm` 从 node_modules
+`npm install` 结束时会自动跑 `postinstall`（即 `npm run copy-wasm`）：把两个 `.wasm` 从 node_modules
 同步到 `public/wasm/`，并在 Node 里跑一次真机冒烟校验（`Parser.init` + `Language.load` + `parse`）。
 看到 `[copy-wasm] 冒烟校验通过` 就说明 wasm ABI 是配套的。这两个 `.wasm` 不入库（见 `.gitignore`），
-**新克隆的仓库必须先跑一次 `npm install`**。
+所以**新克隆的仓库必须先跑一次 `npm install`**；`npm run web` / `npm run export` 还会通过
+`preweb` / `preexport` 再同步一次。若安装时带了 `--ignore-scripts`，手动补 `npm run copy-wasm`。
 
 然后：点「选择 .py 文件」上传，或者直接把文件拖进右侧区域。仓库里带了样例可以直接试：
 `fixtures/main.py`、`fixtures/shapes.py`、`fixtures/utils.py`。
@@ -179,7 +180,8 @@ __tests__/                jest（纯函数 + 组件 + 真 wasm 全链路）
 | **真 wasm 全链路** | `parser.wasm.test.ts` / `imports.wasm.test.ts` / `e2e.wasm.test.tsx`                                                         | 是                                 |
 
 `public/wasm/*.wasm` 不存在时，第三层会**整体跳过**而不是失败（`describeWasm` 助手），
-这样刚克隆还没跑 `copy-wasm` 的仓库也能先把前两层跑完。想跑全量：先 `npm run copy-wasm`。
+这样即便安装时带了 `--ignore-scripts` 也能先把前两层跑完。想跑全量：先 `npm run copy-wasm`
+（正常 `npm install` 已由 `postinstall` 自动完成）。
 
 `e2e.wasm.test.tsx` 是最接近真实使用的一份：真 wasm 解析 fixtures → `store.loadFiles` →
 渲染 `AppRoot` → 真点击，覆盖上面验收清单里的两条核心定位路径、坏文件降级、移除文件同步。

@@ -49,6 +49,8 @@ export const MEASURE_CHARS = 100;
 export const FALLBACK_CHAR_W = 7.2;
 /** 定位高亮闪烁时长（ms） */
 export const FLASH_MS = 1200;
+/** 闪烁层的起始不透明度（随后 1.2s 内淡出到 0） */
+export const FLASH_PEAK_OPACITY = 0.85;
 
 /** react-native 的 TextStyle 里没有 whiteSpace，但 RNW 支持；代码行必须不换行才能保住 ROW_H。 */
 const PRE_TEXT = { whiteSpace: 'pre' } as unknown as TextStyle;
@@ -214,6 +216,7 @@ export function CodeView(): ReactNode {
   const [flash, setFlash] = useState<{ start: number; end: number } | null>(null);
   const flashOpacity = useRef(new Animated.Value(0)).current;
   const flashRun = useRef<Animated.CompositeAnimation | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
   const handledNonce = useRef(-1);
 
@@ -283,10 +286,25 @@ export function CodeView(): ReactNode {
     if (w > 0) setCharW(w / MEASURE_CHARS);
   };
 
+  const clearFlashTimer = (): void => {
+    if (flashTimer.current !== null) {
+      clearTimeout(flashTimer.current);
+      flashTimer.current = null;
+    }
+  };
+
+  /**
+   * 定位闪烁：淡出动画只管观感，卸载交给定时器。
+   *
+   * 不用动画结束回调来卸载，是因为那个回调在不同环境下时机完全不可控：jsdom 里会
+   * 同步触发（闪烁层还没来得及渲染就被摘掉），后台标签页里 rAF 被节流又会迟迟不触发。
+   * 动画淡到 opacity 0 之后元素即使还挂着也不可见，定时器到点再摘。
+   */
   const runFlash = (start: number, end: number): void => {
     flashRun.current?.stop();
+    clearFlashTimer();
     setFlash({ start, end });
-    flashOpacity.setValue(0.85);
+    flashOpacity.setValue(FLASH_PEAK_OPACITY);
     const anim = Animated.timing(flashOpacity, {
       toValue: 0,
       duration: FLASH_MS,
@@ -294,10 +312,22 @@ export function CodeView(): ReactNode {
     });
     flashRun.current = anim;
     anim.start(() => {
-      setFlash(null);
       flashRun.current = null;
     });
+    flashTimer.current = setTimeout(() => {
+      flashTimer.current = null;
+      setFlash(null);
+    }, FLASH_MS);
   };
+
+  // 切文件回到顶部。必须声明在下面那个 selection 效果之前：跨文件的图 -> 代码定位
+  // 会在同一次 commit 里同时改 activeFile 与 selection，React 按声明顺序执行 effect，
+  // 先复位、再定位，滚动位置和闪烁才不会被复位抹掉。
+  useEffect(() => {
+    clearFlashTimer();
+    setScrollTop(0);
+    setFlash(null);
+  }, [path]);
 
   // 图 -> 代码：切文件由 store 完成，这里负责滚动到 def 行 + 闪烁
   useEffect(() => {
@@ -315,14 +345,9 @@ export function CodeView(): ReactNode {
   useEffect(() => {
     return () => {
       flashRun.current?.stop();
+      clearFlashTimer();
     };
   }, []);
-
-  // 切文件回到顶部
-  useEffect(() => {
-    setScrollTop(0);
-    setFlash(null);
-  }, [path]);
 
   const onBodyPress = (line: number): void => {
     const owner = lineOwners.get(line);

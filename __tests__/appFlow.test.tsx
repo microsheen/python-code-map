@@ -13,8 +13,9 @@
  * 丢掉全部 SVG 几何属性（既避免 DOM 未知属性告警，也让节点在 jsdom 里真的可点）。
  */
 /* eslint-disable @typescript-eslint/no-require-imports */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { AppRoot } from '../src/components/AppRoot';
+import { FLASH_MS } from '../src/components/CodePane/CodeView';
 import { DEFAULT_VIEWPORT } from '../src/components/GraphPane';
 import { layoutGraph } from '../src/graph/layout';
 import {
@@ -49,7 +50,7 @@ jest.mock('react-native-svg', () => {
       ? React.createElement(
           RN.Pressable,
           { testID: props.testID, onPress: props.onPress },
-          props.children,
+          props.children
         )
       : React.createElement(RN.View, keep(props));
   const SvgText = (props: Record<string, unknown>) => React.createElement(RN.Text, keep(props));
@@ -90,7 +91,7 @@ function preset(p: SampleProject, activeFile?: string): void {
       view: IDENTITY_VIEW,
       fitNonce: 0,
       parser: NULL_PARSER,
-    },
+    }
     // 注意：不能用 replace=true，否则 store 里的 action（setView/reset/...）会被一起抹掉
   );
 }
@@ -145,6 +146,52 @@ describe('验收 1：图 -> 代码', () => {
     expect(screen.queryByTestId('code-selection-band')).not.toBeNull();
   });
 
+  it('跨文件定位时也会画 1.2s 闪烁带（切文件的复位效果不能把它抹掉）', () => {
+    preset(sampleProject(), A_PATH);
+    render(<AppRoot />);
+    expect(screen.queryByTestId('code-flash')).toBeNull();
+
+    clickTestId('graph-node-' + ID_GAMMA); // gamma 在 b.py，属于跨文件定位
+
+    expect(screen.queryByTestId('code-flash')).not.toBeNull();
+  });
+
+  it('同文件定位同样会闪烁', () => {
+    preset(sampleProject(), A_PATH);
+    render(<AppRoot />);
+
+    clickTestId('graph-node-' + ID_BETA); // beta 也在 a.py
+
+    expect(useAppStore.getState().activeFile).toBe(A_PATH);
+    expect(screen.queryByTestId('code-flash')).not.toBeNull();
+  });
+
+  it('代码 -> 图 的选择不触发闪烁（闪烁只服务于图 -> 代码定位）', () => {
+    preset(sampleProject());
+    render(<AppRoot />);
+
+    clickTestId('code-token-def-3');
+
+    expect(useAppStore.getState().selection.source).toBe('code');
+    expect(screen.queryByTestId('code-flash')).toBeNull();
+  });
+  it('闪烁层在 FLASH_MS 之后被摘掉', () => {
+    jest.useFakeTimers();
+    try {
+      preset(sampleProject(), A_PATH);
+      render(<AppRoot />);
+
+      clickTestId('graph-node-' + ID_BETA);
+      expect(screen.queryByTestId('code-flash')).not.toBeNull();
+
+      act(() => {
+        jest.advanceTimersByTime(FLASH_MS);
+      });
+      expect(screen.queryByTestId('code-flash')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
   it('重复点击同一个节点：funcId 不变但 nonce 继续自增，定位可重复触发', () => {
     preset(sampleProject());
     render(<AppRoot />);

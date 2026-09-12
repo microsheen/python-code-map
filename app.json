@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "code-map",
+    "slug": "code-map",
+    "version": "0.1.0",
+    "scheme": "code-map",
+    "platforms": [
+      "web"
+    ],
+    "web": {
+      "output": "single",
+      "bundler": "metro",
+      "name": "code-map"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

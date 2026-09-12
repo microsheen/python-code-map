@@ -1,0 +1,46 @@
+{
+  "name": "code-map",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "web": "expo start --web",
+    "preweb": "node scripts/copy-wasm.mjs",
+    "start": "expo start",
+    "export": "expo export --platform web",
+    "preexport": "node scripts/copy-wasm.mjs",
+    "copy-wasm": "node scripts/copy-wasm.mjs",
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "verify": "npm run typecheck && npm run lint && npm test"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "3.1.1",
+    "@vscode/tree-sitter-wasm": "0.3.1",
+    "expo": "~57.0.22",
+    "expo-router": "~57.0.21",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "0.21.2",
+    "web-tree-sitter": "0.27.0",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/react": "16.3.0",
+    "@testing-library/react-native": "14.0.1",
+    "@types/jest": "^29.5.14",
+    "@types/react": "~19.2.4",
+    "eslint": "^9.25.0",
+    "eslint-config-expo": "~10.0.0",
+    "eslint-config-prettier": "^10.1.0",
+    "jest": "^29.7.0",
+    "jest-expo": "57.0.5",
+    "prettier": "^3.3.0",
+    "typescript": "~5.9.2"
+  }
+}

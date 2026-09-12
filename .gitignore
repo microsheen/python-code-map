@@ -1,0 +1,13 @@
+node_modules/
+.expo/
+dist/
+.expo-home/
+web-build/
+coverage/
+expo-env.d.ts
+*.log
+.DS_Store
+.env*.local
+
+# tree-sitter WASM 由 npm run copy-wasm 从 @vscode/tree-sitter-wasm 同步，不入库
+public/wasm/*.wasm

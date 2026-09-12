@@ -100,25 +100,67 @@ npm run web
       （代码区是窗口化渲染，只画可视区间 ± 24 行）
 - [ ] 刷新页面 → 全部清空，没有任何残留（不写 localStorage / IndexedDB）
 
+上面**加粗的三组核心项**（图 → 代码、代码 → 图、调用点跳转）已经自动化了，
+改交互逻辑时优先跑 `node scripts/browser-verify.mjs`，见下一节。
+
+## 浏览器自动化验收（真 Chrome + CDP）
+
+jest + jsdom 测不出「闪烁高亮在真实 rAF 下淡出」「SVG 节点能不能被真实鼠标点中」这类问题
+（提交 `d0f0832` 修的正是这种只在真浏览器里复现的 bug），所以另配了一个真浏览器脚本：
+headless Chrome + 原生 CDP 协议，**不依赖 playwright / puppeteer**，本机装了 Chrome 或
+Chromium 就能跑。
+
+```bash
+npm run export                  # 先产出 dist/
+node scripts/browser-verify.mjs # 30 项断言，全绿退出码 0
+```
+
+脚本自己起一个静态服务器托管 `dist/`（端口被占用时复用已有服务，但会先校验那个端口上跑的
+确实是本应用），拉起 headless Chrome，把 `fixtures/` 三个文件喂进去，然后**用真实鼠标事件**
+点击 SVG 节点与代码 token，逐项断言：
+
+| 组           | 覆盖                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| 上传         | 没有红色致命错误条；图渲染出来（基线 45 节点 / 47 边）                                                  |
+| A 图 → 代码  | 切文件、滚到 `def` 行且完整可见、高亮带落在 `def` 行；闪烁出现 → 峰值 → 淡出 → 卸载；重复点击能重新触发 |
+| B 代码 → 图  | 目标节点居中（偏差 < 40px）、描边加粗；代码 → 图方向**不**闪烁                                          |
+| C 深层跨文件 | 从 `shapes.py` 跳到 `utils.py:95`，滚动量、高亮带位置、闪烁都对                                         |
+| D 语义点击   | 点调用点选中的是被调方；点函数体中间行选中的是所在函数                                                  |
+| 稳定性       | 控制台无 error、页面无未捕获异常                                                                        |
+
+可选环境变量：
+
+| 变量               | 默认     | 作用                                                               |
+| ------------------ | -------- | ------------------------------------------------------------------ |
+| `CODEMAP_PORT`     | `8099`   | 静态服务端口；被占用时复用已有服务（会校验内容确实是本应用）       |
+| `CODEMAP_CDP_PORT` | `9333`   | Chrome 远程调试端口                                                |
+| `CHROME_PATH`      | 自动探测 | 浏览器可执行文件路径（Windows / macOS / Linux 常见位置都会试一遍） |
+
+截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`）与 JSON 报告
+（`codemap-verify-report.json`）都写在系统临时目录，不入库。跑完脚本会关掉自己起的服务器。
+
 ## 命令
 
-| 命令                | 作用                                                    |
-| ------------------- | ------------------------------------------------------- |
-| `npm run web`       | 启动 dev server（自动同步 wasm）                        |
-| `npm run export`    | 生产导出到 `dist/`（自动同步 wasm），可扔到任意静态托管 |
-| `npm run copy-wasm` | 只同步 + 冒烟校验 wasm；加 `-- --no-verify` 跳过校验    |
-| `npm test`          | jest 全量测试                                           |
-| `npm run typecheck` | `tsc --noEmit`（strict）                                |
-| `npm run lint`      | eslint                                                  |
-| `npm run format`    | prettier 写入                                           |
-| `npm run verify`    | typecheck + lint + test，提交前跑这个                   |
+| 命令                              | 作用                                                    |
+| --------------------------------- | ------------------------------------------------------- |
+| `npm run web`                     | 启动 dev server（自动同步 wasm）                        |
+| `npm run export`                  | 生产导出到 `dist/`（自动同步 wasm），可扔到任意静态托管 |
+| `npm run copy-wasm`               | 只同步 + 冒烟校验 wasm；加 `-- --no-verify` 跳过校验    |
+| `npm test`                        | jest 全量测试                                           |
+| `npm run typecheck`               | `tsc --noEmit`（strict）                                |
+| `npm run lint`                    | eslint                                                  |
+| `npm run format`                  | prettier 写入                                           |
+| `npm run verify`                  | typecheck + lint + test，提交前跑这个                   |
+| `node scripts/browser-verify.mjs` | 真 Chrome + CDP 自动化验收（先 `npm run export`）       |
 
 ## 目录结构
 
 ```
 app/                      expo-router 入口（单页）
 public/wasm/              两个 .wasm（由 copy-wasm 生成，不入库）
-scripts/copy-wasm.mjs     同步 wasm + Node 冒烟校验
+scripts/
+  copy-wasm.mjs           同步 wasm + Node 冒烟校验
+  browser-verify.mjs      真浏览器（headless Chrome + CDP）验收脚本
 fixtures/                 测试样例（main/shapes/utils/broken）
 src/
   parser/
@@ -188,6 +230,10 @@ __tests__/                jest（纯函数 + 组件 + 真 wasm 全链路）
 
 改解析规则时注意 `fixtures/` 的统计基线（函数 45 / 边 47 / 未解析 28），
 数字变了要能解释原因，别顺手改测试。
+
+`npm test` 之外还有第四层：真浏览器验收（`node scripts/browser-verify.mjs`，不在 `npm test` 里）。
+它跑在真实 Chrome + rAF + 原生鼠标事件上，覆盖 jsdom 测不到的闪烁淡出与 SVG 命中，
+见「浏览器自动化验收」一节。
 
 ## 故障排查
 

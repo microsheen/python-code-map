@@ -108,7 +108,15 @@ function collectSelfAssignments(classBody: SyntaxNodeLike): Record<string, strin
 
   const walk = (node: SyntaxNodeLike): void => {
     for (const kid of namedKids(node)) {
-      if (kid.type === 'function_definition' || kid.type === 'class_definition') continue;
+      if (kid.type === 'function_definition') {
+        const nameNode = kid.childForFieldName('name');
+        if (nameNode?.text === '__init__') {
+          const body = kid.childForFieldName('body');
+          if (body) walk(body);
+        }
+        continue;
+      }
+      if (kid.type === 'class_definition') continue;
       if (kid.type === 'decorated_definition') {
         const inner = kid.childForFieldName('definition');
         if (inner && inner.type === 'function_definition') {

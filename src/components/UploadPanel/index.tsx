@@ -28,12 +28,12 @@ export function UploadPanel(props: UploadPanelProps): ReactNode {
   return (
     <View style={styles.wrap} testID="upload-panel">
       <View style={[styles.dropzone, dragging && styles.dropzoneActive]} testID="upload-dropzone">
-        <Text style={styles.title}>{'Python \u8c03\u7528\u5173\u7cfb\u56fe'}</Text>
+        <Text style={styles.title}>{'Python Call Graph'}</Text>
         <Text style={styles.subtitle}>
           {'\u4e0a\u4f20\u4e00\u4e2a\u6216\u591a\u4e2a .py / .pyi \u6587\u4ef6\uff0c\u5728\u6d4f\u89c8\u5668\u5185\u89e3\u6790\u51fd\u6570\u8c03\u7528\u5173\u7cfb\u3002'}
         </Text>
         <Text style={styles.hint}>
-          {'\u4e5f\u53ef\u4ee5\u76f4\u63a5\u628a\u6587\u4ef6\u62d6\u5230\u9875\u9762\u4efb\u610f\u4f4d\u7f6e\u3002\u4ee3\u7801\u4e0d\u4f1a\u79bb\u5f00\u6d4f\u89c8\u5668\uff0c\u4e5f\u4e0d\u4f1a\u88ab\u4fdd\u5b58\u3002'}
+          {'Or drag files anywhere on the page. Code never leaves the browser and is never saved.'}
         </Text>
         <Pressable
           testID="upload-pick"
@@ -42,11 +42,11 @@ export function UploadPanel(props: UploadPanelProps): ReactNode {
           onPress={onPick}
         >
           <Text style={styles.btnText}>
-            {busy ? '\u89e3\u6790\u4e2d ' + progress.done + '/' + progress.total : '\u9009\u62e9 .py \u6587\u4ef6'}
+            {busy ? 'Parsing ' + progress.done + '/' + progress.total : '\u9009\u62e9 .py \u6587\u4ef6'}
           </Text>
         </Pressable>
         <Text style={styles.footnote}>
-          {'\u5355\u6587\u4ef6\u4e0a\u9650 1MB\uff1b\u8de8\u6587\u4ef6\u8c03\u7528\u9700\u8981\u76f8\u5173\u6587\u4ef6\u4e00\u8d77\u4e0a\u4f20\u624d\u80fd\u8fde\u8fb9\u3002'}
+          {'Single file limit 1MB; cross-file calls require related files to be uploaded together.'}
         </Text>
       </View>
     </View>

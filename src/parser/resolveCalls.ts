@@ -31,6 +31,8 @@ export interface FileScope {
   classesByQName: Map<string, ClassSymbol>;
   importTable: ImportTable;
   moduleVars: Set<string>;
+  /** 模块级变量 -> 构造器类名（VAR = ClassName(...)） */
+  moduleVarTypes: Map<string, string>;
 }
 
 export interface ResolveContext {
@@ -69,7 +71,7 @@ export function buildFileScope(
     anyByName,
     classesByQName,
     importTable: buildImportTable(collectImports(root)),
-    moduleVars: collectModuleVars(root),
+    ...(() => { const mv = collectModuleVars(root); return { moduleVars: mv.vars, moduleVarTypes: mv.types }; })(),
   };
 }
 
@@ -320,6 +322,21 @@ function resolveDottedName(
 
   // 函数作用域里的局部变量遮蔽（utils = ...）：无法静态确定
   if (isShadowed(head, chain, fs.importTable)) return { reason: 'dynamic' };
+
+  // 模块级变量类型推断：VAR = ClassName(...) -> VAR.method 解析为 ClassName.method
+  // 必须在 isLocalName 之前检查，因为 moduleVars 会被用作 module frame 的 locals，
+  // isLocalName 会把模块级变量当作“局部变量”返回 true。
+  if (fs.moduleVarTypes.has(head)) {
+    const clsName = fs.moduleVarTypes.get(head) as string;
+    const cref = resolveClassRef(clsName, fs, fromFile, ctx);
+    if (cref) {
+      const rest = parts.slice(1);
+      if (rest.length === 1) {
+        const m = cref.fs.byQualified.get(`${cref.q}.${rest[0]}`);
+        if (m) return { target: m.id };
+      }
+    }
+  }
 
   const dt = splitDotted(dotted, fs.importTable);
   // import 绑定必须先于"模块级变量接收者"判定：collectModuleVars 会把 import 进来的

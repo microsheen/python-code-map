@@ -161,12 +161,29 @@ export function collectLocals(fnNode: SyntaxNodeLike): Set<string> {
 }
 
 /**
+ * 模块级变量收集结果。
+ */
+export interface ModuleVarInfo {
+  /** 纯变量名（不含 def/class 名字） */
+  vars: Set<string>;
+  /**
+   * 模块级变量 -> 构造器类名（仅 VAR = ClassName(...) 形式）。
+   * 用于解析 VAR.method() 这类调用：知道 VAR 是 ClassName 的实例，
+   * 就可以把 VAR.method 解析为 ClassName.method。
+   * 同一变量被多次赋值时从该 map 移除（类型不确定）。
+   */
+  types: Map<string, string>;
+}
+
+/**
  * 模块级作用域的名字。
  * 返回的 vars 只包含"纯变量"（不含 def/class 名字），
  * 因为 def 名字应该走函数解析而不是 dynamic。
+ * 同时收集 VAR = ClassName(...) 形式的类型信息。
  */
-export function collectModuleVars(root: SyntaxNodeLike): Set<string> {
+export function collectModuleVars(root: SyntaxNodeLike): ModuleVarInfo {
   const out = new Set<string>();
+  const types = new Map<string, string>();
   const defNames = new Set<string>();
   for (const n of namedKids(root)) {
     let target: SyntaxNodeLike = n;
@@ -186,7 +203,34 @@ export function collectModuleVars(root: SyntaxNodeLike): Set<string> {
       if (inner.type === 'assignment' || inner.type === 'augmented_assignment') {
         const tmp = new Set<string>();
         addFromNameNode(inner.childForFieldName('left'), tmp);
-        for (const t of tmp) out.add(t);
+        for (const t of tmp) {
+          out.add(t);
+          // 跟踪 VAR = ClassName(...) 的类型信息
+          if (inner.type === 'assignment') {
+            const rhs = inner.childForFieldName('right');
+            if (rhs && rhs.type === 'call') {
+              const fn = rhs.childForFieldName('function');
+              if (fn && fn.type === 'identifier') {
+                const className = fn.text;
+                // 如果该变量已经被赋过值，类型不确定，移除
+                if (types.has(t)) {
+                  types.delete(t);
+                } else {
+                  types.set(t, className);
+                }
+              } else {
+                // RHS 不是简单构造器调用，类型不确定
+                types.delete(t);
+              }
+            } else {
+              // RHS 不是 call，类型不确定
+              types.delete(t);
+            }
+          } else {
+            // augmented_assignment (+=, etc.) 类型不确定
+            types.delete(t);
+          }
+        }
       }
       continue;
     }
@@ -203,5 +247,5 @@ export function collectModuleVars(root: SyntaxNodeLike): Set<string> {
     }
   }
   for (const d of defNames) out.delete(d);
-  return out;
+  return { vars: out, types };
 }

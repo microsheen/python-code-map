@@ -569,6 +569,100 @@ describeWasm('调用解析矩阵', () => {
       reason: 'resolved',
     });
   });
+
+    it('M16 模块级变量 = 构造器() -> VAR.method() 解析为 Class.method', async () => {
+      const r = await analyze(
+        sourceFile(
+          'mvt.py',
+          py(
+            'class TaskStore:',
+            '    def create(self, subject: str) -> str:',
+            '        return ""',
+            '',
+            '',
+            'TASKS = TaskStore("/tmp")',
+            '',
+            '',
+            'def create_task(subject: str) -> str:',
+            '    return TASKS.create(subject)',
+          ),
+        ),
+      );
+      // TASKS.create 应解析为 TaskStore.create
+      expect(site(r, 'mvt.py', 'TASKS.create')).toMatchObject({
+        caller: 'mvt.py::create_task',
+        target: 'mvt.py::TaskStore.create',
+        reason: 'resolved',
+      });
+      // 应产生一条边 create_task -> TaskStore.create
+      expect(edgeOf(r, 'mvt.py::create_task', 'mvt.py::TaskStore.create')).toBeDefined();
+    });
+
+    it('M17 模块级变量被多次赋值时类型不确定，不连边', async () => {
+      const r = await analyze(
+        sourceFile(
+          'mvt2.py',
+          py(
+            'class A:',
+            '    def run(self):',
+            '        return 1',
+            '',
+            '',
+            'class B:',
+            '    def run(self):',
+            '        return 2',
+            '',
+            '',
+            'x = A()',
+            'x = B()',
+            '',
+            '',
+            'def go():',
+            '    return x.run()',
+          ),
+        ),
+      );
+      // x 被赋值两次，类型不确定 -> dynamic
+      expect(site(r, 'mvt2.py', 'x.run')).toMatchObject({
+        caller: 'mvt2.py::go',
+        target: null,
+        reason: 'dynamic',
+      });
+    });
+
+    it('M18 跨文件：模块级变量指向导入的类 -> method 解析', async () => {
+      const r = await analyze(
+        sourceFile(
+          'store.py',
+          py(
+            'class Store:',
+            '    def get(self, key: str) -> str:',
+            '        return key',
+          ),
+        ),
+        sourceFile(
+          'app.py',
+          py(
+            'from store import Store',
+            '',
+            '',
+            's = Store()',
+            '',
+            '',
+            'def fetch(key: str) -> str:',
+            '    return s.get(key)',
+          ),
+        ),
+      );
+      // s 是 Store 的实例，Store 从 store.py 导入
+      expect(site(r, 'app.py', 's.get')).toMatchObject({
+        caller: 'app.py::fetch',
+        target: 'store.py::Store.get',
+        reason: 'resolved',
+      });
+      expect(edgeOf(r, 'app.py::fetch', 'store.py::Store.get')).toBeDefined();
+    });
+
 });
 
 describeWasm('高亮：token 列范围', () => {

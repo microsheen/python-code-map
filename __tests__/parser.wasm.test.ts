@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 解析管线的真实 wasm 集成测试。
  *
  * 分工：纯函数层（modules / imports / buildGraph / scope / layout / store）各有自己的测试，
@@ -78,12 +78,12 @@ describeWasm('fixtures：三文件样例项目（回归基线）', () => {
 
   it('统计数字与基线一致', () => {
     expect(r.graph.stats.funcs).toBe(45);
-    expect(r.graph.stats.edges).toBe(47);
-    expect(r.graph.stats.unresolved).toBe(28);
+    expect(r.graph.stats.edges).toBe(49);
+    expect(r.graph.stats.unresolved).toBe(26);
     expect(r.graph.stats.byReason).toEqual({
       ambiguous: 1,
       external: 14,
-      dynamic: 13,
+      dynamic: 11,
       unknown: 0,
     });
     expect(r.graph.stats.ms).toBeGreaterThanOrEqual(0);
@@ -661,7 +661,113 @@ describeWasm('调用解析矩阵', () => {
         reason: 'resolved',
       });
       expect(edgeOf(r, 'app.py::fetch', 'store.py::Store.get')).toBeDefined();
+    });﻿
+    it('L1 函数内局部变量 = 构造器() -> var.method() 解析为 Class.method', async () => {
+      const r = await analyze(
+        sourceFile(
+          'local.py',
+          py(
+            'class BlobSP:',
+            '    def execute(self):',
+            '        pass',
+            '',
+            '',
+            'def main():',
+            '    app = BlobSP()',
+            '    app.execute()',
+          ),
+        ),
+      );
+      expect(site(r, 'local.py', 'app.execute')).toMatchObject({
+        caller: 'local.py::main',
+        target: 'local.py::BlobSP.execute',
+        reason: 'resolved',
+      });
+      expect(edgeOf(r, 'local.py::main', 'local.py::BlobSP.execute')).toBeDefined();
     });
+
+    it('L2 函数内局部变量被多次赋值时类型不确定，不连边', async () => {
+      const r = await analyze(
+        sourceFile(
+          'local2.py',
+          py(
+            'class A:',
+            '    def run(self):',
+            '        return 1',
+            '',
+            '',
+            'class B:',
+            '    def run(self):',
+            '        return 2',
+            '',
+            '',
+            'def go():',
+            '    x = A()',
+            '    x = B()',
+            '    x.run()',
+          ),
+        ),
+      );
+      expect(site(r, 'local2.py', 'x.run')).toMatchObject({
+        caller: 'local2.py::go',
+        target: null,
+        reason: 'dynamic',
+      });
+    });
+
+    it('L3 函数内 var = func() 非构造器调用 -> dynamic', async () => {
+      const r = await analyze(
+        sourceFile(
+          'local3.py',
+          py(
+            'def make():',
+            '    pass',
+            '',
+            '',
+            'def go():',
+            '    x = make()',
+            '    x.run()',
+          ),
+        ),
+      );
+      expect(site(r, 'local3.py', 'x.run')).toMatchObject({
+        caller: 'local3.py::go',
+        target: null,
+        reason: 'dynamic',
+      });
+    });
+
+    it('L4 嵌套函数内的赋值不影响外层', async () => {
+      const r = await analyze(
+        sourceFile(
+          'local4.py',
+          py(
+            'class A:',
+            '    def run(self):',
+            '        return 1',
+            '',
+            '',
+            'class B:',
+            '    def run(self):',
+            '        return 2',
+            '',
+            '',
+            'def outer():',
+            '    x = A()',
+            '    def inner():',
+            '        x = B()',
+            '    x.run()',
+          ),
+        ),
+      );
+      // outer 里的 x 仍然是 A 类型，inner 里的赋值不影响
+      expect(site(r, 'local4.py', 'x.run')).toMatchObject({
+        caller: 'local4.py::outer',
+        target: 'local4.py::A.run',
+        reason: 'resolved',
+      });
+    });
+
 
 });
 

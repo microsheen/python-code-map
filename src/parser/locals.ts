@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 名字绑定收集（作用域分析的最小实现）。
  *
  * 目的只有一个：判断 `foo()` 里的 foo 是不是一个"当前作用域里的变量"。
@@ -248,4 +248,60 @@ export function collectModuleVars(root: SyntaxNodeLike): ModuleVarInfo {
   }
   for (const d of defNames) out.delete(d);
   return { vars: out, types };
+}
+
+
+/**
+ * 函数内局部变量类型推断（保守策略）。
+ */
+export function collectLocalTypes(fnNode: SyntaxNodeLike): Map<string, string> {
+  const types = new Map<string, string>();
+  const body = fnNode.childForFieldName('body');
+  if (!body) return types;
+  scanBlock(body, types);
+  return types;
+}
+
+function scanBlock(block: SyntaxNodeLike, types: Map<string, string>): void {
+  for (const n of namedKids(block)) {
+    let target = n;
+    if (n.type === 'decorated_definition') {
+      const d = n.childForFieldName('definition');
+      if (!d) continue;
+      target = d;
+    }
+    if (target.type === 'function_definition' || target.type === 'class_definition') {
+      continue;
+    }
+    if (n.type === 'expression_statement') {
+      const inner = n.namedChildren[0];
+      if (!inner) continue;
+      if (inner.type === 'assignment') {
+        const tmp = new Set<string>();
+        addFromNameNode(inner.childForFieldName('left'), tmp);
+        for (const t of tmp) {
+          const rhs = inner.childForFieldName('right');
+          if (rhs && rhs.type === 'call') {
+            const fn = rhs.childForFieldName('function');
+            if (fn && fn.type === 'identifier') {
+              const className = fn.text;
+              if (types.has(t)) {
+                types.delete(t);
+              } else {
+                types.set(t, className);
+              }
+            } else {
+              types.delete(t);
+            }
+          } else {
+            types.delete(t);
+          }
+        }
+      } else if (inner.type === 'augmented_assignment') {
+        const tmp = new Set<string>();
+        addFromNameNode(inner.childForFieldName('left'), tmp);
+        for (const t of tmp) types.delete(t);
+      }
+    }
+  }
 }

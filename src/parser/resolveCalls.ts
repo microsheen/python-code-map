@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 调用点解析 —— 保守策略：只连"唯一确定"的边，其余记 reason 不连。
  *
  * 解析顺序（简单名 foo()）：
@@ -292,6 +292,63 @@ function resolveSelfMethod(
   return { reason: 'unknown' };
 }
 
+/**
+ * self.a.b.c.method() chain resolution.
+ */
+function resolveSelfChain(
+  parts: string[],
+  chain: Frame[],
+  fs: FileScope,
+  fromFile: string,
+  ctx: ResolveContext,
+): Resolved {
+  const clsFrame = nearestClassFrame(chain);
+  if (!clsFrame) return { reason: 'unknown' };
+
+  function lookupAttr(
+    attrName: string,
+    curFs: FileScope,
+    curQ: string,
+  ): { fs: FileScope; q: string } | null {
+    const seen = new Set<string>();
+    const pending: { fs: FileScope; q: string }[] = [{ fs: curFs, q: curQ }];
+    let guard = 0;
+    while (pending.length > 0 && guard++ < 64) {
+      const cur = pending.shift();
+      if (!cur) continue;
+      const key = `${cur.fs.path}::${cur.q}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const cls = cur.fs.classesByQName.get(cur.q);
+      if (!cls) continue;
+      if (cls.instanceAttrs[attrName]) {
+        const typeName = cls.instanceAttrs[attrName];
+        const ref = resolveClassRef(typeName, cur.fs, fromFile, ctx);
+        if (ref) return ref;
+      }
+      for (const base of cls.bases) {
+        const bn = base.split('=')[0]?.trim() ?? '';
+        const ref = resolveClassRef(bn, cur.fs, fromFile, ctx);
+        if (ref) pending.push(ref);
+      }
+    }
+    return null;
+  }
+
+  let curFs = fs;
+  let curQ = clsFrame.qName;
+  for (let i = 1; i < parts.length - 1; i++) {
+    const next = lookupAttr(parts[i] as string, curFs, curQ);
+    if (!next) return { reason: 'dynamic' };
+    curFs = next.fs;
+    curQ = next.q;
+  }
+
+  const methodName = parts[parts.length - 1] as string;
+  const m = curFs.byQualified.get(`${curQ}.${methodName}`);
+  if (m) return { target: m.id };
+  return { reason: 'unknown' };
+}
 function resolveDottedName(
   dotted: string,
   chain: Frame[],
@@ -304,8 +361,10 @@ function resolveDottedName(
   const head = parts[0] as string;
 
   if (head === 'self' || head === 'cls') {
-    if (parts.length !== 2) return { reason: 'dynamic' };
-    return resolveSelfMethod(parts[1] as string, chain, fs, fromFile, ctx);
+    if (parts.length === 2) {
+      return resolveSelfMethod(parts[1] as string, chain, fs, fromFile, ctx);
+    }
+    return resolveSelfChain(parts, chain, fs, fromFile, ctx);
   }
 
   // 前缀能不能解释成一个类：Cls.method() / mod.Cls.method()

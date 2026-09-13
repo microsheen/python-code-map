@@ -40,7 +40,7 @@ export function AppRoot(): ReactNode {
         <View style={styles.overlay} testID="drop-overlay">
           <View style={styles.overlayBox}>
             <Text style={styles.overlayTitle}>Release to upload</Text>
-            <Text style={styles.overlayHint}>.py / .pyi text files only</Text>
+            <Text style={styles.overlayHint}>.py / .pyi text files only (max 20)</Text>
           </View>
         </View>
       ) : null}

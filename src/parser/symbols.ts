@@ -99,6 +99,53 @@ function collectBases(node: SyntaxNodeLike): string[] {
   return out;
 }
 
+/**
+ * Scan class body for self.attr = ClassName(...) patterns.
+ */
+function collectSelfAssignments(classBody: SyntaxNodeLike): Record<string, string> {
+  const types: Record<string, string> = {};
+  const ambiguous = new Set<string>();
+
+  const walk = (node: SyntaxNodeLike): void => {
+    for (const kid of namedKids(node)) {
+      if (kid.type === 'function_definition' || kid.type === 'class_definition') continue;
+      if (kid.type === 'decorated_definition') {
+        const inner = kid.childForFieldName('definition');
+        if (inner && inner.type === 'function_definition') {
+          const body = inner.childForFieldName('body');
+          if (body) walk(body);
+        }
+        continue;
+      }
+      if (kid.type === 'assignment') {
+        const left = kid.childForFieldName('left');
+        const right = kid.childForFieldName('right');
+        if (left && left.type === 'attribute' && right && right.type === 'call') {
+          const obj = left.childForFieldName('object');
+          const attr = left.childForFieldName('attribute');
+          const fn = right.childForFieldName('function');
+          if (obj && obj.text === 'self' && attr && attr.type === 'identifier' && fn && fn.type === 'identifier') {
+            const attrName = attr.text;
+            const className = fn.text;
+            if (ambiguous.has(attrName)) {
+              // skip
+            } else if (attrName in types && types[attrName] !== className) {
+              delete types[attrName];
+              ambiguous.add(attrName);
+            } else {
+              types[attrName] = className;
+            }
+          }
+        }
+      }
+      walk(kid);
+    }
+  };
+
+  walk(classBody);
+  return types;
+}
+
 export function collectSymbols(file: string, root: SyntaxNodeLike, totalLines: number): FileSymbols {
   const funcs: FuncSymbol[] = [];
   const classes: ClassSymbol[] = [];
@@ -146,6 +193,7 @@ export function collectSymbols(file: string, root: SyntaxNodeLike, totalLines: n
     const endLine = Math.max(startLine, endLineOf(node));
 
     if (node.type === 'class_definition') {
+      const body = node.childForFieldName('body');
       classes.push({
         id: makeFuncId(file, qName),
         file,
@@ -154,8 +202,8 @@ export function collectSymbols(file: string, root: SyntaxNodeLike, totalLines: n
         startLine,
         endLine,
         bases: collectBases(node),
+        instanceAttrs: body ? collectSelfAssignments(body) : {},
       });
-      const body = node.childForFieldName('body');
       if (body) visit(body, [...stack, { kind: 'class', name, node }]);
       return;
     }

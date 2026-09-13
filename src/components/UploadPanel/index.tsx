@@ -46,7 +46,7 @@ export function UploadPanel(props: UploadPanelProps): ReactNode {
           </Text>
         </Pressable>
         <Text style={styles.footnote}>
-          {'Single file limit 1MB; cross-file calls require related files to be uploaded together.'}
+          {'Max 20 files; single file limit 1MB; cross-file calls require related files to be uploaded together.'}
         </Text>
       </View>
     </View>

@@ -43,6 +43,7 @@ export const IDENTITY_VIEW: ViewState = { tx: 0, ty: 0, scale: 1 };
 export const DEFAULT_SPLIT = 0.35; 
 export const MIN_SPLIT = 0.25;
 export const MAX_SPLIT = 0.75;
+export const MAX_FILES = 20;
 export const NO_SELECTION: Selection = { funcId: null, source: 'scope', nonce: 0 };
 
 export function funcFile(funcId: FuncId): string {
@@ -169,7 +170,13 @@ export const useAppStore = create<AppStore>()((set, get) => {
     navHistory: [],
     navIndex: -1,
 
-    loadFiles: (files, parser) => runAnalysis(files, parser),
+    loadFiles: async (files, parser) => {
+      if (files.length > MAX_FILES) {
+        set({ error: `Too many files: ${files.length}/${MAX_FILES}. Please remove some files before adding more.` });
+        return;
+      }
+      await runAnalysis(files, parser);
+    },
 
     addFiles: async (files, parser) => {
       const existing: PickedFile[] = get()
@@ -177,7 +184,12 @@ export const useAppStore = create<AppStore>()((set, get) => {
       const incoming = files.map((f) => ({ ...f }));
       const byPath = new Map<string, PickedFile>();
       for (const f of [...existing, ...incoming]) byPath.set(f.path, f);
-      await runAnalysis([...byPath.values()], parser);
+      const merged = [...byPath.values()];
+      if (merged.length > MAX_FILES) {
+        set({ error: `Too many files: ${merged.length}/${MAX_FILES}. Please remove some files before adding more.` });
+        return;
+      }
+      await runAnalysis(merged, parser);
     },
 
     removeFile: async (path) => {

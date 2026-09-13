@@ -8,14 +8,14 @@
  * 这里只读 store + 调 store action，不含任何布局/解析逻辑。
  */
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import type { ViewStyle } from 'react-native';
-import { useEffect, useState } from 'react';
+import type { ScrollView as RNScrollView, ViewStyle } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ALL_SCOPE, DEFAULT_DEPTH, fileScope, neighborhoodScope } from '../graph/scope';
 import type { Scope } from '../graph/scope';
 import { pickFiles } from '../platform/web/filePick';
 import type { GraphStats } from '../parser/types';
-import { useAppStore } from '../state/store';
+import { useAppStore, MAX_FILES } from '../state/store';
 import { colors, fileColor, fonts, spacing } from '../theme';
 
 /** RN 样式类型里没有横向滚动开关，RNW 支持，用 cast 绕过。 */
@@ -74,6 +74,9 @@ export function TopBar(): ReactNode {
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [hoveredChip, setHoveredChip] = useState<string | null>(null);
+  const [chipScroll, setChipScroll] = useState({ canLeft: false, canRight: false });
+  const chipsRef = useRef<RNScrollView>(null);
+  const SCROLL_STEP = 200;
   useEffect(() => { if (!ctxMenu) return; const h = () => setCtxMenu(null); window.addEventListener('click', h); return () => window.removeEventListener('click', h); }, [ctxMenu]);
 
   const busy = status === 'loading-wasm' || status === 'parsing';
@@ -94,6 +97,19 @@ export function TopBar(): ReactNode {
   const onFileScope = (): void => {
     if (activeFile) setScope(fileScope(activeFile));
   };
+
+  const onChipScroll = (e: { nativeEvent: { contentOffset: { x: number }; contentSize: { width: number }; layoutMeasurement: { width: number } } }) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    setChipScroll({
+      canLeft: contentOffset.x > 2,
+      canRight: contentOffset.x + layoutMeasurement.width < contentSize.width - 2,
+    });
+  };
+
+  const scrollChips = (dir: 'left' | 'right') => {
+    chipsRef.current?.scrollTo({ x: dir === 'left' ? -SCROLL_STEP : SCROLL_STEP, animated: true });
+  };
+
 
   return (
     <View style={styles.wrap} testID="topbar">
@@ -185,13 +201,27 @@ export function TopBar(): ReactNode {
 
       {files.length > 0 ? (
         <View style={{ position: 'relative', height: 32, overflow: 'visible' }}>
+          {chipScroll.canLeft ? (
+            <Pressable
+              testID="chip-scroll-left"
+              onPress={() => scrollChips('left')}
+              accessibilityRole="button"
+              accessibilityLabel="Scroll files left"
+              style={[styles.chipScrollBtn, styles.chipScrollBtnLeft]}
+            >
+              <Text style={styles.chipScrollBtnText}>{'◀'}</Text>
+            </Pressable>
+          ) : null}
           <ScrollView
             horizontal
             style={SCROLL_X}
             contentContainerStyle={styles.chips}
             showsHorizontalScrollIndicator={false}
             testID="topbar-chips"
-          >
+          
+            onScroll={onChipScroll}
+            scrollEventThrottle={16}
+            ref={chipsRef}>
             {files.map((f) => {
               const ci = colorIndexOfFile(graph?.files ?? null, files, f.path);
               const active = f.path === activeFile;
@@ -250,6 +280,17 @@ export function TopBar(): ReactNode {
               );
             })}
           </ScrollView>
+          {chipScroll.canRight ? (
+            <Pressable
+              testID="chip-scroll-right"
+              onPress={() => scrollChips('right')}
+              accessibilityRole="button"
+              accessibilityLabel="Scroll files right"
+              style={[styles.chipScrollBtn, styles.chipScrollBtnRight]}
+            >
+              <Text style={styles.chipScrollBtnText}>{'▶'}</Text>
+            </Pressable>
+          ) : null}
           {hoveredChip ? (
             <View style={styles.chipTooltip} testID={'chip-tooltip-' + hoveredChip}>
               <Text style={styles.chipTooltipText}>{files.find((f) => f.path === hoveredChip)?.path}</Text>
@@ -387,6 +428,22 @@ const styles = StyleSheet.create({
 
 
   chips: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 2 },
+  chipScrollBtn: {
+    position: 'absolute',
+    top: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  chipScrollBtnLeft: { left: 0 },
+  chipScrollBtnRight: { right: 0 },
+  chipScrollBtnText: { color: colors.text, fontSize: 10, fontFamily: fonts.ui },
   chipTooltip: {
     position: 'absolute',
     top: 34,

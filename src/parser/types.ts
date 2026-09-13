@@ -78,6 +78,8 @@ export interface ClassSymbol {
   endLine: number;
   /** 直接基类的原文 */
   bases: string[];
+  /** self.attr = ClassName(...) 收集到的属性名 -> 构造器类名 */
+  instanceAttrs: Record<string, string>;
 }
 
 export type UnresolvedReason = 'ambiguous' | 'external' | 'dynamic' | 'unknown';

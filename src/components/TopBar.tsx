@@ -9,7 +9,7 @@
  */
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ScrollView as RNScrollView, ViewStyle } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ALL_SCOPE, DEFAULT_DEPTH, fileScope, neighborhoodScope } from '../graph/scope';
 import type { Scope } from '../graph/scope';
@@ -76,8 +76,11 @@ export function TopBar(): ReactNode {
   const [hoveredChip, setHoveredChip] = useState<string | null>(null);
   const [chipScroll, setChipScroll] = useState({ canLeft: false, canRight: false });
   const chipsRef = useRef<RNScrollView>(null);
+  const scrollOffsetRef = useRef(0);
   const SCROLL_STEP = 200;
   useEffect(() => { if (!ctxMenu) return; const h = () => setCtxMenu(null); window.addEventListener('click', h); return () => window.removeEventListener('click', h); }, [ctxMenu]);
+
+
 
   const busy = status === 'loading-wasm' || status === 'parsing';
   const canGoBack = navIndex > 0;
@@ -100,14 +103,52 @@ export function TopBar(): ReactNode {
 
   const onChipScroll = (e: { nativeEvent: { contentOffset: { x: number }; contentSize: { width: number }; layoutMeasurement: { width: number } } }) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    setChipScroll({
-      canLeft: contentOffset.x > 2,
-      canRight: contentOffset.x + layoutMeasurement.width < contentSize.width - 2,
-    });
+    scrollOffsetRef.current = contentOffset.x;
+    const canRight = contentOffset.x + layoutMeasurement.width < contentSize.width - 4;
+    const canLeft = contentOffset.x > 2;
+    setChipScroll({ canLeft, canRight });
   };
 
+  const onChipLayout = (e: { nativeEvent: { layout: { width: number } } }) => {
+    setChipLayoutWidth(e.nativeEvent.layout.width);
+  };
+
+  const onChipContentSize = (w: number, _h?: number) => {
+    setChipContentWidth(w);
+  };
+
+  const [chipLayoutWidth, setChipLayoutWidth] = useState(0);
+  const [chipContentWidth, setChipContentWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    // DOM fallback: directly check scrollWidth vs clientWidth
+    const el = document.querySelector('[data-testid="topbar-chips"]') as HTMLElement | null;
+    let hasOverflow: boolean;
+    if (el) {
+      hasOverflow = el.scrollWidth > el.clientWidth + 4;
+    } else {
+      hasOverflow = chipContentWidth > chipLayoutWidth + 4;
+    }
+    setChipScroll(prev => {
+      if (prev.canRight === hasOverflow && !prev.canLeft) return prev;
+      return { canLeft: false, canRight: hasOverflow };
+    });
+  }, [chipLayoutWidth, chipContentWidth, files]);
+
   const scrollChips = (dir: 'left' | 'right') => {
-    chipsRef.current?.scrollTo({ x: dir === 'left' ? -SCROLL_STEP : SCROLL_STEP, animated: true });
+    const sv = chipsRef.current;
+    if (!sv) return;
+    // Use DOM for accurate current position
+    const el = document.querySelector('[data-testid="topbar-chips"]') as HTMLElement | null;
+    const current = el ? el.scrollLeft : scrollOffsetRef.current;
+    if (dir === 'right') {
+      const maxScroll = el ? Math.max(0, el.scrollWidth - el.clientWidth) : Math.max(0, chipContentWidth - chipLayoutWidth);
+      const target = Math.min(current + SCROLL_STEP, maxScroll);
+      sv.scrollTo({ x: target, animated: true });
+    } else {
+      const target = Math.max(current - SCROLL_STEP, 0);
+      sv.scrollTo({ x: target, animated: true });
+    }
   };
 
 
@@ -200,26 +241,17 @@ export function TopBar(): ReactNode {
       </View>
 
       {files.length > 0 ? (
-        <View style={{ position: 'relative', height: 32, overflow: 'visible' }}>
-          {chipScroll.canLeft ? (
-            <Pressable
-              testID="chip-scroll-left"
-              onPress={() => scrollChips('left')}
-              accessibilityRole="button"
-              accessibilityLabel="Scroll files left"
-              style={[styles.chipScrollBtn, styles.chipScrollBtnLeft]}
-            >
-              <Text style={styles.chipScrollBtnText}>{'◀'}</Text>
-            </Pressable>
-          ) : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', height: 32, overflow: 'hidden' }}>
           <ScrollView
             horizontal
-            style={SCROLL_X}
+            style={[SCROLL_X, { flex: 1 }]}
             contentContainerStyle={styles.chips}
             showsHorizontalScrollIndicator={false}
             testID="topbar-chips"
           
             onScroll={onChipScroll}
+            onLayout={onChipLayout}
+            onContentSizeChange={onChipContentSize}
             scrollEventThrottle={16}
             ref={chipsRef}>
             {files.map((f) => {
@@ -280,13 +312,24 @@ export function TopBar(): ReactNode {
               );
             })}
           </ScrollView>
+          {chipScroll.canLeft ? (
+            <Pressable
+              testID="chip-scroll-left"
+              onPress={() => scrollChips('left')}
+              accessibilityRole="button"
+              accessibilityLabel="Scroll files left"
+              style={styles.chipScrollBtnInline}
+            >
+              <Text style={styles.chipScrollBtnText}>{'◀'}</Text>
+            </Pressable>
+          ) : null}
           {chipScroll.canRight ? (
             <Pressable
               testID="chip-scroll-right"
               onPress={() => scrollChips('right')}
               accessibilityRole="button"
               accessibilityLabel="Scroll files right"
-              style={[styles.chipScrollBtn, styles.chipScrollBtnRight]}
+              style={styles.chipScrollBtnInline}
             >
               <Text style={styles.chipScrollBtnText}>{'▶'}</Text>
             </Pressable>
@@ -428,9 +471,7 @@ const styles = StyleSheet.create({
 
 
   chips: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 2 },
-  chipScrollBtn: {
-    position: 'absolute',
-    top: 4,
+  chipScrollBtnInline: {
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -439,10 +480,9 @@ const styles = StyleSheet.create({
     borderColor: colors.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 10,
+    flexShrink: 0,
+    marginHorizontal: 4,
   },
-  chipScrollBtnLeft: { left: 0 },
-  chipScrollBtnRight: { right: 0 },
   chipScrollBtnText: { color: colors.text, fontSize: 10, fontFamily: fonts.ui },
   chipTooltip: {
     position: 'absolute',

@@ -2,7 +2,7 @@
  * 图范围裁剪：邻域 / 本文件 / 全部。
  * 纯函数，便于快照测试。
  */
-import { EXTERNAL_NODE_ID, buildAdjacency, externalNode } from './buildGraph';
+import { buildAdjacency } from './buildGraph';
 import type { CallEdge, CallGraph, CallSite, FuncId, FuncSymbol } from '../parser/types';
 
 export type Scope =
@@ -23,37 +23,14 @@ export function fileScope(file: string): Scope {
   return { kind: 'file', file };
 }
 
-/** 把 external 调用聚合成一个灰色节点（showExternal 开关）。 */
-export function withExternalNode(graph: CallGraph): CallGraph {
-  const sites = new Map<FuncId, CallSite[]>();
-  for (const u of graph.unresolved) {
-    if (u.reason !== 'external' || !u.caller) continue;
-    const arr = sites.get(u.caller);
-    if (arr) arr.push(u);
-    else sites.set(u.caller, [u]);
-  }
-  if (sites.size === 0) return graph;
-  const edges: CallEdge[] = [...graph.edges];
-  for (const [caller, callSites] of sites) {
-    edges.push({ source: caller, target: EXTERNAL_NODE_ID, callSites, selfLoop: false });
-  }
-  const nodes: FuncSymbol[] = [...graph.nodes, externalNode()];
-  return {
-    ...graph,
-    nodes,
-    edges,
-    stats: { ...graph.stats, funcs: nodes.length, edges: edges.length },
-  };
-}
-
 function subgraph(graph: CallGraph, keep: Set<FuncId>): CallGraph {
   const nodes = graph.nodes.filter((n) => keep.has(n.id));
   const edges = graph.edges.filter((e) => keep.has(e.source) && keep.has(e.target));
   const unresolved = graph.unresolved.filter((u) => u.caller !== null && keep.has(u.caller));
   return {
+    ...graph,
     nodes,
     edges,
-    unresolved,
     files: [...new Set(nodes.map((n) => n.file))],
     stats: {
       ...graph.stats,
@@ -92,21 +69,19 @@ function expand(graph: CallGraph, seeds: FuncId[], depth: number): Set<FuncId> {
 export function applyScope(
   graph: CallGraph,
   scope: Scope,
-  options: { showExternal?: boolean } = {},
 ): CallGraph {
-  const g = options.showExternal ? withExternalNode(graph) : graph;
-  if (scope.kind === 'all') return g;
+  if (scope.kind === 'all') return graph;
 
   if (scope.kind === 'neighborhood') {
-    if (!g.nodes.some((n) => n.id === scope.funcId)) return g;
-    const keep = expand(g, [scope.funcId], Math.max(0, scope.depth));
-    return subgraph(g, keep);
+    if (!graph.nodes.some((n) => n.id === scope.funcId)) return graph;
+    const keep = expand(graph, [scope.funcId], Math.max(0, scope.depth));
+    return subgraph(graph, keep);
   }
 
   // file：本文件全部函数 + 直接触达它们的跨文件邻居（否则边画不出来）
-  const seeds = g.nodes.filter((n) => n.file === scope.file).map((n) => n.id);
-  if (seeds.length === 0) return subgraph(g, new Set());
-  return subgraph(g, expand(g, seeds, 1));
+  const seeds = graph.nodes.filter((n) => n.file === scope.file).map((n) => n.id);
+  if (seeds.length === 0) return subgraph(graph, new Set());
+  return subgraph(graph, expand(graph, seeds, 1));
 }
 
 export function scopeContains(graph: CallGraph, id: FuncId): boolean {

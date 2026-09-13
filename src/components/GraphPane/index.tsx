@@ -18,7 +18,7 @@ import type { LayoutChangeEvent, ViewStyle } from 'react-native';
 import Svg, { Circle, G, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { isExternalNode, unresolvedCountByFunc } from '../../graph/buildGraph';
+import { unresolvedCountByFunc } from '../../graph/buildGraph';
 import {
   CHAR_W,
   arrowHeadPath,
@@ -125,17 +125,14 @@ export interface GraphNodeViewProps {
 export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewProps): ReactNode {
   const { func, box, colorIndex, selected, neighbor, dimmed, showFile, unresolved, onPress } =
     props;
-  const ext = isExternalNode(func.id);
   const stroke = selected
     ? colors.selected
     : neighbor
       ? colors.neighbor
-      : ext
-        ? colors.nodeStroke
-        : fileColor(colorIndex);
+      : fileColor(colorIndex);
   const label = fitLabel(nodeLabel(func), box.w);
-  const textY = showFile && !ext ? box.y + 20 : box.y + box.h / 2 + 4.5;
-  const sub = showFile && !ext ? fileLabel(func) : '';
+  const textY = showFile ? box.y + 20 : box.y + box.h / 2 + 4.5;
+  const sub = showFile ? fileLabel(func) : '';
   const badgeX = box.x + box.w - 3;
   const badgeY = box.y + 3;
   const badgeText = unresolved > 99 ? '99+' : String(unresolved);
@@ -144,7 +141,6 @@ export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewPro
     <G
       testID={'graph-node-' + func.id}
       opacity={dimmed ? DIM_OPACITY : 1}
-      onPress={() => onPress(func.id)}
     >
       <Rect
         x={box.x}
@@ -153,7 +149,7 @@ export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewPro
         height={box.h}
         rx={NODE_RADIUS}
         ry={NODE_RADIUS}
-        fill={ext ? colors.nodeFillExt : colors.nodeFill}
+        fill={colors.nodeFill}
         stroke={stroke}
         strokeWidth={selected ? 2.6 : neighbor ? 1.9 : 1.3}
       />
@@ -230,6 +226,7 @@ export function GraphPane(): ReactNode {
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const viewportRef = useRef(DEFAULT_VIEWPORT);
   const containerRef = useRef<ViewElement | null>(null);
+  const layoutRef = useRef(layout);
   /** 拖动中：抑制紧随其后的 press */
   const suppressPress = useRef(false);
   const fittedFor = useRef<{ nonce: number; w: number; h: number } | null>(null);
@@ -238,6 +235,10 @@ export function GraphPane(): ReactNode {
   useEffect(() => {
     viewportRef.current = viewport;
   }, [viewport]);
+
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
 
   const onContainerLayout = (e: LayoutChangeEvent): void => {
     const { width, height } = e.nativeEvent.layout;
@@ -278,12 +279,27 @@ export function GraphPane(): ReactNode {
           if (moved > DRAG_SLOP) suppressPress.current = true;
           useAppStore.getState().setView({ tx: origin.tx + dx, ty: origin.ty + dy });
         },
-        onEnd: () => {
-          // press 在 pointerup 的同一次派发里触发，用宏任务延后清除抑制位
+        onEnd: (upEvent) => {
           if (suppressPress.current) {
             setTimeout(() => {
               suppressPress.current = false;
             }, 0);
+          } else {
+            // 没有拖动 -> hit-test 看点击了哪个节点
+            const curLayout = layoutRef.current;
+            if (curLayout) {
+              const curEl = asElement(containerRef);
+              const lp = localPoint(curEl, upEvent.clientX, upEvent.clientY);
+              const st = useAppStore.getState();
+              const wx = (lp.x - st.view.tx) / st.view.scale;
+              const wy = (lp.y - st.view.ty) / st.view.scale;
+              for (const [id, box] of curLayout.nodes) {
+                if (wx >= box.x && wx <= box.x + box.w && wy >= box.y && wy <= box.y + box.h) {
+                  onNodePress(id);
+                  break;
+                }
+              }
+            }
           }
         },
       });
@@ -319,7 +335,6 @@ export function GraphPane(): ReactNode {
 
   const onNodePress = (id: FuncId): void => {
     if (suppressPress.current) return;
-    if (isExternalNode(id)) return; // 合成节点没有对应代码
     selectFromGraph(id);
   };
 

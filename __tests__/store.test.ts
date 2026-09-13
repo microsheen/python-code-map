@@ -62,7 +62,6 @@ function preset(p: SampleProject = sampleProject(), extra: Partial<AppStore> = {
     activeFile: p.files[0]?.path ?? null,
     selection: NO_SELECTION,
     scope: ALL_SCOPE,
-    showExternal: false,
     splitRatio: DEFAULT_SPLIT,
     view: IDENTITY_VIEW,
     fitNonce: 0,
@@ -177,13 +176,6 @@ describe('selectFromCode（代码 -> 图）', () => {
     expect(s().selection.funcId).toBe(ID_GAMMA);
   });
 
-  it('showExternal 打开后 external 合成节点也能被选中', () => {
-    preset(sampleProject(), { showExternal: true, scope: ALL_SCOPE });
-    s().selectFromCode('__external__::builtins');
-    expect(s().selection.funcId).toBe('__external__::builtins');
-    expect(s().scope).toEqual(ALL_SCOPE);
-  });
-
   it('点击空白处（funcId=null）清空选中但保留 nonce 递增', () => {
     preset(sampleProject(), { selection: { funcId: ID_ALPHA, source: 'graph', nonce: 7 } });
     s().selectFromCode(null);
@@ -264,12 +256,6 @@ describe('视图与开关', () => {
     expect(s().view).toBe(before);
   });
 
-  it('setShowExternal 会改变节点集合，因此也要重新适应窗口', () => {
-    preset(sampleProject(), { fitNonce: 4 });
-    s().setShowExternal(true);
-    expect(s().showExternal).toBe(true);
-    expect(s().fitNonce).toBe(5);
-  });
 
   it('setSplitRatio 夹到合法区间', () => {
     preset();
@@ -395,12 +381,11 @@ describe('loadFiles / addFiles / removeFile', () => {
 });
 
 describe('reset', () => {
-  it('清空一切但保留 showExternal / splitRatio 这类用户偏好', () => {
+  it('清空一切但保留 splitRatio 这类用户偏好', () => {
     preset(sampleProject(), {
       selection: { funcId: ID_ALPHA, source: 'graph', nonce: 4 },
       scope: fileScope(B_PATH),
       view: { tx: 3, ty: 4, scale: 2 },
-      showExternal: true,
       splitRatio: 0.6,
       fitNonce: 8,
     });
@@ -419,7 +404,6 @@ describe('reset', () => {
     expect(after.view).toEqual(IDENTITY_VIEW);
     expect(after.fitNonce).toBe(9);
     // 偏好不属于"数据"，reset 不动它们
-    expect(after.showExternal).toBe(true);
     expect(after.splitRatio).toBe(0.6);
   });
 });

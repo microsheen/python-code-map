@@ -30,7 +30,7 @@ export function UploadPanel(props: UploadPanelProps): ReactNode {
       <View style={[styles.dropzone, dragging && styles.dropzoneActive]} testID="upload-dropzone">
         <Text style={styles.title}>{'Python Call Graph'}</Text>
         <Text style={styles.subtitle}>
-          {'\u4e0a\u4f20\u4e00\u4e2a\u6216\u591a\u4e2a .py / .pyi \u6587\u4ef6\uff0c\u5728\u6d4f\u89c8\u5668\u5185\u89e3\u6790\u51fd\u6570\u8c03\u7528\u5173\u7cfb\u3002'}
+          {'Upload one or more .py / .pyi files to parse function call relationships in the browser.'}
         </Text>
         <Text style={styles.hint}>
           {'Or drag files anywhere on the page. Code never leaves the browser and is never saved.'}
@@ -42,7 +42,7 @@ export function UploadPanel(props: UploadPanelProps): ReactNode {
           onPress={onPick}
         >
           <Text style={styles.btnText}>
-            {busy ? 'Parsing ' + progress.done + '/' + progress.total : '\u9009\u62e9 .py \u6587\u4ef6'}
+            {busy ? 'Parsing ' + progress.done + '/' + progress.total : 'Select .py Files'}
           </Text>
         </Pressable>
         <Text style={styles.footnote}>

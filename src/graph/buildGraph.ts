@@ -13,31 +13,6 @@ import type {
   UnresolvedReason,
 } from '../parser/types';
 
-/** showExternal 打开时用于聚合所有外部调用的合成节点 id */
-export const EXTERNAL_NODE_ID = '__external__::builtins';
-
-export function externalNode(): FuncSymbol {
-  return {
-    id: EXTERNAL_NODE_ID,
-    file: '',
-    name: 'builtins / 3rd-party',
-    qualifiedName: 'builtins / 3rd-party',
-    kind: 'function',
-    defLine: 1,
-    startLine: 1,
-    endLine: 1,
-    nameRange: { startLine: 1, startCol: 0, endLine: 1, endCol: 0 },
-    params: [],
-    decorators: [],
-    className: null,
-    depth: 0,
-    synthetic: true,
-  };
-}
-
-export function isExternalNode(id: FuncId): boolean {
-  return id === EXTERNAL_NODE_ID;
-}
 
 const REASONS: UnresolvedReason[] = ['ambiguous', 'external', 'dynamic', 'unknown'];
 

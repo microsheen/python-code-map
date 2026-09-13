@@ -12,10 +12,9 @@ import { useAppStore } from './store';
 export function useScopedGraph(): CallGraph | null {
   const graph = useAppStore((s) => s.graph);
   const scope = useAppStore((s) => s.scope);
-  const showExternal = useAppStore((s) => s.showExternal);
   return useMemo(
-    () => (graph ? applyScope(graph, scope, { showExternal }) : null),
-    [graph, scope, showExternal],
+    () => (graph ? applyScope(graph, scope) : null),
+    [graph, scope],
   );
 }
 

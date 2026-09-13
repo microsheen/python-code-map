@@ -86,7 +86,6 @@ function preset(p: SampleProject, activeFile?: string): void {
       activeFile: activeFile ?? p.files[0]?.path ?? null,
       selection: NO_SELECTION,
       scope: ALL_SCOPE,
-      showExternal: false,
       splitRatio: DEFAULT_SPLIT,
       view: IDENTITY_VIEW,
       fitNonce: 0,
@@ -220,7 +219,7 @@ describe('验收 2：代码 -> 图', () => {
     expect(st.selection.nonce).toBe(1);
 
     // 右侧把 alpha 节点移到了视口中心
-    const scoped = applyScope(st.graph!, st.scope, { showExternal: st.showExternal });
+    const scoped = applyScope(st.graph!, st.scope);
     const box = layoutGraph(scoped).nodes.get(ID_ALPHA);
     expect(box).toBeDefined();
     const c = centeredWorldPoint();
@@ -247,14 +246,14 @@ describe('验收 2：代码 -> 图', () => {
     // depth=0 的邻域里只有 beta 自己，alpha 一定在范围外
     const narrow = neighborhoodScope(ID_BETA, 0);
     useAppStore.setState({ scope: narrow });
-    const before = applyScope(useAppStore.getState().graph!, narrow, { showExternal: false });
+    const before = applyScope(useAppStore.getState().graph!, narrow);
     expect(scopeContains(before, ID_ALPHA)).toBe(false);
 
     useAppStore.getState().selectFromCode(ID_ALPHA);
 
     const st = useAppStore.getState();
     expect(st.scope).toMatchObject({ kind: 'neighborhood', funcId: ID_ALPHA });
-    const scoped = applyScope(st.graph!, st.scope, { showExternal: st.showExternal });
+    const scoped = applyScope(st.graph!, st.scope);
     expect(scopeContains(scoped, ID_ALPHA)).toBe(true);
   });
 

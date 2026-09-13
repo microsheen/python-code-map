@@ -172,7 +172,7 @@ describeWasm('全链路：验收 2 代码 -> 图', () => {
     const st = useAppStore.getState();
     expect(st.selection).toMatchObject({ funcId: 'main.py::boot', source: 'code', nonce: 1 });
 
-    const scoped = applyScope(st.graph!, st.scope, { showExternal: st.showExternal });
+    const scoped = applyScope(st.graph!, st.scope);
     const box = layoutGraph(scoped).nodes.get('main.py::boot');
     expect(box).toBeDefined();
     const c = centeredWorldPoint();

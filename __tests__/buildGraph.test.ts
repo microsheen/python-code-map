@@ -2,11 +2,8 @@
  * 建图：重复边聚合、自环、<module> 伪节点、reason 统计、邻接表。
  */
 import {
-  EXTERNAL_NODE_ID,
   buildAdjacency,
   buildGraph,
-  externalNode,
-  isExternalNode,
   unresolvedCountByFunc,
 } from '../src/graph/buildGraph';
 import { makeFuncId, moduleId } from '../src/parser/symbols';
@@ -141,13 +138,4 @@ describe('buildAdjacency', () => {
   });
 });
 
-describe('external 合成节点', () => {
-  it('id 稳定且标记为 synthetic', () => {
-    expect(isExternalNode(EXTERNAL_NODE_ID)).toBe(true);
-    expect(isExternalNode(ID_A)).toBe(false);
-    const n = externalNode();
-    expect(n.id).toBe(EXTERNAL_NODE_ID);
-    expect(n.synthetic).toBe(true);
-    expect(n.file).toBe('');
-  });
 });

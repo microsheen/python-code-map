@@ -1,5 +1,5 @@
 /**
- * 图范围裁剪：邻域 / 本文件 / 全部，以及 external 聚合节点。
+ * 图范围裁剪：邻域 / 本文件 / 全部。
  */
 import {
   ALL_SCOPE,
@@ -11,7 +11,6 @@ import {
   neighborhoodScope,
   scopeContains,
 } from '../src/graph/scope';
-import { EXTERNAL_NODE_ID, isExternalNode } from '../src/graph/buildGraph';
 import { makeFuncId } from '../src/parser/symbols';
 import { callSite, edge, func, graphOf, pyFile } from './helpers/synth';
 
@@ -128,21 +127,6 @@ describe('all scope', () => {
   });
 });
 
-describe('withExternalNode / showExternal', () => {
-  function graphWithExternal() {
-    const nodes = [func(F, 'a', { defLine: 1 }), func(F, 'b', { defLine: 4 })];
-    const edges = [edge(id('a'), id('b'))];
-    const unresolved = [
-      callSite({ file: F, line: 2, caller: id('a'), text: 'print', reason: 'external' }),
-      callSite({ file: F, line: 3, caller: id('a'), text: 'len', reason: 'external' }),
-      callSite({ file: F, line: 5, caller: id('b'), text: 'getattr', reason: 'dynamic' }),
-    ];
-    return graphOf(nodes, edges, unresolved, [F]);
-  }
-
-  it('打开开关后把所有 external 调用聚合成一个合成节点，每个 caller 一条边', () => {
-    const g = graphWithExternal();
-    const sub = applyScope(g, ALL_SCOPE, { showExternal: true });
     expect(scopeContains(sub, EXTERNAL_NODE_ID)).toBe(true);
     expect(isExternalNode(EXTERNAL_NODE_ID)).toBe(true);
     const extEdges = sub.edges.filter((e) => e.target === EXTERNAL_NODE_ID);

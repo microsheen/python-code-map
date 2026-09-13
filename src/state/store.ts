@@ -67,7 +67,6 @@ export interface AppStore {
   activeFile: string | null;
   selection: Selection;
   scope: Scope;
-  showExternal: boolean;
   splitRatio: number;
   view: ViewState;
   /** +1 表示"请重新适应窗口" */
@@ -87,7 +86,6 @@ export interface AppStore {
   selectFromCode: (funcId: FuncId | null) => void;
   selectFromGraph: (funcId: FuncId) => void;
   setScope: (scope: Scope) => void;
-  setShowExternal: (value: boolean) => void;
   setSplitRatio: (ratio: number) => void;
   setView: (patch: Partial<ViewState>) => void;
   fitView: () => void;
@@ -164,7 +162,6 @@ export const useAppStore = create<AppStore>()((set, get) => {
     activeFile: null,
     selection: NO_SELECTION,
     scope: ALL_SCOPE,
-    showExternal: false,
     splitRatio: DEFAULT_SPLIT,
     view: IDENTITY_VIEW,
     fitNonce: 0,
@@ -200,7 +197,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         const nonce = state.selection.nonce + 1;
         if (!funcId) return { selection: { funcId: null, source: 'code', nonce } };
         const scoped = state.graph
-          ? applyScope(state.graph, state.scope, { showExternal: state.showExternal })
+          ? applyScope(state.graph, state.scope)
           : null;
         const visible = !!scoped && scopeContains(scoped, funcId);
         // 推入导航历史：截断当前位置之后的历史，再追加新项
@@ -238,7 +235,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
     setScope: (scope) =>
       set((state) => {
         const scoped = state.graph
-          ? applyScope(state.graph, scope, { showExternal: state.showExternal })
+          ? applyScope(state.graph, scope)
           : null;
         const keep =
           !!state.selection.funcId && !!scoped && scopeContains(scoped, state.selection.funcId);
@@ -251,8 +248,6 @@ export const useAppStore = create<AppStore>()((set, get) => {
         };
       }),
 
-    setShowExternal: (value) =>
-      set((state) => ({ showExternal: value, fitNonce: state.fitNonce + 1 })),
 
     setSplitRatio: (ratio) => set({ splitRatio: clampSplit(ratio) }),
 

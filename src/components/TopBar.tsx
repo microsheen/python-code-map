@@ -19,7 +19,7 @@ import { useAppStore } from '../state/store';
 import { colors, fileColor, fonts, spacing } from '../theme';
 
 /** RN 样式类型里没有横向滚动开关，RNW 支持，用 cast 绕过。 */
-const SCROLL_X = { overflowX: 'auto', overflowY: 'hidden' } as unknown as ViewStyle;
+const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewStyle;
 
 export const REASON_LABELS: Record<UnresolvedReason, string> = {
   ambiguous: 'Ambiguous',
@@ -96,12 +96,10 @@ export function TopBar(): ReactNode {
   const activeFile = useAppStore((s) => s.activeFile);
   const selection = useAppStore((s) => s.selection);
   const scope = useAppStore((s) => s.scope);
-  const showExternal = useAppStore((s) => s.showExternal);
   const addFiles = useAppStore((s) => s.addFiles);
   const removeFile = useAppStore((s) => s.removeFile);
   const setActiveFile = useAppStore((s) => s.setActiveFile);
   const setScope = useAppStore((s) => s.setScope);
-  const setShowExternal = useAppStore((s) => s.setShowExternal);
   const reset = useAppStore((s) => s.reset);
   const navBack = useAppStore((s) => s.navBack);
   const navForward = useAppStore((s) => s.navForward);
@@ -109,6 +107,7 @@ export function TopBar(): ReactNode {
   const navHistory = useAppStore((s) => s.navHistory);
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [hoveredChip, setHoveredChip] = useState<string | null>(null);
   useEffect(() => { if (!ctxMenu) return; const h = () => setCtxMenu(null); window.addEventListener('click', h); return () => window.removeEventListener('click', h); }, [ctxMenu]);
 
   const busy = status === 'loading-wasm' || status === 'parsing';
@@ -204,16 +203,6 @@ export function TopBar(): ReactNode {
             />
           </View>
 
-          <Pressable
-            testID="toggle-external"
-            onPress={() => setShowExternal(!showExternal)}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: showExternal }}
-            style={[styles.toggle, showExternal && styles.toggleOn]}
-          >
-            <View style={[styles.toggleDot, showExternal && styles.toggleDotOn]} />
-            <Text style={[styles.toggleText, showExternal && styles.toggleTextOn]}>Show External Calls</Text>
-          </Pressable>
 
           {files.length > 0 ? (
             <Pressable
@@ -229,41 +218,61 @@ export function TopBar(): ReactNode {
       </View>
 
       {files.length > 0 ? (
-        <ScrollView
-          horizontal
-          style={SCROLL_X}
-          contentContainerStyle={styles.chips}
-          showsHorizontalScrollIndicator={false}
-          testID="topbar-chips"
-        >
-          {files.map((f) => {
-            const ci = colorIndexOfFile(graph?.files ?? null, files, f.path);
-            const active = f.path === activeFile;
-            return (
-              <Pressable
-                key={f.path}
-                testID={'chip-' + f.path}
-                onPress={() => setActiveFile(f.path)}
-                style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}>
-                <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
-                <Text style={[styles.chipText, !!f.error && styles.chipTextError]} numberOfLines={1}>
-                  {f.name}
-                </Text>
+        <View style={{ position: 'relative', height: 32 }}>
+          <ScrollView
+            horizontal
+            style={SCROLL_X}
+            contentContainerStyle={styles.chips}
+            showsHorizontalScrollIndicator={false}
+            testID="topbar-chips"
+          >
+            {files.map((f) => {
+              const ci = colorIndexOfFile(graph?.files ?? null, files, f.path);
+              const active = f.path === activeFile;
+              return (
                 <Pressable
-                  testID={'chip-remove-' + f.path}
-                  onPress={() => void removeFile(f.path)}
-                  disabled={busy}
-                  accessibilityRole="button"
-                  accessibilityLabel={'Remove ' + f.name}
-                  hitSlop={6}
-                  style={styles.chipRemove}
-                >
-                  <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
+                  key={f.path}
+                  testID={'chip-' + f.path}
+                  onPress={() => setActiveFile(f.path)}
+                  onHoverIn={() => setHoveredChip(f.path)}
+                  onHoverOut={() => setHoveredChip(null)}
+                  style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}>
+                  <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
+                  <Text style={[styles.chipText, !!f.error && styles.chipTextError]} numberOfLines={1}>
+                    {f.name}
+                  </Text>
+                  <Pressable
+                    testID={'chip-remove-' + f.path}
+                    onPress={() => void removeFile(f.path)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel={'Remove ' + f.name}
+                    hitSlop={6}
+                    style={styles.chipRemove}
+                  >
+                    <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
+                  </Pressable>
                 </Pressable>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+              );
+            })}
+          </ScrollView>
+          {hoveredChip && graph ? (
+            <View style={styles.chipTooltip} testID={'chip-tooltip-' + hoveredChip}>
+              <Text style={styles.chipTooltipText}>{files.find((f) => f.path === hoveredChip)?.path}</Text>
+              <View style={styles.chipTooltipStats}>
+                <Text style={styles.chipTooltipStatsText}>{formatStats(graph.stats)}</Text>
+                {formatReasons(graph.stats) ? (
+                  <Text style={styles.chipTooltipStatsReason} numberOfLines={1}>
+                    {'Unresolved: ' + formatReasons(graph.stats)}
+                  </Text>
+                ) : null}
+                <Text style={styles.chipTooltipStatsScope} numberOfLines={1}>
+                  {'Scope: ' + scopeLabel(scope)}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
       ) : null}
 
 
@@ -299,7 +308,8 @@ export function TopBar(): ReactNode {
             <Text style={styles.ctxText}>Close All</Text>
           </Pressable>
         </View>
-      ) : null}      {graph ? (
+      ) : null}
+      {graph && hoveredChip ? (
         <View style={styles.statsRow} testID="topbar-stats">
           <Text style={styles.statsText}>{formatStats(graph.stats)}</Text>
           {formatReasons(graph.stats) ? (
@@ -360,7 +370,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentDim,
     borderRadius: 7,
     paddingHorizontal: spacing.md,
-    height: 28,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -371,14 +381,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderStrong,
     paddingHorizontal: spacing.md,
-    height: 28,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
   navGroup: { flexDirection: 'row', gap: spacing.xs, marginRight: spacing.sm },
   navBtn: {
     width: 28,
-    height: 28,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 4,
@@ -405,23 +415,46 @@ const styles = StyleSheet.create({
   segText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
   segTextActive: { color: '#ffffff', fontWeight: '600' },
 
-  toggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 28,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-  },
-  toggleOn: { borderColor: colors.accent, backgroundColor: 'rgba(88, 166, 255, 0.12)' },
-  toggleDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.faint },
-  toggleDotOn: { backgroundColor: colors.accent },
-  toggleText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
-  toggleTextOn: { color: colors.neighbor },
 
   chips: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 2 },
+  chipTooltipStats: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#333333',
+    gap: 4,
+  },
+  chipTooltipStatsText: {
+    color: '#cccccc',
+    fontSize: 11,
+    fontFamily: fonts.mono,
+  },
+  chipTooltipStatsReason: {
+    color: '#888888',
+    fontSize: 11,
+    fontFamily: fonts.ui,
+    flexShrink: 1,
+  },
+  chipTooltipStatsScope: {
+    color: '#888888',
+    fontSize: 11,
+    fontFamily: fonts.ui,
+  },
+  chipTooltip: {
+    position: 'absolute',
+    top: 34,
+    left: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#1e1e1e',
+    borderRadius: 4,
+    zIndex: 1000,
+    maxWidth: 400,
+  },
+  chipTooltipText: {
+    color: '#cccccc',
+    fontSize: 12,
+  },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

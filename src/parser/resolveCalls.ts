@@ -10,7 +10,7 @@
  */
 import { isBuiltinName, isExternalModuleHead } from './builtins';
 import { buildImportTable, collectImports, splitDotted, type ImportTable } from './imports';
-import { collectLocals, collectModuleVars } from './locals';
+import { collectLocals, collectLocalTypes, collectModuleVars } from './locals';
 import { absoluteSpec, resolveModuleSpec, type ModuleIndex } from './modules';
 import { makeFuncId, moduleId, type FileSymbols } from './symbols';
 import { dottedText, isField, namedKids, type SyntaxNodeLike } from './treeLike';
@@ -85,6 +85,7 @@ interface Frame {
   /** 调用点归属的函数 id */
   ownerId: string;
   locals: Set<string>;
+  localTypes?: Map<string, string>;
 }
 
 const NO_LOCALS: Set<string> = new Set();
@@ -379,6 +380,21 @@ function resolveDottedName(
     return { reason: 'unknown' };
   }
 
+  // 函数局部变量类型推断：VAR = ClassName(...) -> VAR.method 解析为 ClassName.method
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const f = chain[i];
+    if (f?.kind === 'func' && f.localTypes?.has(head)) {
+      const clsName = f.localTypes.get(head) as string;
+      const cref = resolveClassRef(clsName, fs, fromFile, ctx);
+      if (cref) {
+        const rest = parts.slice(1);
+        if (rest.length === 1) {
+          const m = cref.fs.byQualified.get(`${cref.q}.${rest[0]}`);
+          if (m) return { target: m.id };
+        }
+      }
+    }
+  }
   // 函数作用域里的局部变量遮蔽（utils = ...）：无法静态确定
   if (isShadowed(head, chain, fs.importTable)) return { reason: 'dynamic' };
 
@@ -506,6 +522,7 @@ export function collectCalls(
       qName,
       ownerId: makeFuncId(path, qName),
       locals: collectLocals(node),
+      localTypes: collectLocalTypes(node),
     };
     visit(body, [...chain, frame]);
   };

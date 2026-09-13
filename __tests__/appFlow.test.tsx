@@ -108,10 +108,10 @@ function centeredWorldPoint(): { x: number; y: number } {
   };
 }
 
-afterEach(() => {
-  cleanup();
-  useAppStore.getState().reset();
-});
+afterEach(async () => {
+    cleanup();
+    await useAppStore.getState().reset();
+  })
 
 describe('验收 1：图 -> 代码', () => {
   it('点击图中节点：selection 变成 graph 来源，nonce 自增', () => {

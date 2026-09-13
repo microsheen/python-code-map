@@ -381,7 +381,7 @@ describe('loadFiles / addFiles / removeFile', () => {
 });
 
 describe('reset', () => {
-  it('清空一切但保留 splitRatio 这类用户偏好', () => {
+  it('清空一切但保留 splitRatio 这类用户偏好', async () => {
     preset(sampleProject(), {
       selection: { funcId: ID_ALPHA, source: 'graph', nonce: 4 },
       scope: fileScope(B_PATH),
@@ -389,7 +389,7 @@ describe('reset', () => {
       splitRatio: 0.6,
       fitNonce: 8,
     });
-    s().reset();
+    await s().reset();
     const after = s();
     expect(after.files).toEqual([]);
     expect(after.analyses).toEqual([]);

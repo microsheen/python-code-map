@@ -33,7 +33,7 @@ export function UploadPanel(props: UploadPanelProps): ReactNode {
           {'Upload one or more .py / .pyi files to parse function call relationships in the browser.'}
         </Text>
         <Text style={styles.hint}>
-          {'Or drag files anywhere on the page. Code never leaves the browser and is never saved.'}
+          {'Or drag files anywhere on the page. Code never leaves the browser. Files are cached locally for convenience.'}
         </Text>
         <Pressable
           testID="upload-pick"

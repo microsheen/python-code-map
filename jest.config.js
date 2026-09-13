@@ -8,6 +8,7 @@ module.exports = {
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|react-native-svg|zustand|web-tree-sitter|@dagrejs/.*)',
   ],
   moduleNameMapper: {
+    'platform/web/persist$': '<rootDir>/__mocks__/persist.js',
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|scss)$': '<rootDir>/__mocks__/styleMock.js',
   },

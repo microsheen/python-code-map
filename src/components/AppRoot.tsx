@@ -18,7 +18,13 @@ import { UploadPanel } from './UploadPanel';
 export function AppRoot(): ReactNode {
   const files = useAppStore((s) => s.files);
   const addFiles = useAppStore((s) => s.addFiles);
+  const restoreSession = useAppStore((s) => s.restoreSession);
   const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    // 启动时尝试恢复上次会话
+    void restoreSession();
+  }, [restoreSession]);
 
   useEffect(() => {
     const sub = subscribeDrop((picked) => {

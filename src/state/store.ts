@@ -16,6 +16,7 @@ import type {
   PickedFile,
   PyFile,
 } from '../parser/types';
+import { saveSession, loadSession, clearSession } from '../platform/web/persist';
 
 export type SelectionSource = 'code' | 'graph' | 'scope' | 'nav';
 
@@ -92,7 +93,8 @@ export interface AppStore {
   fitView: () => void;
   navBack: () => void;
   navForward: () => void;
-  reset: () => void;
+  restoreSession: () => Promise<void>;
+  reset: () => Promise<void>;
 }
 
 function pickActiveFile(current: string | null, files: PyFile[]): string | null {
@@ -143,6 +145,11 @@ export const useAppStore = create<AppStore>()((set, get) => {
         view: IDENTITY_VIEW,
         fitNonce: get().fitNonce + 1,
       });
+    // 持久化到 IndexedDB
+    void saveSession(
+      get().files.map((f) => ({ path: f.path, name: f.name, content: f.content, error: f.error })),
+      get().activeFile,
+    );
     } catch (e) {
       set({
         status: 'error',
@@ -173,6 +180,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
     loadFiles: async (files, parser) => {
       if (files.length > MAX_FILES) {
         set({ error: `Too many files: ${files.length}/${MAX_FILES}. Please remove some files before adding more.` });
+
         return;
       }
       await runAnalysis(files, parser);
@@ -293,7 +301,23 @@ export const useAppStore = create<AppStore>()((set, get) => {
         };
       }),
 
-    reset: () =>
+    restoreSession: async () => {
+      // 如果已经有文件了（比如测试预设），不要覆盖
+      if (get().files.length > 0) return;
+      const session = await loadSession();
+      if (session && session.files.length > 0) {
+        await get().loadFiles(session.files, get().parser);
+        if (session.activeFile) {
+          const files = get().files;
+          if (files.some((f) => f.path === session.activeFile)) {
+            useAppStore.setState({ activeFile: session.activeFile });
+          }
+        }
+      }
+    },
+
+    reset: async () => {
+      await clearSession();
       set((state) => ({
         files: [],
         analyses: [],
@@ -310,6 +334,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         fitNonce: state.fitNonce + 1,
         navHistory: [],
         navIndex: -1,
-      })),
+      }));
+    },
   };
 });

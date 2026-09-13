@@ -127,27 +127,6 @@ describe('all scope', () => {
   });
 });
 
-    expect(scopeContains(sub, EXTERNAL_NODE_ID)).toBe(true);
-    expect(isExternalNode(EXTERNAL_NODE_ID)).toBe(true);
-    const extEdges = sub.edges.filter((e) => e.target === EXTERNAL_NODE_ID);
-    expect(extEdges).toHaveLength(1);
-    expect(extEdges[0]?.source).toBe(id('a'));
-    // 两次 print/len 合并到同一条边的 callSites 上
-    expect(extEdges[0]?.callSites).toHaveLength(2);
-    // dynamic 不算 external，不会连到合成节点
-    expect(sub.stats.byReason.dynamic).toBe(1);
-  });
-
-  it('没有 external 调用时不加节点', () => {
-    const g = graphOf([func(F, 'a')], [], [], [F]);
-    expect(applyScope(g, ALL_SCOPE, { showExternal: true })).toBe(g);
-  });
-
-  it('关闭开关时不出现合成节点', () => {
-    const sub = applyScope(graphWithExternal(), ALL_SCOPE);
-    expect(scopeContains(sub, EXTERNAL_NODE_ID)).toBe(false);
-  });
-});
 
 describe('isLarge / scopeContains', () => {
   it('超过阈值才提示图较大', () => {

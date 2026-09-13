@@ -7,54 +7,20 @@
  *
  * 这里只读 store + 调 store action，不含任何布局/解析逻辑。
  */
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ViewStyle } from 'react-native';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ALL_SCOPE, DEFAULT_DEPTH, fileScope, neighborhoodScope } from '../graph/scope';
 import type { Scope } from '../graph/scope';
 import { pickFiles } from '../platform/web/filePick';
-import type { GraphStats, UnresolvedReason } from '../parser/types';
+import type { GraphStats } from '../parser/types';
 import { useAppStore } from '../state/store';
 import { colors, fileColor, fonts, spacing } from '../theme';
 
 /** RN 样式类型里没有横向滚动开关，RNW 支持，用 cast 绕过。 */
 const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewStyle;
 
-export const REASON_LABELS: Record<UnresolvedReason, string> = {
-  ambiguous: 'Ambiguous',
-  external: 'External',
-  dynamic: 'Dynamic',
-  unknown: 'Unknown',
-};
-
-const REASON_ORDER: UnresolvedReason[] = ['ambiguous', 'external', 'dynamic', 'unknown'];
-
-export function scopeLabel(scope: Scope): string {
-  if (scope.kind === 'neighborhood') return 'Neighborhood';
-  if (scope.kind === 'file') return 'This File';
-  return 'All';
-}
-
-/** 主统计行：函数 / 边 / 未解析 / 耗时。 */
-export function formatStats(stats: GraphStats): string {
-  return (
-    'Functions ' + stats.funcs +
-    '  ·  Edges ' + stats.edges +
-    '  ·  Unresolved ' + stats.unresolved +
-    '  ·  Time ' + stats.ms + 'ms'
-  );
-}
-
-/** 未解析调用按 reason 的明细；全 0 时返回 ''。 */
-export function formatReasons(stats: GraphStats): string {
-  const parts: string[] = [];
-  for (const r of REASON_ORDER) {
-    const n = stats.byReason[r] ?? 0;
-    if (n > 0) parts.push(REASON_LABELS[r] + ' ' + n);
-  }
-  return parts.join('  ·  ');
-}
 
 /** 文件 chips 的着色下标：与 GraphPane 用同一份 files 顺序，保证颜色一致。 */
 export function colorIndexOfFile(graphFiles: string[] | null, files: { path: string }[], path: string): number {
@@ -218,7 +184,7 @@ export function TopBar(): ReactNode {
       </View>
 
       {files.length > 0 ? (
-        <View style={{ position: 'relative', height: 32 }}>
+        <View style={{ position: 'relative', height: 32, overflow: 'visible' }}>
           <ScrollView
             horizontal
             style={SCROLL_X}
@@ -230,46 +196,63 @@ export function TopBar(): ReactNode {
               const ci = colorIndexOfFile(graph?.files ?? null, files, f.path);
               const active = f.path === activeFile;
               return (
-                <Pressable
-                  key={f.path}
-                  testID={'chip-' + f.path}
-                  onPress={() => setActiveFile(f.path)}
-                  onHoverIn={() => setHoveredChip(f.path)}
-                  onHoverOut={() => setHoveredChip(null)}
-                  style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}>
-                  <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
-                  <Text style={[styles.chipText, !!f.error && styles.chipTextError]} numberOfLines={1}>
-                    {f.name}
-                  </Text>
-                  <Pressable
-                    testID={'chip-remove-' + f.path}
-                    onPress={() => void removeFile(f.path)}
-                    disabled={busy}
-                    accessibilityRole="button"
-                    accessibilityLabel={'Remove ' + f.name}
-                    hitSlop={6}
-                    style={styles.chipRemove}
+                Platform.OS === 'web' ? (
+                  <div
+                    key={f.path}
+                    onMouseEnter={() => setHoveredChip(f.path)}
+                    onMouseLeave={() => setHoveredChip(null)}
+                    style={{ display: 'inline-block' }}
                   >
-                    <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
+                    <Pressable
+                      testID={'chip-' + f.path}
+                      onPress={() => setActiveFile(f.path)}
+                      style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}>
+                      <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
+                      <Text style={[styles.chipText, !!f.error && styles.chipTextError]} numberOfLines={1}>
+                        {f.name}
+                      </Text>
+                      <Pressable
+                        testID={'chip-remove-' + f.path}
+                        onPress={() => void removeFile(f.path)}
+                        disabled={busy}
+                        accessibilityRole="button"
+                        accessibilityLabel={'Remove ' + f.name}
+                        hitSlop={6}
+                        style={styles.chipRemove}
+                      >
+                        <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
+                      </Pressable>
+                    </Pressable>
+                  </div>
+                ) : (
+                  <Pressable
+                    key={f.path}
+                    testID={'chip-' + f.path}
+                    onPress={() => setActiveFile(f.path)}
+                    style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}>
+                    <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
+                    <Text style={[styles.chipText, !!f.error && styles.chipTextError]} numberOfLines={1}>
+                      {f.name}
+                    </Text>
+                    <Pressable
+                      testID={'chip-remove-' + f.path}
+                      onPress={() => void removeFile(f.path)}
+                      disabled={busy}
+                      accessibilityRole="button"
+                      accessibilityLabel={'Remove ' + f.name}
+                      hitSlop={6}
+                      style={styles.chipRemove}
+                    >
+                      <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
+                    </Pressable>
                   </Pressable>
-                </Pressable>
+                )
               );
             })}
           </ScrollView>
-          {hoveredChip && graph ? (
+          {hoveredChip ? (
             <View style={styles.chipTooltip} testID={'chip-tooltip-' + hoveredChip}>
               <Text style={styles.chipTooltipText}>{files.find((f) => f.path === hoveredChip)?.path}</Text>
-              <View style={styles.chipTooltipStats}>
-                <Text style={styles.chipTooltipStatsText}>{formatStats(graph.stats)}</Text>
-                {formatReasons(graph.stats) ? (
-                  <Text style={styles.chipTooltipStatsReason} numberOfLines={1}>
-                    {'Unresolved: ' + formatReasons(graph.stats)}
-                  </Text>
-                ) : null}
-                <Text style={styles.chipTooltipStatsScope} numberOfLines={1}>
-                  {'Scope: ' + scopeLabel(scope)}
-                </Text>
-              </View>
             </View>
           ) : null}
         </View>
@@ -307,19 +290,6 @@ export function TopBar(): ReactNode {
           >
             <Text style={styles.ctxText}>Close All</Text>
           </Pressable>
-        </View>
-      ) : null}
-      {graph && hoveredChip ? (
-        <View style={styles.statsRow} testID="topbar-stats">
-          <Text style={styles.statsText}>{formatStats(graph.stats)}</Text>
-          {formatReasons(graph.stats) ? (
-            <Text style={styles.statsReason} testID="topbar-stats-reasons" numberOfLines={1}>
-              {'Unresolved: ' + formatReasons(graph.stats)}
-            </Text>
-          ) : null}
-          <Text style={styles.statsScope} numberOfLines={1}>
-            {'Scope: ' + scopeLabel(scope)}
-          </Text>
         </View>
       ) : null}
 
@@ -417,29 +387,6 @@ const styles = StyleSheet.create({
 
 
   chips: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 2 },
-  chipTooltipStats: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#333333',
-    gap: 4,
-  },
-  chipTooltipStatsText: {
-    color: '#cccccc',
-    fontSize: 11,
-    fontFamily: fonts.mono,
-  },
-  chipTooltipStatsReason: {
-    color: '#888888',
-    fontSize: 11,
-    fontFamily: fonts.ui,
-    flexShrink: 1,
-  },
-  chipTooltipStatsScope: {
-    color: '#888888',
-    fontSize: 11,
-    fontFamily: fonts.ui,
-  },
   chipTooltip: {
     position: 'absolute',
     top: 34,

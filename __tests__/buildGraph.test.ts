@@ -4,7 +4,6 @@
 import {
   buildAdjacency,
   buildGraph,
-  unresolvedCountByFunc,
 } from '../src/graph/buildGraph';
 import { makeFuncId, moduleId } from '../src/parser/symbols';
 import type { CallSite, FuncId } from '../src/parser/types';
@@ -103,23 +102,6 @@ describe('buildGraph 统计', () => {
     ]);
   });
 });
-
-describe('unresolvedCountByFunc', () => {
-  it('按 caller 聚合角标计数，caller 为 null 的忽略', () => {
-    const calls = [
-      callSite({ file: F, line: 1, caller: ID_A, reason: 'external', text: 'print' }),
-      callSite({ file: F, line: 2, caller: ID_A, reason: 'dynamic', text: 'fn' }),
-      callSite({ file: F, line: 3, caller: ID_B, reason: 'unknown', text: 'q' }),
-      callSite({ file: F, line: 4, caller: null, reason: 'external', text: 'open' }),
-    ];
-    const g = buildGraph([analysisOf(pyFile(F, 'x'), [func(F, 'a'), func(F, 'b')], calls)]);
-    const m = unresolvedCountByFunc(g);
-    expect(m.get(ID_A)).toBe(2);
-    expect(m.get(ID_B)).toBe(1);
-    expect(m.size).toBe(2);
-  });
-});
-
 describe('buildAdjacency', () => {
   it('分别按 source / target 建出边表', () => {
     const calls = [

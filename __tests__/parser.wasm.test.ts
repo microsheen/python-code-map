@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 解析管线的真实 wasm 集成测试。
  *
  * 分工：纯函数层（modules / imports / buildGraph / scope / layout / store）各有自己的测试，
@@ -419,6 +419,29 @@ describeWasm('调用解析矩阵', () => {
     });
   });
 
+  it('M8.1 ClassName().method() 解析到类方法', async () => {
+    const r = await analyze(
+      sourceFile(
+        'ctor_method.py',
+        py(
+          'class AwsSecretService:',
+          '    def get_secret(self, id: str, region: str) -> str:',
+          '        return ""',
+          '',
+          '',
+          'class CommonService:',
+          '    def __init__(self):',
+          '        secret = AwsSecretService().get_secret("id", "region")',
+        ),
+      ),
+    );
+    expect(site(r, 'ctor_method.py', 'AwsSecretService().get_secret')).toMatchObject({
+      caller: 'ctor_method.py::CommonService.__init__',
+      target: 'ctor_method.py::AwsSecretService.get_secret',
+      reason: 'resolved',
+    });
+    expect(edgeOf(r, 'ctor_method.py::CommonService.__init__', 'ctor_method.py::AwsSecretService.get_secret')).toBeDefined();
+  });
   it('M9 同名多候选 -> ambiguous，宁可不连边', async () => {
     const r = await analyze(
       sourceFile(

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 调用点解析 —— 保守策略：只连"唯一确定"的边，其余记 reason 不连。
  *
  * 解析顺序（简单名 foo()）：
@@ -350,6 +350,32 @@ function resolveSelfChain(
   if (m) return { target: m.id };
   return { reason: 'unknown' };
 }
+/**
+ * ClassName().method() 模式：attribute 的 object 是构造器调用，
+ * 在类上查找 method。
+ */
+function resolveCtorCallMethod(
+  fn: SyntaxNodeLike,
+  fs: FileScope,
+  fromFile: string,
+  ctx: ResolveContext,
+): Resolved | null {
+  const obj = fn.childForFieldName('object');
+  const attrNode = fn.childForFieldName('attribute');
+  if (!obj || obj.type !== 'call' || !attrNode) return null;
+
+  const ctorFn = obj.childForFieldName('function');
+  if (!ctorFn || ctorFn.type !== 'identifier') return null;
+
+  const clsName = ctorFn.text;
+  const cref = resolveClassRef(clsName, fs, fromFile, ctx);
+  if (!cref) return null;
+
+  const method = cref.fs.byQualified.get(`${cref.q}.${attrNode.text}`);
+  if (method) return { target: method.id };
+  return { reason: 'dynamic' };
+}
+
 function resolveDottedName(
   dotted: string,
   chain: Frame[],
@@ -460,7 +486,12 @@ export function collectCalls(
       res = resolveSimpleName(fn.text, chain, fs, path, ctx);
     } else if (fn.type === 'attribute') {
       const d = dottedText(fn);
-      res = d ? resolveDottedName(d, chain, fs, path, ctx) : { reason: 'dynamic' };
+      if (d) {
+        res = resolveDottedName(d, chain, fs, path, ctx);
+      } else {
+        const ctorRes = resolveCtorCallMethod(fn, fs, path, ctx);
+        res = ctorRes ?? { reason: 'dynamic' };
+      }
     } else {
       res = { reason: 'dynamic' };
     }

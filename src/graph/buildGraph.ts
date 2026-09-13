@@ -87,15 +87,6 @@ export function buildGraph(analyses: FileAnalysis[], ms = 0): CallGraph {
   return { nodes, edges, unresolved: allUnresolved, files, stats };
 }
 
-/** 每个函数的未解析调用数（节点角标）。 */
-export function unresolvedCountByFunc(graph: CallGraph): Map<FuncId, number> {
-  const out = new Map<FuncId, number>();
-  for (const u of graph.unresolved) {
-    if (!u.caller) continue;
-    out.set(u.caller, (out.get(u.caller) ?? 0) + 1);
-  }
-  return out;
-}
 
 export interface Adjacency {
   out: Map<FuncId, CallEdge[]>;

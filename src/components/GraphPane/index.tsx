@@ -4,7 +4,7 @@
  * 渲染：单个 <Svg>，内部一个 <G transform="translate(tx,ty) scale(s)"> 承载全部内容。
  * 先画边（Path + 手画三角箭头；不用 SVG marker，因为 react-native-svg 的 web 实现对
  * marker 支持不稳，手画在两端表现一致且是纯函数、可快照测试），再画节点
- * （Rect + Text + 未解析调用数角标）。
+ * （Rect + Text）。
  *
  * 交互：
  * - 滚轮缩放，以光标为锚点。订阅的是原生 wheel 且非被动（passive:false），
@@ -15,10 +15,9 @@
  */
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LayoutChangeEvent, ViewStyle } from 'react-native';
-import Svg, { Circle, G, Path, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { G, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { unresolvedCountByFunc } from '../../graph/buildGraph';
 import {
   CHAR_W,
   arrowHeadPath,
@@ -118,12 +117,11 @@ export interface GraphNodeViewProps {
   neighbor: boolean;
   dimmed: boolean;
   showFile: boolean;
-  unresolved: number;
   onPress: (id: FuncId) => void;
 }
 
 export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewProps): ReactNode {
-  const { func, box, colorIndex, selected, neighbor, dimmed, showFile, unresolved, onPress } =
+  const { func, box, colorIndex, selected, neighbor, dimmed, showFile, onPress } =
     props;
   const stroke = selected
     ? colors.selected
@@ -133,9 +131,6 @@ export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewPro
   const label = fitLabel(nodeLabel(func), box.w);
   const textY = showFile ? box.y + 20 : box.y + box.h / 2 + 4.5;
   const sub = showFile ? fileLabel(func) : '';
-  const badgeX = box.x + box.w - 3;
-  const badgeY = box.y + 3;
-  const badgeText = unresolved > 99 ? '99+' : String(unresolved);
 
   return (
     <G
@@ -176,22 +171,6 @@ export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewPro
           {sub}
         </SvgText>
       ) : null}
-      {unresolved > 0 ? (
-        <G testID={'graph-badge-' + func.id}>
-          <Circle cx={badgeX} cy={badgeY} r={8.5} fill={colors.warn} />
-          <SvgText
-            x={badgeX}
-            y={badgeY + 3.4}
-            textAnchor="middle"
-            fontSize={10}
-            fontFamily={fonts.ui}
-            fontWeight="700"
-            fill={colors.bg}
-          >
-            {badgeText}
-          </SvgText>
-        </G>
-      ) : null}
     </G>
   );
 });
@@ -211,10 +190,6 @@ export function GraphPane(): ReactNode {
   const nodeIndex = useNodeIndex(scoped);
   const neighbors = useNeighborIds(scoped, selection.funcId);
   const neighborEdges = useNeighborEdgeIds(scoped, selection.funcId);
-  const unresolvedCounts: Map<FuncId, number> = useMemo(
-    () => (scoped ? unresolvedCountByFunc(scoped) : new Map<FuncId, number>()),
-    [scoped]
-  );
   /** 文件 -> 颜色下标。用全量图的 files，避免裁剪范围时颜色跳变。 */
   const colorIndexOf = useMemo(() => {
     const m = new Map<string, number>();
@@ -392,7 +367,6 @@ export function GraphPane(): ReactNode {
           neighbor={hasSelection && neighbors.has(n.id)}
           dimmed={hasSelection && selection.funcId !== n.id && !neighbors.has(n.id)}
           showFile={layout.showFile}
-          unresolved={unresolvedCounts.get(n.id) ?? 0}
           onPress={onNodePress}
         />
       );

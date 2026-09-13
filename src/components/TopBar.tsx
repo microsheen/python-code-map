@@ -9,6 +9,7 @@
  */
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ViewStyle } from 'react-native';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ALL_SCOPE, DEFAULT_DEPTH, fileScope, neighborhoodScope } from '../graph/scope';
 import type { Scope } from '../graph/scope';
@@ -21,27 +22,27 @@ import { colors, fileColor, fonts, spacing } from '../theme';
 const SCROLL_X = { overflowX: 'auto', overflowY: 'hidden' } as unknown as ViewStyle;
 
 export const REASON_LABELS: Record<UnresolvedReason, string> = {
-  ambiguous: '歧义',
-  external: '外部',
-  dynamic: '动态',
-  unknown: '未知',
+  ambiguous: 'Ambiguous',
+  external: 'External',
+  dynamic: 'Dynamic',
+  unknown: 'Unknown',
 };
 
 const REASON_ORDER: UnresolvedReason[] = ['ambiguous', 'external', 'dynamic', 'unknown'];
 
 export function scopeLabel(scope: Scope): string {
-  if (scope.kind === 'neighborhood') return '邻域';
-  if (scope.kind === 'file') return '本文件';
-  return '全部';
+  if (scope.kind === 'neighborhood') return 'Neighborhood';
+  if (scope.kind === 'file') return 'This File';
+  return 'All';
 }
 
 /** 主统计行：函数 / 边 / 未解析 / 耗时。 */
 export function formatStats(stats: GraphStats): string {
   return (
-    '函数 ' + stats.funcs +
-    '  ·  连边 ' + stats.edges +
-    '  ·  未解析 ' + stats.unresolved +
-    '  ·  耗时 ' + stats.ms + 'ms'
+    'Functions ' + stats.funcs +
+    '  ·  Edges ' + stats.edges +
+    '  ·  Unresolved ' + stats.unresolved +
+    '  ·  Time ' + stats.ms + 'ms'
   );
 }
 
@@ -98,11 +99,21 @@ export function TopBar(): ReactNode {
   const showExternal = useAppStore((s) => s.showExternal);
   const addFiles = useAppStore((s) => s.addFiles);
   const removeFile = useAppStore((s) => s.removeFile);
+  const setActiveFile = useAppStore((s) => s.setActiveFile);
   const setScope = useAppStore((s) => s.setScope);
   const setShowExternal = useAppStore((s) => s.setShowExternal);
   const reset = useAppStore((s) => s.reset);
+  const navBack = useAppStore((s) => s.navBack);
+  const navForward = useAppStore((s) => s.navForward);
+  const navIndex = useAppStore((s) => s.navIndex);
+  const navHistory = useAppStore((s) => s.navHistory);
+
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  useEffect(() => { if (!ctxMenu) return; const h = () => setCtxMenu(null); window.addEventListener('click', h); return () => window.removeEventListener('click', h); }, [ctxMenu]);
 
   const busy = status === 'loading-wasm' || status === 'parsing';
+  const canGoBack = navIndex > 0;
+  const canGoForward = navIndex >= 0 && navIndex < navHistory.length - 1;
   const selectedId = selection.funcId;
   const depth = scope.kind === 'neighborhood' ? scope.depth : DEFAULT_DEPTH;
 
@@ -124,14 +135,41 @@ export function TopBar(): ReactNode {
       <View style={styles.row}>
         <View style={styles.brand}>
           <Text style={styles.title} numberOfLines={1}>
-            Python 调用关系图
+            Python Call Graph
           </Text>
           <Text style={styles.subtitle} numberOfLines={1}>
-            上传 .py 文件，浏览器内解析，代码与图双向定位
+            Upload .py files, parse in-browser, bidirectional code & graph navigation
           </Text>
         </View>
 
         <View style={styles.actions}>
+          <View style={styles.navGroup}>
+            <Pressable
+              testID="topbar-nav-back"
+              onPress={navBack}
+              disabled={!canGoBack || busy}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              style={[styles.navBtn, (!canGoBack || busy) && styles.navBtnDisabled]}
+            >
+              <Text style={[styles.navBtnText, (!canGoBack || busy) && styles.navBtnTextDisabled]}>
+                {'←'}
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="topbar-nav-forward"
+              onPress={navForward}
+              disabled={!canGoForward || busy}
+              accessibilityRole="button"
+              accessibilityLabel="Forward"
+              style={[styles.navBtn, (!canGoForward || busy) && styles.navBtnDisabled]}
+            >
+              <Text style={[styles.navBtnText, (!canGoForward || busy) && styles.navBtnTextDisabled]}>
+                {'→'}
+              </Text>
+            </Pressable>
+          </View>
+
           <Pressable
             testID="topbar-upload"
             onPress={onPick}
@@ -139,27 +177,27 @@ export function TopBar(): ReactNode {
             accessibilityRole="button"
             style={[styles.btnPrimary, busy && styles.btnDisabled]}
           >
-            <Text style={styles.btnPrimaryText}>{busy ? '解析中…' : '选择 .py 文件'}</Text>
+            <Text style={styles.btnPrimaryText}>{busy ? 'Parsing…' : 'Select .py Files'}</Text>
           </Pressable>
 
           <View style={styles.segment} testID="topbar-scope">
             <ScopeButton
               testID="scope-neighborhood"
-              label="邻域"
+              label="Neighborhood"
               active={scope.kind === 'neighborhood'}
               disabled={!selectedId}
               onPress={onNeighborhood}
             />
             <ScopeButton
               testID="scope-file"
-              label="本文件"
+              label="This File"
               active={scope.kind === 'file'}
               disabled={!activeFile}
               onPress={onFileScope}
             />
             <ScopeButton
               testID="scope-all"
-              label="全部"
+              label="All"
               active={scope.kind === 'all'}
               disabled={false}
               onPress={() => setScope(ALL_SCOPE)}
@@ -174,7 +212,7 @@ export function TopBar(): ReactNode {
             style={[styles.toggle, showExternal && styles.toggleOn]}
           >
             <View style={[styles.toggleDot, showExternal && styles.toggleDotOn]} />
-            <Text style={[styles.toggleText, showExternal && styles.toggleTextOn]}>显示外部调用</Text>
+            <Text style={[styles.toggleText, showExternal && styles.toggleTextOn]}>Show External Calls</Text>
           </Pressable>
 
           {files.length > 0 ? (
@@ -184,7 +222,7 @@ export function TopBar(): ReactNode {
               accessibilityRole="button"
               style={styles.btnGhost}
             >
-              <Text style={styles.btnGhostText}>清空</Text>
+              <Text style={styles.btnGhostText}>Clear</Text>
             </Pressable>
           ) : null}
         </View>
@@ -202,11 +240,11 @@ export function TopBar(): ReactNode {
             const ci = colorIndexOfFile(graph?.files ?? null, files, f.path);
             const active = f.path === activeFile;
             return (
-              <View
+              <Pressable
                 key={f.path}
                 testID={'chip-' + f.path}
-                style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}
-              >
+                onPress={() => setActiveFile(f.path)}
+                style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}>
                 <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
                 <Text style={[styles.chipText, !!f.error && styles.chipTextError]} numberOfLines={1}>
                   {f.name}
@@ -216,28 +254,61 @@ export function TopBar(): ReactNode {
                   onPress={() => void removeFile(f.path)}
                   disabled={busy}
                   accessibilityRole="button"
-                  accessibilityLabel={'移除 ' + f.name}
+                  accessibilityLabel={'Remove ' + f.name}
                   hitSlop={6}
                   style={styles.chipRemove}
                 >
                   <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
                 </Pressable>
-              </View>
+              </Pressable>
             );
           })}
         </ScrollView>
       ) : null}
 
-      {graph ? (
+
+      {ctxMenu ? (
+        <View
+          testID="chip-context-menu"
+          style={[styles.ctxMenu, { left: ctxMenu.x, top: ctxMenu.y }]}
+          onStartShouldSetResponder={() => true}
+        >
+          <Pressable
+            testID="ctx-close"
+            onPress={() => { void removeFile(ctxMenu.path); setCtxMenu(null); }}
+            style={styles.ctxItem}
+          >
+            <Text style={styles.ctxText}>Close</Text>
+          </Pressable>
+          <Pressable
+            testID="ctx-close-others"
+            onPress={() => {
+              const keep = ctxMenu.path;
+              const others = files.filter((f) => f.path !== keep);
+              Promise.all(others.map((f) => removeFile(f.path))).then(() => setCtxMenu(null));
+            }}
+            style={styles.ctxItem}
+          >
+            <Text style={styles.ctxText}>Close Others</Text>
+          </Pressable>
+          <Pressable
+            testID="ctx-close-all"
+            onPress={() => { reset(); setCtxMenu(null); }}
+            style={styles.ctxItem}
+          >
+            <Text style={styles.ctxText}>Close All</Text>
+          </Pressable>
+        </View>
+      ) : null}      {graph ? (
         <View style={styles.statsRow} testID="topbar-stats">
           <Text style={styles.statsText}>{formatStats(graph.stats)}</Text>
           {formatReasons(graph.stats) ? (
             <Text style={styles.statsReason} testID="topbar-stats-reasons" numberOfLines={1}>
-              {'未解析明细：' + formatReasons(graph.stats)}
+              {'Unresolved: ' + formatReasons(graph.stats)}
             </Text>
           ) : null}
           <Text style={styles.statsScope} numberOfLines={1}>
-            {'范围：' + scopeLabel(scope)}
+            {'Scope: ' + scopeLabel(scope)}
           </Text>
         </View>
       ) : null}
@@ -246,8 +317,8 @@ export function TopBar(): ReactNode {
         <View style={styles.progressRow} testID="topbar-progress">
           <Text style={styles.progressText}>
             {status === 'loading-wasm'
-              ? '正在加载解析引擎…'
-              : '已解析 ' + progress.done + '/' + progress.total}
+              ? 'Loading parser…'
+              : 'Parsed ' + progress.done + '/' + progress.total}
           </Text>
         </View>
       ) : null}
@@ -261,7 +332,7 @@ export function TopBar(): ReactNode {
       {warnings.length > 0 ? (
         <View style={styles.warnBar} testID="topbar-warnings">
           <Text style={styles.warnText} numberOfLines={3}>
-            {warnings.length + ' 个文件存在问题（已跳过或尽力解析），其余文件仍正常出图：\n' + warnings.join('\n')}
+            {warnings.length + ' file(s) had issues (skipped or best-effort parsed), remaining files rendered normally:\n' + warnings.join('\n')}
           </Text>
         </View>
       ) : null}
@@ -304,6 +375,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  navGroup: { flexDirection: 'row', gap: spacing.xs, marginRight: spacing.sm },
+  navBtn: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 4,
+    backgroundColor: colors.panelAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  navBtnDisabled: { opacity: 0.4 },
+  navBtnText: { color: colors.text, fontSize: 16, fontFamily: fonts.ui },
+  navBtnTextDisabled: { color: colors.faint },
   btnGhostText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
 
   segment: {
@@ -361,6 +446,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 10,
   },
+  ctxMenu: {
+    position: 'absolute',
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: 6,
+    paddingVertical: 4,
+    minWidth: 120,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  ctxItem: { paddingHorizontal: 12, paddingVertical: 6 },
+  ctxText: { color: colors.text, fontFamily: fonts.ui, fontSize: 12 },
   chipRemoveText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 14, lineHeight: 16 },
 
   statsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flexWrap: 'wrap' },
@@ -390,3 +491,5 @@ const styles = StyleSheet.create({
   },
   warnText: { color: colors.warn, fontFamily: fonts.ui, fontSize: 11 },
 });
+
+

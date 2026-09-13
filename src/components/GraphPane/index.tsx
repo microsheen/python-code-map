@@ -59,8 +59,16 @@ export const ZOOM_OUT = 0.8;
 export const WHEEL_LINE_FACTOR = 0.05;
 /** deltaMode=0（按像素）时每一像素的系数 */
 export const WHEEL_PIXEL_FACTOR = 0.0016;
-/** 有选中项时，非邻居元素的不透明度 */
-export const DIM_OPACITY = 0.3;
+/**
+ * 有选中项时，非邻居节点的不透明度。
+ *
+ * 目标是"压暗"而不是"隐藏"：0.6 时节点文字与深色背景的对比度仍有约 4.5:1，
+ * 读得清函数名，同时和满不透明度、边框加粗的选中/相邻节点拉开明显层次。
+ * 再往下（例如 0.3）文字会灰到看不清，往上则失去聚焦效果。
+ */
+export const DIM_OPACITY = 0.7;
+/** 非邻居连边的不透明度：边比节点再暗一档，避免背景连线抢走视线 */
+export const EDGE_DIM_OPACITY = 0.7;
 export const NODE_RADIUS = 7;
 
 const CURSOR_GRAB = { cursor: 'default', userSelect: 'none' } as unknown as ViewStyle;
@@ -331,8 +339,8 @@ export function GraphPane(): ReactNode {
   if (layout) {
     for (const e of layout.edges) {
       const active = neighborEdges.has(e.id);
-      const stroke = active ? colors.neighbor : hasSelection ? colors.edgeDim : colors.edge;
-      const opacity = hasSelection && !active ? DIM_OPACITY + 0.15 : 1;
+      const stroke = active ? colors.neighbor : colors.edge;
+      const opacity = hasSelection && !active ? EDGE_DIM_OPACITY : 1;
       edgePaths.push(
         <G key={e.id} testID={'graph-edge-' + e.id} opacity={opacity}>
           <Path d={e.d} stroke={stroke} strokeWidth={e.strokeWidth} fill="none" />
@@ -390,11 +398,11 @@ export function GraphPane(): ReactNode {
         {empty ? (
           <View style={styles.emptyWrap} testID="graph-empty">
             <Text style={styles.emptyTitle}>
-              {'\u6ca1\u6709\u53ef\u663e\u793a\u7684\u8c03\u7528\u5173\u7cfb'}
+              {'No call relationships to display'}
             </Text>
             <Text style={styles.emptyHint}>
               {
-                '\u4e0a\u4f20 .py \u6587\u4ef6\u540e\uff0c\u8fd9\u91cc\u4f1a\u663e\u793a\u51fd\u6570\u4e4b\u95f4\u7684\u8c03\u7528\u56fe\u3002'
+                'Upload .py files to see the call graph here.'
               }
             </Text>
           </View>
@@ -430,7 +438,7 @@ export function GraphPane(): ReactNode {
             onPress={() => fitView()}
             accessibilityLabel="fit"
           >
-            <Text style={styles.toolBtnText}>{'\u9002\u5e94\u7a97\u53e3'}</Text>
+            <Text style={styles.toolBtnText}>{'Fit View'}</Text>
           </Pressable>
           <Text style={styles.zoomLabel} testID="graph-zoom-label">
             {Math.round(view.scale * 100) + '%'}
@@ -440,9 +448,9 @@ export function GraphPane(): ReactNode {
         {large ? (
           <View style={styles.hint} testID="graph-large-hint">
             <Text style={styles.hintText}>
-              {'\u5f53\u524d\u8303\u56f4\u8282\u70b9\u8f83\u591a\uff08' +
+              {'Too many nodes in current scope (' +
                 (scoped ? scoped.nodes.length : 0) +
-                '\uff09\uff0c\u5efa\u8bae\u5207\u5230\u201c\u90bb\u57df\u201d\u6216\u201c\u672c\u6587\u4ef6\u201d\u7f29\u5c0f\u8303\u56f4'}
+                '), try switching to "Neighborhood" or "This File" to narrow the scope'}
             </Text>
           </View>
         ) : null}
@@ -451,8 +459,8 @@ export function GraphPane(): ReactNode {
           <View style={styles.busy} testID="graph-busy">
             <Text style={styles.busyText}>
               {status === 'loading-wasm'
-                ? '\u6b63\u5728\u52a0\u8f7d\u89e3\u6790\u5f15\u64ce\u2026'
-                : '\u6b63\u5728\u89e3\u6790 ' + progress.done + '/' + progress.total + ' \u2026'}
+                ? 'Loading parser\u2026'
+                : 'Parsing ' + progress.done + '/' + progress.total + ' \u2026'}
             </Text>
           </View>
         ) : null}
@@ -475,9 +483,9 @@ export function GraphPane(): ReactNode {
           {selectedFunc
             ? nodeLabel(selectedFunc) +
               (selectedFunc.file ? '  \u00b7  ' + selectedFunc.file : '') +
-              '  \u00b7  \u76f4\u63a5\u76f8\u90bb ' +
+              '  \u00b7  direct neighbors ' +
               neighbors.size
-            : '\u70b9\u51fb\u8282\u70b9\u5b9a\u4f4d\u5230\u4ee3\u7801\uff1b\u6eda\u8f6e\u7f29\u653e\uff0c\u62d6\u52a8\u5e73\u79fb'}
+            : 'Click a node to locate code; scroll to zoom, drag to pan'}
         </Text>
       </View>
     </View>

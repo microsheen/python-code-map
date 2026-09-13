@@ -52,15 +52,38 @@ export const FLASH_MS = 1200;
 /** 闪烁层的起始不透明度（随后 1.2s 内淡出到 0） */
 export const FLASH_PEAK_OPACITY = 0.85;
 
-/** react-native 的 TextStyle 里没有 whiteSpace，但 RNW 支持；代码行必须不换行才能保住 ROW_H。 */
-const PRE_TEXT = { whiteSpace: 'pre' } as unknown as TextStyle;
-/** 让纵向 ScrollView 同时可以横向滚动，长行不被截断。 */
-const SCROLL_X = { overflowX: 'auto' } as unknown as ViewStyle;
-/** 行号栏在横向滚动时吸住左边。 */
-const STICKY = { position: 'sticky', left: 0, zIndex: 2 } as unknown as ViewStyle;
 
+/** 可点击片段（buildPieces 的返回类型） */
 export interface ClickPiece {
   text: string;
+  color: string;
+  funcId: FuncId | null;
+  kind: ClickKind | null;
+  key: string;
+  clickable: boolean;
+}
+
+/** 固定定位样式（gutter 在水平滚动时保持不动） */
+const STICKY = { position: 'sticky', left: 0 } as unknown as ViewStyle;
+/** <Text> 保留空白与换行，模拟 <pre> */
+const PRE_TEXT = { whiteSpace: 'pre' } as unknown as TextStyle;
+/** 允许水平滚动（代码行很长时） */
+const SCROLL_X = { overflowX: 'auto' } as unknown as ViewStyle;
+
+
+/** 将函数体代码复制到剪贴板，返回是否成功 */
+async function copyFuncCode(lines: string[], startLine: number, endLine: number): Promise<boolean> {
+  const code = lines.slice(startLine - 1, endLine).join('\n');
+  try {
+    await navigator.clipboard.writeText(code);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+export interface TokenPiece {
   color: string;
   funcId: FuncId | null;
   kind: ClickKind | null;
@@ -214,6 +237,7 @@ export function CodeView(): ReactNode {
   const [scrollTop, setScrollTop] = useState(0);
   const [charW, setCharW] = useState(FALLBACK_CHAR_W);
   const [flash, setFlash] = useState<{ start: number; end: number } | null>(null);
+  const [copyToast, setCopyToast] = useState(false);
   const flashOpacity = useRef(new Animated.Value(0)).current;
   const flashRun = useRef<Animated.CompositeAnimation | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -224,7 +248,6 @@ export function CodeView(): ReactNode {
 
   const fileFuncs = useMemo(() => {
     const out: FuncSymbol[] = [];
-    if (!path) return out;
     for (const f of allFuncs.values()) if (f.file === path && !f.synthetic) out.push(f);
     out.sort((a, b) => a.startLine - b.startLine);
     return out;
@@ -329,7 +352,8 @@ export function CodeView(): ReactNode {
     setFlash(null);
   }, [path]);
 
-  // 图 -> 代码：切文件由 store 完成，这里负责滚动到 def 行 + 闪烁
+  // 图 -> 代码 或 后退/前进：滚动到 def 行 + 闪烁
+  // code -> code（点击代码区）不触发，避免用户刚点完就被滚走
   useEffect(() => {
     if (!target || !path) return;
     if (selection.source === 'code') return;
@@ -352,10 +376,29 @@ export function CodeView(): ReactNode {
   const onBodyPress = (line: number): void => {
     const owner = lineOwners.get(line);
     selectFromCode(owner ? owner.id : null);
+    // 复制函数体代码到剪贴板
+    if (owner) {
+      copyFuncCode(lines, owner.startLine, owner.endLine).then((ok) => {
+        if (ok) {
+          setCopyToast(true);
+          setTimeout(() => setCopyToast(false), 1500);
+        }
+      });
+    }
   };
 
   const onTokenPress = (funcId: FuncId): void => {
     selectFromCode(funcId);
+    // 复制函数体代码到剪贴板
+    const func = allFuncs.get(funcId);
+    if (func) {
+      copyFuncCode(lines, func.startLine, func.endLine).then((ok) => {
+        if (ok) {
+          setCopyToast(true);
+          setTimeout(() => setCopyToast(false), 1500);
+        }
+      });
+    }
   };
 
   const rows: ReactNode[] = [];
@@ -438,6 +481,25 @@ export function CodeView(): ReactNode {
             />
           ) : null}
         </View>
+
+          {copyToast ? (
+            <View
+              style={{
+                position: 'absolute',
+                bottom: 16,
+                left: '50%',
+                transform: [{ translateX: -60 }],
+                backgroundColor: colors.ok,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 6,
+                zIndex: 100,
+              }}
+              testID="copy-toast"
+            >
+              <Text style={{ color: colors.bg, fontSize: 12, fontFamily: fonts.ui }}>Copied</Text>
+            </View>
+          ) : null}
       </ScrollView>
       <View style={styles.measurerWrap} onLayout={onMeasure}>
         <Text style={[styles.measurer, PRE_TEXT]}>{'0'.repeat(MEASURE_CHARS)}</Text>
@@ -459,6 +521,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     paddingRight: spacing.sm,
     backgroundColor: colors.panel,
+    userSelect: 'none',
   },
   gutterSelected: { backgroundColor: colors.panelAlt },
   gutterMarkWrap: { width: 16, alignItems: 'center', justifyContent: 'center' },
@@ -480,6 +543,7 @@ const styles = StyleSheet.create({
     lineHeight: ROW_H,
     color: colors.text,
     flexShrink: 0,
+    userSelect: 'text',
   },
   clickable: { textDecorationLine: 'underline', textDecorationColor: 'rgba(201, 209, 217, 0.4)' },
   emptyText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 13, padding: spacing.lg },

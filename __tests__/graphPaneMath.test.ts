@@ -1,13 +1,15 @@
 /**
  * GraphPane 里的纯函数与常量。
  *
- * 这里不渲染组件（组件行为在 appFlow.test.tsx 里覆盖），只锁住三件容易在
- * 重构时被无声改坏的事：滚轮灵敏度、以光标为锚点的缩放不变量、标签截断。
+ * 这里不渲染组件（组件行为在 appFlow.test.tsx 里覆盖），只锁住几件容易在
+ * 重构时被无声改坏的事：滚轮灵敏度、以光标为锚点的缩放不变量、标签截断、
+ * 以及"选中时非邻居只压暗不隐藏"的对比度下限。
  */
 import {
   DEFAULT_VIEWPORT,
   DIM_OPACITY,
   DRAG_SLOP,
+  EDGE_DIM_OPACITY,
   NODE_RADIUS,
   WHEEL_LINE_FACTOR,
   WHEEL_PIXEL_FACTOR,
@@ -32,8 +34,15 @@ describe('GraphPane 常量', () => {
     expect(ZOOM_IN * ZOOM_OUT).toBeCloseTo(1, 5);
     expect(DRAG_SLOP).toBeGreaterThan(0);
     expect(NODE_RADIUS).toBeGreaterThan(0);
-    expect(DIM_OPACITY).toBeGreaterThan(0);
+  });
+
+  it('压暗只降不隐：非邻居节点仍读得清，连边颜色不双重压暗', () => {
+    // 0.5 是节点文字对比度约 4:1 的经验下限，低于它"其他函数太暗看不清"就会复发
+    expect(DIM_OPACITY).toBeGreaterThanOrEqual(0.5);
     expect(DIM_OPACITY).toBeLessThan(1);
+    // 边不再用 edgeDim 颜色，只靠透明度区分，所以 EDGE_DIM_OPACITY 可以 >= DIM_OPACITY
+    expect(EDGE_DIM_OPACITY).toBeGreaterThan(0);
+    expect(EDGE_DIM_OPACITY).toBeLessThan(1);
   });
 
   it('两种 deltaMode 的灵敏度系数：按行远大于按像素', () => {

@@ -311,7 +311,7 @@ describe('loadFiles / addFiles / removeFile', () => {
     reset();
     await s().loadFiles([py('a.py', 'def f():\n    pass\n')], NULL_PARSER);
     expect(s().status).toBe('ready');
-    expect(s().error).toContain('所有文件都解析失败');
+    expect(s().error).toContain('All files failed to parse');
     expect(s().warnings).toHaveLength(1);
     expect(s().warnings[0]).toContain('a.py');
     expect(s().graph?.nodes).toEqual([]);
@@ -369,14 +369,14 @@ describe('loadFiles / addFiles / removeFile', () => {
     reset();
     const boom: PythonParser = {
       parse: () => {
-        throw new Error('ABI 不兼容');
+        throw new Error('ABI incompatible');
       },
       dispose: () => {},
     };
     await s().loadFiles([py('a.py', 'def f():\n    pass\n')], boom);
     // 单文件异常被 analyzeFiles 兜住并记在 file.error 上，因此走的是"全部失败"分支
     expect(s().status).toBe('ready');
-    expect(s().warnings[0]).toContain('ABI 不兼容');
+    expect(s().warnings[0]).toContain('ABI incompatible');
   });
 
   it('loadFiles 成功后重置 selection / scope / view', async () => {

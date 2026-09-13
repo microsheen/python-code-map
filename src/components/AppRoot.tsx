@@ -39,8 +39,8 @@ export function AppRoot(): ReactNode {
       {dragging ? (
         <View style={styles.overlay} testID="drop-overlay">
           <View style={styles.overlayBox}>
-            <Text style={styles.overlayTitle}>松开鼠标即可上传</Text>
-            <Text style={styles.overlayHint}>只接受 .py / .pyi 文本文件</Text>
+            <Text style={styles.overlayTitle}>Release to upload</Text>
+            <Text style={styles.overlayHint}>.py / .pyi text files only</Text>
           </View>
         </View>
       ) : null}

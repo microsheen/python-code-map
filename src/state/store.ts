@@ -17,7 +17,7 @@ import type {
   PyFile,
 } from '../parser/types';
 
-export type SelectionSource = 'code' | 'graph' | 'scope';
+export type SelectionSource = 'code' | 'graph' | 'scope' | 'nav';
 
 export interface Selection {
   funcId: FuncId | null;
@@ -40,7 +40,7 @@ export interface Progress {
 }
 
 export const IDENTITY_VIEW: ViewState = { tx: 0, ty: 0, scale: 1 };
-export const DEFAULT_SPLIT = 0.45;
+export const DEFAULT_SPLIT = 0.35; 
 export const MIN_SPLIT = 0.25;
 export const MAX_SPLIT = 0.75;
 export const NO_SELECTION: Selection = { funcId: null, source: 'scope', nonce: 0 };
@@ -73,6 +73,12 @@ export interface AppStore {
   /** +1 表示"请重新适应窗口" */
   fitNonce: number;
   parser: PythonParser | null;
+  /** 导航历史：每次选中函数时推入，支持后退/前进 */
+  navHistory: FuncId[];
+  /** 当前在历史中的位置（-1 表示不在历史中） */
+  navIndex: number;
+  /** 导航历史：每次选中函数时推入，支持后退/前进 */
+  /** 当前在历史中的位置（-1 表示不在历史中） */
 
   loadFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
   addFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
@@ -85,6 +91,8 @@ export interface AppStore {
   setSplitRatio: (ratio: number) => void;
   setView: (patch: Partial<ViewState>) => void;
   fitView: () => void;
+  navBack: () => void;
+  navForward: () => void;
   reset: () => void;
 }
 
@@ -128,9 +136,9 @@ export const useAppStore = create<AppStore>()((set, get) => {
         activeFile: pickActiveFile(get().activeFile, result.files),
         error:
           failed.length > 0 && failed.length === result.files.length
-            ? '所有文件都解析失败，请检查文件是否为合法的 Python 文本'
+            ? 'All files failed to parse. Please check that the files are valid Python text.'
             : null,
-        warnings: failed.map((f) => `${f.name}：${f.error ?? '未知错误'}`),
+        warnings: failed.map((f) => `${f.name}：${f.error ?? 'Unknown error'}`),
         selection: NO_SELECTION,
         scope: ALL_SCOPE,
         view: IDENTITY_VIEW,
@@ -161,6 +169,8 @@ export const useAppStore = create<AppStore>()((set, get) => {
     view: IDENTITY_VIEW,
     fitNonce: 0,
     parser: null,
+    navHistory: [],
+    navIndex: -1,
 
     loadFiles: (files, parser) => runAnalysis(files, parser),
 
@@ -193,10 +203,15 @@ export const useAppStore = create<AppStore>()((set, get) => {
           ? applyScope(state.graph, state.scope, { showExternal: state.showExternal })
           : null;
         const visible = !!scoped && scopeContains(scoped, funcId);
+        // 推入导航历史：截断当前位置之后的历史，再追加新项
+        const nextHistory = state.navIndex >= 0
+          ? [...state.navHistory.slice(0, state.navIndex + 1), funcId]
+          : [funcId];
         return {
           selection: { funcId, source: 'code', nonce },
-          // 目标不在当前范围内时自动切到它的邻域，否则右侧没法居中
           scope: visible ? state.scope : neighborhoodScope(funcId),
+          navHistory: nextHistory,
+          navIndex: nextHistory.length - 1,
         };
       }),
 
@@ -207,10 +222,16 @@ export const useAppStore = create<AppStore>()((set, get) => {
           state.scope.kind === 'neighborhood'
             ? neighborhoodScope(funcId, state.scope.depth)
             : state.scope;
+        // 推入导航历史
+        const nextHistory = state.navIndex >= 0
+          ? [...state.navHistory.slice(0, state.navIndex + 1), funcId]
+          : [funcId];
         return {
           selection: { funcId, source: 'graph', nonce: state.selection.nonce + 1 },
           scope: nextScope,
           activeFile: file && state.files.some((f) => f.path === file) ? file : state.activeFile,
+          navHistory: nextHistory,
+          navIndex: nextHistory.length - 1,
         };
       }),
 
@@ -239,6 +260,32 @@ export const useAppStore = create<AppStore>()((set, get) => {
 
     fitView: () => set((state) => ({ fitNonce: state.fitNonce + 1 })),
 
+    navBack: () =>
+      set((state) => {
+        if (state.navIndex <= 0) return state;
+        const prevId = state.navHistory[state.navIndex - 1] ?? null;
+        if (!prevId) return state;
+        const file = funcFile(prevId);
+        return {
+          selection: { funcId: prevId, source: 'nav', nonce: state.selection.nonce + 1 },
+          activeFile: file && state.files.some((f) => f.path === file) ? file : state.activeFile,
+          navIndex: state.navIndex - 1,
+        };
+      }),
+
+    navForward: () =>
+      set((state) => {
+        if (state.navIndex < 0 || state.navIndex >= state.navHistory.length - 1) return state;
+        const nextId = state.navHistory[state.navIndex + 1] ?? null;
+        if (!nextId) return state;
+        const file = funcFile(nextId);
+        return {
+          selection: { funcId: nextId, source: 'nav', nonce: state.selection.nonce + 1 },
+          activeFile: file && state.files.some((f) => f.path === file) ? file : state.activeFile,
+          navIndex: state.navIndex + 1,
+        };
+      }),
+
     reset: () =>
       set((state) => ({
         files: [],
@@ -254,6 +301,8 @@ export const useAppStore = create<AppStore>()((set, get) => {
         scope: ALL_SCOPE,
         view: IDENTITY_VIEW,
         fitNonce: state.fitNonce + 1,
+        navHistory: [],
+        navIndex: -1,
       })),
   };
 });

@@ -38,19 +38,19 @@ describe('REASON_LABELS', () => {
 
 describe('scopeLabel', () => {
   it('三种范围各自的文案', () => {
-    expect(scopeLabel(neighborhoodScope('a.py::f'))).toBe('邻域');
-    expect(scopeLabel(fileScope('a.py'))).toBe('本文件');
-    expect(scopeLabel(ALL_SCOPE)).toBe('全部');
+    expect(scopeLabel(neighborhoodScope('a.py::f'))).toBe('Neighborhood');
+    expect(scopeLabel(fileScope('a.py'))).toBe('This File');
+    expect(scopeLabel(ALL_SCOPE)).toBe('All');
   });
 
   it('邻域深度不影响文案', () => {
-    expect(scopeLabel(neighborhoodScope('a.py::f', 3))).toBe('邻域');
+    expect(scopeLabel(neighborhoodScope('a.py::f', 3))).toBe('Neighborhood');
   });
 });
 
 describe('formatStats', () => {
   it('按 函数 / 连边 / 未解析 / 耗时 的顺序输出', () => {
-    expect(formatStats(stats())).toBe('函数 12  ·  连边 9  ·  未解析 4  ·  耗时 37ms');
+    expect(formatStats(stats())).toBe('Functions 12  ·  Edges 9  ·  Unresolved 4  ·  Time 37ms');
   });
 
   it('全 0 时仍输出完整四项', () => {
@@ -61,13 +61,13 @@ describe('formatStats', () => {
       ms: 0,
       byReason: { ambiguous: 0, external: 0, dynamic: 0, unknown: 0 },
     });
-    expect(formatStats(s)).toBe('函数 0  ·  连边 0  ·  未解析 0  ·  耗时 0ms');
+    expect(formatStats(s)).toBe('Functions 0  ·  Edges 0  ·  Unresolved 0  ·  Time 0ms');
   });
 });
 
 describe('formatReasons', () => {
   it('只列出非 0 的原因，顺序固定为 歧义/外部/动态/未知', () => {
-    expect(formatReasons(stats())).toBe('歧义 1  ·  外部 2  ·  动态 1');
+    expect(formatReasons(stats())).toBe('Ambiguous 1  ·  External 2  ·  Dynamic 1');
   });
 
   it('全 0 时返回空串（工具栏不留空壳）', () => {
@@ -81,13 +81,13 @@ describe('formatReasons', () => {
   it('单项非 0 时不带分隔符', () => {
     expect(
       formatReasons(stats({ byReason: { ambiguous: 0, external: 5, dynamic: 0, unknown: 0 } })),
-    ).toBe('外部 5');
+    ).toBe('External 5');
   });
 
   it('byReason 缺字段按 0 处理', () => {
     const s = stats();
     delete (s.byReason as Partial<Record<UnresolvedReason, number>>).dynamic;
-    expect(formatReasons(s)).toBe('歧义 1  ·  外部 2');
+    expect(formatReasons(s)).toBe('Ambiguous 1  ·  External 2');
   });
 });
 

@@ -16,9 +16,14 @@ import { TopBar } from './TopBar';
 import { UploadPanel } from './UploadPanel';
 
 export function AppRoot(): ReactNode {
-  const files = useAppStore((s) => s.files);
   const addFiles = useAppStore((s) => s.addFiles);
   const restoreSession = useAppStore((s) => s.restoreSession);
+  const ctxMenu = useAppStore((s) => s.ctxMenu);
+  const setCtxMenu = useAppStore((s) => s.setCtxMenu);
+  const removeFile = useAppStore((s) => s.removeFile);
+  const removeFiles = useAppStore((s) => s.removeFiles);
+  const reset = useAppStore((s) => s.reset);
+  const files = useAppStore((s) => s.files);
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
@@ -49,6 +54,93 @@ export function AppRoot(): ReactNode {
             <Text style={styles.overlayHint}>.py / .pyi text files only (max 20)</Text>
           </View>
         </View>
+      ) : null}
+      {ctxMenu ? (
+        <div
+          data-testid="chip-context-menu"
+          style={{
+            position: 'fixed',
+            left: ctxMenu.x,
+            top: ctxMenu.y,
+            backgroundColor: colors.raised,
+            border: '1px solid ' + colors.borderStrong,
+            borderRadius: 6,
+            padding: '4px 0',
+            minWidth: 140,
+            zIndex: 10000,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          }}
+        >
+          <div
+            data-testid="ctx-close"
+            onClick={() => {
+              void removeFile(ctxMenu.path);
+              setCtxMenu(null);
+            }}
+            style={{
+              padding: '6px 16px',
+              fontSize: 13,
+              fontFamily: fonts.ui,
+              color: colors.text,
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLDivElement).style.background = colors.panel;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+            }}
+          >
+            Close
+          </div>
+          <div
+            data-testid="ctx-close-others"
+            onClick={() => {
+              const keep = ctxMenu.path;
+              const others = files.filter((f) => f.path !== keep);
+              void removeFiles(others.map((f) => f.path)).then(() => setCtxMenu(null));
+            }}
+            style={{
+              padding: '6px 16px',
+              fontSize: 13,
+              fontFamily: fonts.ui,
+              color: colors.text,
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLDivElement).style.background = colors.panel;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+            }}
+          >
+            Close Others
+          </div>
+          <div
+            data-testid="ctx-close-all"
+            onClick={() => {
+              void removeFiles(files.map((f) => f.path)).then(() => setCtxMenu(null));
+            }}
+            style={{
+              padding: '6px 16px',
+              fontSize: 13,
+              fontFamily: fonts.ui,
+              color: colors.text,
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLDivElement).style.background = colors.panel;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+            }}
+          >
+            Close All
+          </div>
+        </div>
       ) : null}
     </View>
   );
@@ -84,3 +176,8 @@ const styles = StyleSheet.create({
   overlayTitle: { color: colors.text, fontFamily: fonts.ui, fontSize: 17, fontWeight: '700' },
   overlayHint: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
 });
+
+
+
+
+

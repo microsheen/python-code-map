@@ -56,6 +56,8 @@ export function clampSplit(ratio: number): number {
   return Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, ratio));
 }
 
+export interface CtxMenu { x: number; y: number; path: string; }
+
 export interface AppStore {
   files: PyFile[];
   analyses: FileAnalysis[];
@@ -78,12 +80,14 @@ export interface AppStore {
   navHistory: FuncId[];
   /** 当前在历史中的位置（-1 表示不在历史中） */
   navIndex: number;
+  ctxMenu: CtxMenu | null;
   /** 导航历史：每次选中函数时推入，支持后退/前进 */
   /** 当前在历史中的位置（-1 表示不在历史中） */
 
   loadFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
   addFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
   removeFile: (path: string) => Promise<void>;
+  removeFiles: (paths: string[]) => Promise<void>;
   setActiveFile: (path: string) => void;
   selectFromCode: (funcId: FuncId | null) => void;
   selectFromGraph: (funcId: FuncId) => void;
@@ -95,6 +99,7 @@ export interface AppStore {
   navForward: () => void;
   restoreSession: () => Promise<void>;
   reset: () => Promise<void>;
+  setCtxMenu: (menu: CtxMenu | null) => void;
 }
 
 function pickActiveFile(current: string | null, files: PyFile[]): string | null {
@@ -176,6 +181,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
     parser: null,
     navHistory: [],
     navIndex: -1,
+    ctxMenu: null,
 
     loadFiles: async (files, parser) => {
       if (files.length > MAX_FILES) {
@@ -203,6 +209,14 @@ export const useAppStore = create<AppStore>()((set, get) => {
     removeFile: async (path) => {
       const rest = get()
         .files.filter((f) => f.path !== path)
+        .map((f) => ({ path: f.path, name: f.name, content: f.content, error: f.error }));
+      await runAnalysis(rest, get().parser);
+    },
+
+    removeFiles: async (paths) => {
+      const pathSet = new Set(paths);
+      const rest = get()
+        .files.filter((f) => !pathSet.has(f.path))
         .map((f) => ({ path: f.path, name: f.name, content: f.content, error: f.error }));
       await runAnalysis(rest, get().parser);
     },
@@ -316,6 +330,8 @@ export const useAppStore = create<AppStore>()((set, get) => {
       }
     },
 
+    setCtxMenu: (menu) => set({ ctxMenu: menu }),
+
     reset: async () => {
       await clearSession();
       set((state) => ({
@@ -334,7 +350,14 @@ export const useAppStore = create<AppStore>()((set, get) => {
         fitNonce: state.fitNonce + 1,
         navHistory: [],
         navIndex: -1,
+        ctxMenu: null,
       }));
     },
   };
 });
+
+
+
+
+
+

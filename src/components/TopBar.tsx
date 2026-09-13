@@ -21,9 +21,12 @@ import { colors, fileColor, fonts, spacing } from '../theme';
 /** RN 样式类型里没有横向滚动开关，RNW 支持，用 cast 绕过。 */
 const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewStyle;
 
-
 /** 文件 chips 的着色下标：与 GraphPane 用同一份 files 顺序，保证颜色一致。 */
-export function colorIndexOfFile(graphFiles: string[] | null, files: { path: string }[], path: string): number {
+export function colorIndexOfFile(
+  graphFiles: string[] | null,
+  files: { path: string }[],
+  path: string
+): number {
   const order = graphFiles ?? files.map((f) => f.path);
   const i = order.indexOf(path);
   return i < 0 ? 0 : i;
@@ -45,7 +48,11 @@ function ScopeButton(props: ScopeButtonProps): ReactNode {
       onPress={props.onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: props.active, disabled: props.disabled }}
-      style={[styles.segBtn, props.active && styles.segBtnActive, props.disabled && styles.segBtnDisabled]}
+      style={[
+        styles.segBtn,
+        props.active && styles.segBtnActive,
+        props.disabled && styles.segBtnDisabled,
+      ]}
     >
       <Text style={[styles.segText, props.active && styles.segTextActive]}>{props.label}</Text>
     </Pressable>
@@ -64,6 +71,8 @@ export function TopBar(): ReactNode {
   const scope = useAppStore((s) => s.scope);
   const addFiles = useAppStore((s) => s.addFiles);
   const removeFile = useAppStore((s) => s.removeFile);
+  const setCtxMenu = useAppStore((s) => s.setCtxMenu);
+  const ctxMenu = useAppStore((s) => s.ctxMenu);
   const setActiveFile = useAppStore((s) => s.setActiveFile);
   const setScope = useAppStore((s) => s.setScope);
   const reset = useAppStore((s) => s.reset);
@@ -71,16 +80,17 @@ export function TopBar(): ReactNode {
   const navForward = useAppStore((s) => s.navForward);
   const navIndex = useAppStore((s) => s.navIndex);
   const navHistory = useAppStore((s) => s.navHistory);
-
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [hoveredChip, setHoveredChip] = useState<string | null>(null);
   const [chipScroll, setChipScroll] = useState({ canLeft: false, canRight: false });
   const chipsRef = useRef<RNScrollView>(null);
   const scrollOffsetRef = useRef(0);
   const SCROLL_STEP = 200;
-  useEffect(() => { if (!ctxMenu) return; const h = () => setCtxMenu(null); window.addEventListener('click', h); return () => window.removeEventListener('click', h); }, [ctxMenu]);
-
-
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const h = () => setCtxMenu(null);
+    window.addEventListener('click', h);
+    return () => window.removeEventListener('click', h);
+  }, [ctxMenu]);
 
   const busy = status === 'loading-wasm' || status === 'parsing';
   const canGoBack = navIndex > 0;
@@ -101,7 +111,13 @@ export function TopBar(): ReactNode {
     if (activeFile) setScope(fileScope(activeFile));
   };
 
-  const onChipScroll = (e: { nativeEvent: { contentOffset: { x: number }; contentSize: { width: number }; layoutMeasurement: { width: number } } }) => {
+  const onChipScroll = (e: {
+    nativeEvent: {
+      contentOffset: { x: number };
+      contentSize: { width: number };
+      layoutMeasurement: { width: number };
+    };
+  }) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     scrollOffsetRef.current = contentOffset.x;
     const canRight = contentOffset.x + layoutMeasurement.width < contentSize.width - 4;
@@ -129,7 +145,7 @@ export function TopBar(): ReactNode {
     } else {
       hasOverflow = chipContentWidth > chipLayoutWidth + 4;
     }
-    setChipScroll(prev => {
+    setChipScroll((prev) => {
       if (prev.canRight === hasOverflow && !prev.canLeft) return prev;
       return { canLeft: false, canRight: hasOverflow };
     });
@@ -142,7 +158,9 @@ export function TopBar(): ReactNode {
     const el = document.querySelector('[data-testid="topbar-chips"]') as HTMLElement | null;
     const current = el ? el.scrollLeft : scrollOffsetRef.current;
     if (dir === 'right') {
-      const maxScroll = el ? Math.max(0, el.scrollWidth - el.clientWidth) : Math.max(0, chipContentWidth - chipLayoutWidth);
+      const maxScroll = el
+        ? Math.max(0, el.scrollWidth - el.clientWidth)
+        : Math.max(0, chipContentWidth - chipLayoutWidth);
       const target = Math.min(current + SCROLL_STEP, maxScroll);
       sv.scrollTo({ x: target, animated: true });
     } else {
@@ -150,7 +168,6 @@ export function TopBar(): ReactNode {
       sv.scrollTo({ x: target, animated: true });
     }
   };
-
 
   return (
     <View style={styles.wrap} testID="topbar">
@@ -186,7 +203,9 @@ export function TopBar(): ReactNode {
               accessibilityLabel="Forward"
               style={[styles.navBtn, (!canGoForward || busy) && styles.navBtnDisabled]}
             >
-              <Text style={[styles.navBtnText, (!canGoForward || busy) && styles.navBtnTextDisabled]}>
+              <Text
+                style={[styles.navBtnText, (!canGoForward || busy) && styles.navBtnTextDisabled]}
+              >
                 {'→'}
               </Text>
             </Pressable>
@@ -226,7 +245,6 @@ export function TopBar(): ReactNode {
             />
           </View>
 
-
           {files.length > 0 ? (
             <Pressable
               testID="topbar-reset"
@@ -241,59 +259,51 @@ export function TopBar(): ReactNode {
       </View>
 
       {files.length > 0 ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', height: 32, overflow: 'hidden' }}>
+        <View
+          style={{ flexDirection: 'row', alignItems: 'center', height: 32, overflow: 'hidden' }}
+        >
           <ScrollView
             horizontal
             style={[SCROLL_X, { flex: 1 }]}
             contentContainerStyle={styles.chips}
             showsHorizontalScrollIndicator={false}
             testID="topbar-chips"
-          
+
             onScroll={onChipScroll}
             onLayout={onChipLayout}
             onContentSizeChange={onChipContentSize}
             scrollEventThrottle={16}
-            ref={chipsRef}>
+            ref={chipsRef}
+          >
             {files.map((f) => {
               const ci = colorIndexOfFile(graph?.files ?? null, files, f.path);
               const active = f.path === activeFile;
-              return (
-                Platform.OS === 'web' ? (
-                  <div
-                    key={f.path}
-                    onMouseEnter={() => setHoveredChip(f.path)}
-                    onMouseLeave={() => setHoveredChip(null)}
-                    style={{ display: 'inline-block' }}
-                  >
-                    <Pressable
-                      testID={'chip-' + f.path}
-                      onPress={() => setActiveFile(f.path)}
-                      style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}>
-                      <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
-                      <Text style={[styles.chipText, !!f.error && styles.chipTextError]} numberOfLines={1}>
-                        {f.name}
-                      </Text>
-                      <Pressable
-                        testID={'chip-remove-' + f.path}
-                        onPress={() => void removeFile(f.path)}
-                        disabled={busy}
-                        accessibilityRole="button"
-                        accessibilityLabel={'Remove ' + f.name}
-                        hitSlop={6}
-                        style={styles.chipRemove}
-                      >
-                        <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
-                      </Pressable>
-                    </Pressable>
-                  </div>
-                ) : (
+              return Platform.OS === 'web' ? (
+                <div
+                  key={f.path}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setCtxMenu({ x: e.clientX, y: e.clientY, path: f.path });
+                  }}
+                  onMouseEnter={() => setHoveredChip(f.path)}
+                  onMouseLeave={() => setHoveredChip(null)}
+                  style={{ display: 'inline-block' }}
+                >
                   <Pressable
-                    key={f.path}
                     testID={'chip-' + f.path}
                     onPress={() => setActiveFile(f.path)}
-                    style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}>
+                    style={[
+                      styles.chip,
+                      active && styles.chipActive,
+                      !!f.error && styles.chipError,
+                    ]}
+                  >
                     <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
-                    <Text style={[styles.chipText, !!f.error && styles.chipTextError]} numberOfLines={1}>
+                    <Text
+                      style={[styles.chipText, !!f.error && styles.chipTextError]}
+                      numberOfLines={1}
+                    >
                       {f.name}
                     </Text>
                     <Pressable
@@ -308,7 +318,33 @@ export function TopBar(): ReactNode {
                       <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
                     </Pressable>
                   </Pressable>
-                )
+                </div>
+              ) : (
+                <Pressable
+                  key={f.path}
+                  testID={'chip-' + f.path}
+                  onPress={() => setActiveFile(f.path)}
+                  style={[styles.chip, active && styles.chipActive, !!f.error && styles.chipError]}
+                >
+                  <View style={[styles.chipDot, { backgroundColor: fileColor(ci) }]} />
+                  <Text
+                    style={[styles.chipText, !!f.error && styles.chipTextError]}
+                    numberOfLines={1}
+                  >
+                    {f.name}
+                  </Text>
+                  <Pressable
+                    testID={'chip-remove-' + f.path}
+                    onPress={() => void removeFile(f.path)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel={'Remove ' + f.name}
+                    hitSlop={6}
+                    style={styles.chipRemove}
+                  >
+                    <Text style={styles.chipRemoveText}>{'\u00d7'}</Text>
+                  </Pressable>
+                </Pressable>
               );
             })}
           </ScrollView>
@@ -336,44 +372,11 @@ export function TopBar(): ReactNode {
           ) : null}
           {hoveredChip ? (
             <View style={styles.chipTooltip} testID={'chip-tooltip-' + hoveredChip}>
-              <Text style={styles.chipTooltipText}>{files.find((f) => f.path === hoveredChip)?.path}</Text>
+              <Text style={styles.chipTooltipText}>
+                {files.find((f) => f.path === hoveredChip)?.path}
+              </Text>
             </View>
           ) : null}
-        </View>
-      ) : null}
-
-
-      {ctxMenu ? (
-        <View
-          testID="chip-context-menu"
-          style={[styles.ctxMenu, { left: ctxMenu.x, top: ctxMenu.y }]}
-          onStartShouldSetResponder={() => true}
-        >
-          <Pressable
-            testID="ctx-close"
-            onPress={() => { void removeFile(ctxMenu.path); setCtxMenu(null); }}
-            style={styles.ctxItem}
-          >
-            <Text style={styles.ctxText}>Close</Text>
-          </Pressable>
-          <Pressable
-            testID="ctx-close-others"
-            onPress={() => {
-              const keep = ctxMenu.path;
-              const others = files.filter((f) => f.path !== keep);
-              Promise.all(others.map((f) => removeFile(f.path))).then(() => setCtxMenu(null));
-            }}
-            style={styles.ctxItem}
-          >
-            <Text style={styles.ctxText}>Close Others</Text>
-          </Pressable>
-          <Pressable
-            testID="ctx-close-all"
-            onPress={() => { reset(); setCtxMenu(null); }}
-            style={styles.ctxItem}
-          >
-            <Text style={styles.ctxText}>Close All</Text>
-          </Pressable>
         </View>
       ) : null}
 
@@ -396,7 +399,9 @@ export function TopBar(): ReactNode {
       {warnings.length > 0 ? (
         <View style={styles.warnBar} testID="topbar-warnings">
           <Text style={styles.warnText} numberOfLines={3}>
-            {warnings.length + ' file(s) had issues (skipped or best-effort parsed), remaining files rendered normally:\n' + warnings.join('\n')}
+            {warnings.length +
+              ' file(s) had issues (skipped or best-effort parsed), remaining files rendered normally:\n' +
+              warnings.join('\n')}
           </Text>
         </View>
       ) : null}
@@ -418,7 +423,14 @@ const styles = StyleSheet.create({
   brand: { flexShrink: 1, gap: 2 },
   title: { color: colors.text, fontFamily: fonts.ui, fontSize: 15, fontWeight: '700' },
   subtitle: { color: colors.faint, fontFamily: fonts.ui, fontSize: 11 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginLeft: 'auto',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
 
   btnPrimary: {
     backgroundColor: colors.accentDim,
@@ -463,12 +475,16 @@ const styles = StyleSheet.create({
     borderColor: colors.borderStrong,
     overflow: 'hidden',
   },
-  segBtn: { paddingHorizontal: spacing.md, height: 26, alignItems: 'center', justifyContent: 'center' },
+  segBtn: {
+    paddingHorizontal: spacing.md,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   segBtnActive: { backgroundColor: colors.accentDim },
   segBtnDisabled: { opacity: 0.4 },
   segText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
   segTextActive: { color: '#ffffff', fontWeight: '600' },
-
 
   chips: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 2 },
   chipScrollBtnInline: {
@@ -489,7 +505,8 @@ const styles = StyleSheet.create({
     top: 34,
     left: 0,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingTop: 4,
+    paddingBottom: 4,
     backgroundColor: '#1e1e1e',
     borderRadius: 4,
     zIndex: 1000,
@@ -524,12 +541,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   ctxMenu: {
-    position: 'absolute',
     backgroundColor: colors.raised,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     borderRadius: 6,
-    paddingVertical: 4,
+    paddingTop: 4,
+    paddingBottom: 4,
     minWidth: 120,
     zIndex: 1000,
     shadowColor: '#000',
@@ -568,5 +585,3 @@ const styles = StyleSheet.create({
   },
   warnText: { color: colors.warn, fontFamily: fonts.ui, fontSize: 11 },
 });
-
-

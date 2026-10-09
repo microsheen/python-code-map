@@ -18,6 +18,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,9 +26,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
 const APP_PORT = Number(process.env.CODEMAP_PORT || 8099);
 const APP_URL = 'http://127.0.0.1:' + APP_PORT + '/';
-const PORT = Number(process.env.CODEMAP_CDP_PORT || 9333);
+let PORT = Number(process.env.CODEMAP_CDP_PORT || 9333);
 const TMP = os.tmpdir();
-const PROFILE = path.join(TMP, 'cdp-codemap-profile');
+let PROFILE = path.join(TMP, 'cdp-codemap-profile');
 const SHOTS = path.join(TMP, 'codemap-shots');
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -375,6 +376,44 @@ async function clickTestId(cdp, id) {
   return box;
 }
 
+// ---------------------------------------------------------------------------
+// CDP 端口与 profile：宁可用第二个端口，也绝不连一个不是我起的调试端点。
+// 上一轮残留的 headless Chrome 会同时占着 9333 和 profile 目录，直接复用的话
+// 这一轮的断言就跑在别人的浏览器实例 + 别人的 IndexedDB 会话上，绿灯是假的。
+// ---------------------------------------------------------------------------
+function isPortFree(p) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => probe.close(() => resolve(true)));
+    probe.listen(p, '127.0.0.1');
+  });
+}
+
+async function pickCdpPort() {
+  for (let cand = PORT; cand < PORT + 8; cand++) {
+    if (await isPortFree(cand)) {
+      if (cand !== PORT) note('cdp port moved', PORT + ' 已被占用 -> 改用 ' + cand);
+      PORT = cand;
+      return;
+    }
+  }
+  throw new Error(
+    'CDP 端口 ' + PORT + '..' + (PORT + 7) + ' 全被占用。关掉残留的 headless Chrome，或用 CODEMAP_CDP_PORT 指定一个空闲端口。',
+  );
+}
+
+function prepareProfile() {
+  try {
+    fs.rmSync(PROFILE, { recursive: true, force: true });
+  } catch (e) {
+    const alt = PROFILE + '-' + process.pid;
+    note('profile locked', (e.code || 'ERR') + '：' + path.basename(PROFILE) + ' 被旧 Chrome 占着 -> 用 ' + path.basename(alt));
+    try { fs.rmSync(alt, { recursive: true, force: true }); } catch { /* ignore */ }
+    PROFILE = alt;
+  }
+}
+
 async function launch(flag) {
   const args = [
     flag,
@@ -648,7 +687,8 @@ async function main() {
     (servedIndex.html.match(ABS_URL_RE) || []).join(' ') || '0 个',
   );
 
-  fs.rmSync(PROFILE, { recursive: true, force: true });
+  await pickCdpPort();
+  prepareProfile();
   let proc = await launch('--headless=new');
   let wsUrl;
   try {
@@ -664,6 +704,7 @@ async function main() {
   }
   note('cdp target', wsUrl);
   const cdp = await CDP.connect(wsUrl);
+  globalThis.CDP = cdp;
 
   const console_ = [];
   const exceptions = [];
@@ -951,6 +992,7 @@ async function run() {
     console.log('[FATAL] ' + report.fatal);
     EXIT = 1;
   } finally {
+    if (globalThis.CDP) { try { await globalThis.CDP.send('Browser.close'); } catch { /* ignore */ } }
     const h = globalThis.PROC;
     if (h) { try { h.chrome.kill('SIGKILL'); } catch { /* ignore */ } }
     const srv = globalThis.SRV;
@@ -975,3 +1017,5 @@ async function run() {
 }
 
 run();
+
+

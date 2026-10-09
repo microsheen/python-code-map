@@ -12,6 +12,13 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 
+# 根路径 / 单独列一条：Pages 的 SPA fallback 把 / 当 index.html 服务，
+# 而 "/index.html" 会不会连带覆盖 "/" 官方没写清，部署后逐资源验一次（见 docs/ops-deployment.md）；
+# 这里先两条都声明，重复声明没有副作用，漏声明的后果是白屏。
+# / 一旦被缓存住，新发布后用户拿到的旧 index.html 会指向已经不在生产别名里的 hash 资产 -> 白屏。
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
 # 入口 HTML 必须每次校验，否则新构建发布后用户还会拿到旧 index.html（指向已消失的 hash 资产）
 /index.html
   Cache-Control: public, max-age=0, must-revalidate

@@ -34,6 +34,39 @@
   也不要拿"部署列表里最新一行"代替 —— 并发推送时那可能是别人的部署。
   取不到就打 warning，不猜。
 
+**本轮补上的两条静默失效防线**
+
+1. **`permissions:` 的作用域陷阱。** 官方原文：
+   "If you specify the access for any of these permissions, all of those that are not
+   specified are set to none."（[实测·原文] docs.github.com / workflow-syntax）。
+   写了 `contents: read` 就等于把**没写出来的 scope 全部降为 none**，而三个 job 之间传
+   `dist/` 靠 Actions artifact —— 归 `actions` scope 管。少了 `actions: write`，4 处
+   artifact 操作（checks 上传 dist、browser-smoke 下载 dist + 上传证据、deploy 下载 dist）
+   预期会红在第一步，报 `403 Resource not accessible by integration`。
+   **[推断，非实测]** —— 这条流水线还没在 CI 上真跑过，本地跑不出这个错，它是从权限模型推出来的。
+   修法只加 `actions: write`，**没有**改成 `read-all`/`write-all`：那等于把这次显式声明作废。
+   同一页另一句 "write includes read" 说明下游两次 download 也被这一条覆盖。
+2. **生产分支名硬编码在两处** —— `env.PRODUCTION_BRANCH` 与 `deploy` 的 job 级 `if`
+   （job 级 `if` 读不到 `env` 上下文，GitHub 的已知限制）。两处一旦不同步，后果**不是红灯**：
+   `if` 永远为 false ⇒ 构建全绿、冒烟全绿、什么都没发布、没有任何报错。已把它从"注释里的提醒"
+   升级成 `checks` 里的断言：`grep -cF "github.ref_name == '<生产分支>'"` 必须**恰好 1 次**。
+   [实测] 本机 Git Bash 跑过三种情形：两处一致 -> `n=1` 绿；**只改 env** -> `n=0` 红 exit 1；
+   两处一起改 -> `n=1` 绿。所以将来把默认分支换成 `main`（§11 的沙盘已经这么改过）不会撞假红灯。
+
+**fork 的 PR 也会执行 `npm ci`。** 触发器是裸 `on: push` + `on: pull_request`（无分支/路径过滤），
+`checks` 第一步 `npm ci` 会跑依赖的 postinstall，而 `pull_request` 跑的是 fork 的工作流 ——
+恶意依赖能在 runner 上执行代码。建议在 Settings -> Actions -> General 打开
+**Require approval for all outside collaborators**。**不改触发器**：门禁必须在 PR 上跑。
+
+**`actions/upload-artifact@v4+` 在 GitHub Enterprise Server 上不受支持**，上游 README 原文要求
+GHES 用 v3.2.2（[实测] 取自 `gh api repos/actions/upload-artifact/readme`；
+raw.githubusercontent.com 本机不可达）。本仓最终落在 github.com 跑，所以留 v4；
+要让同一个文件在内网实例跑，v4 是第一个炸点 —— 见 §12。
+
+**prettier 没进门禁。** [实测] `npx prettier --check .` exit 1、**61 个文件**不干净 ——
+这个仓库本来就不是 prettier-clean。加门禁等于凭空造一个必红的 CI；跑一次全量 format 又会把
+可读的 diff 搅成一团。两条都不是本轮该付的代价：想要风格一致性时单独一笔做完，别混进发布门禁。
+
 ## 3. 可逆开关
 
 | 想做的事 | 做法 | 不要做 |
@@ -80,6 +113,23 @@ npm run smoke  -> 39/39 PASS，退出码 0
 整目录拷进 `dist/`，冒烟服务器把 `dist/_headers` 的规则原样应用到本地响应上 —— 测的就是线上门禁。
 
 入口 JS 文件名带 content hash，`/wasm/*.wasm` **不带** —— 这就是缓存策略分两档的原因。
+
+**[实测] 同日独立复跑（2026-10-09 10:14–10:15，本机第二次运行，与上表基线逐字节对齐）**
+
+| 跑的东西 | 结果 |
+| --- | --- |
+| `npm run verify` | exit 0；typecheck + lint（0 error / 12 warning，均为既有）+ jest **15 suites / 225 tests** 全过（13.653 s） |
+| `npm run export` | exit 0；入口 `entry-d2ba5f….js`；`index.html` `1182B -> 914B`；sha256 `52eb64f4…c6d071` **与基线相同** |
+| `npm run smoke` | **39/39 PASS**，exit 0；真实请求总数 **5**、全 GET、零请求体、零 4xx/5xx；`console errors = []`、`page exceptions = []` |
+
+两次独立运行 sha256 相同 ⇒ **构建可复现**。这不是洁癖，是"一次构建、两处消费"的前提：
+`browser-smoke` 和 `deploy` 下载的是同一批字节，而不是"又一次构建"——否则门禁验的和发出去的不是一回事。
+`dist/` 在 `.gitignore` 里（[实测] `git ls-files dist` = 0 个文件），复跑 `export` 不会脏工作树，
+也不会有人不小心把产物提交进去。
+
+第三次独立运行就在写这段的当下：`npm run verify` 同样 15 suites / 225 tests 全过（`Time: 14.462 s`）、
+lint 仍是 0 error / 12 warning。`verify` 的定义是 `npm run typecheck && npm run lint && npm test`，
+jest 是链条最后一步且全绿 ⇒ 前两步必然也通过了 —— 这是从 `package.json` 读出来的，不是猜的。
 
 ## 5. `public/_headers` 与"声明 ≠ 生效"
 
@@ -207,6 +257,19 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 | Pages 项目名（**全局唯一、不可改名**） | 待确认 |
 | 反馈别名与回复身份 | 待确认 |
 
+**本机已具备 / 尚缺的前置条件**（[实测] 2026-10-09 只读复探）
+
+| 前置 | 状态 | 说明 |
+| --- | --- | --- |
+| `gh` 对 github.com 的 token scopes | ✅ 含 `workflow`（另有 `repo`、`read:org`、`gist`） | Phase 2 推 workflow 文件不会撞 `refusing to allow an OAuth App…`；缺就先 `gh auth refresh -h github.com -s workflow` |
+| GitHub noreply 身份 | ✅ 已取得 | 数字 id **不写在这份文档里**，用时现取（它和账号名一起构成可反推的公开身份） |
+| 推送传输方式 | ⚠️ 待定 | gh 配的 protocol 是 ssh，但 `ssh-add -l` 无身份、`ssh -T -o BatchMode=yes git@github.com` = `Permission denied (publickey)` ⇒ key 大概率带 passphrase。要么用户解锁 agent，要么公开 remote 走 HTTPS + gh 的 credential helper |
+| Cloudflare 凭据 | ❌ 无 | 环境变量 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` 都不存在；`wrangler` 不在 PATH；`%APPDATA%\xdg.config\.wrangler` 下**没有 `config/`** ⇒ 没有可复用的 OAuth 会话 |
+| 公共 npm registry | ✅ | 全机无 `.npmrc`，registry = `https://registry.npmjs.org/` |
+
+最后一行是**检查过的**，不是假设：内部 npm 镜像地址如果写在全局 `.npmrc` 里，公开仓库的 CI
+日志会把它带出来 —— 那是内网拓扑泄漏。本机既然没有全局 `.npmrc`，公开 CI 的 `npm ci` 这条路是干净的。
+
 ## 11. 公开推送前的 scrub 清单（Phase 2）
 
 按**类别**扫，不按文件名：内部主机名与域名、邮箱地址、token/密钥形状、绝对路径、内部人名、
@@ -214,9 +277,73 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 
 1. `git checkout --orphan public`（**先孤立再公开**，历史一条都不带）
 2. 单提交用 GitHub noreply 身份作者/提交者；本机 git identity 绝不出现在公开历史里
-3. 清掉 `AGENTS.md` 与 `docs/agents/issue-tracker.md` 里的内部 GitHub 域名
+3. scrub `AGENTS.md` 里的内部 GitHub 主机名。**[实测] 只有这一处** —— 该主机名在工作树里只命中
+   `AGENTS.md` 一行，`docs/agents/issue-tracker.md` **不含**它（那个文件是从 `git remote -v`
+   现推出来的，所以公开仓库里既没值可泄、也不会推错东西）。本节先前写成"两处"是错的：
+   清单里多一个不存在的目标，会让人以为扫完两个文件就安全，而真正的判据是**按类别扫全树**。
 4. `node <skill>/scripts/audit-public-repo.mjs --history .` 必须干净
 5. 推公开 remote（token scope 需含 `workflow`，否则报
    `refusing to allow an OAuth App to create or update workflow` → `gh auth refresh -h github.com -s workflow`）
 
+**[实测] 沙盘已经跑通一遍**（临时目录 clone → 删 `origin` → scrub `AGENTS.md` →
+`git checkout --orphan` → 用 noreply 身份做**单个**提交 → 分支改名 `main` →
+`audit-public-repo.mjs --history .`）：**findings 0 / exit 0 / 84 个跟踪文件**。
+被消掉的那条是 `personal-email-in-commit-metadata`（MEDIUM）：本机 git identity 的私人邮箱在
+**每一个提交的 author/committer 元数据**里 —— 它不在任何文件里，`--orphan` 之前删多少行都没用，
+只有"不带历史 + 换身份"这一种修法。（审计行的 `+39 commits` 是**命中次数** = 20 个提交 × 2，
+不是提交数，别把它读成"还有 39 个别的提交"。）
+
 **公开是不可逆的。** 后面删文件不会把它从历史里删掉，`git log -p -- <path>` 免费拿回来。
+
+## 12. 同一个 workflow 在两个 remote 上的不同命运
+
+[实测] 2026-10-09 对内网实例的只读探测（GHES 的仓库级 Actions API）：
+
+| 探测项 | 端点 | 结果 |
+| --- | --- | --- |
+| Actions 有没有启用 | `…/actions/permissions` | `enabled: true`、`allowed_actions: all` |
+| 这个实例上有几个 runner | `…/actions/runners` | **`total_count: 0`** |
+| 仓库里已登记的 workflow | `…/actions/workflows` | `total_count: 0` |
+| 未显式声明时的默认权限 | `…/actions/permissions/workflow` | `default_workflow_permissions: write` |
+| 默认分支 | `…/<repo>` | `master` |
+
+**探测本身的坑**：`…/repos/<repo>/actions` 在 GHES 上**不存在**（404）。把它当"Actions 没启用"
+会得出与事实完全相反的结论 —— 真相在 `actions/permissions`。GHES 的 REST 路由和 github.com 有差异，
+每个端点都要单独看返回，不能用一次 404 概括整块功能。
+另：`actions/permissions/selected-actions` 在 `allowed_actions: all` 时返回 **409 Conflict**
+（"All actions and workflows are allowed"），那也是"没限制"的意思，不是错误状态。
+
+**后果**：这个 workflow 的触发器是裸 `on: push` + `on: pull_request`（**没有分支/路径过滤**）。
+推到内网实例 ⇒ 任何分支每次 push 都建一个 run，而 `runners = 0` ⇒ 没有任何进程认领它。
+它既不红也不绿：官方 limits 表（docs.github.com / Actions limits，Self-hosted 段）原文是
+"A job can be in the queue for 24 hours before it is automatically cancelled." —— 排队最多
+24 小时后被**自动取消**。用词是 **cancelled 而不是 failed**：CI 列表里留下的是一条"已取消"的记录。
+（GHES 自己的 limits 页这次取不到，数字来自 cloud 版文档；"要等多久"会变，"没人认领"不会。）
+叠加 §2 的 `concurrency.cancel-in-progress: true`，同一条 ref 上的下一次 push 会提前取消排队中的那一个。
+
+⇒ 每次向内网实例 push 都产生一条**无人认领、最终被取消**的 run。这不是红灯，是噪音；
+而噪音的真正代价是让将来的真红灯失去意义。
+
+**第二个后果（决定要不要在 GHES 上跑）**：GHES 没有 GitHub 托管 runner，只能自架；而
+`actions/upload-artifact@v4+` 在 GHES 上不受支持（§2）。所以就算以后接上 self-hosted runner，
+这份 workflow 还得退回 v3 —— 等于同一套门禁维护两份真相。
+
+**四条路（待拍板，见 §10）**：
+
+| 选项 | 做法 | 代价 |
+| --- | --- | --- |
+| **O1（建议）** | 三个 job 各加 `if: github.repository == '<owner>/<repo>'` | 内网实例上整体 `skipped`（秒过、不产生僵尸 run），公开仓库门禁完整生效。前置：先定公开账号与仓库名 |
+| O2 | 照原样推 | 接受每次 push 一条排队到被取消的 run |
+| O3 | workflow 只进公开仓库 | 要重排本地**尚未推送**的历史，内网那份从此没有 CI |
+| O4 | 请管理员关掉内网实例的 Actions | 影响整个团队，不该由这次改动的作者代劳 |
+
+**O1 的 `if` 和 §3 的 `DEPLOY_ENABLED` 是两件事**，不要混用成一个开关：`DEPLOY_ENABLED` 回答
+"要不要发布"，O1 的 `if` 回答"这条流水线归谁跑"。
+
+顺带一条好消息：内网实例的默认 workflow 权限是 `write`，而本 workflow 显式写了
+`permissions:` 块（§2），落下去的范围**比平台默认更窄**。这次显式声明是往**窄**了收，不是往开放了放。
+
+**本轮只 commit、未 push。** AGENTS.md 要求改动前先 pull 再 push：pull 已跑且是 no-op
+（落后 0），但 push 会把这个 workflow 同时推进一个已知 `runners = 0` 的实例，副作用落在别人的
+CI 页面上。纪律的目的是不丢变更、不产生冲突，不是"必须把已知会产生噪音的东西推给团队"——
+所以这一步留给用户点头。

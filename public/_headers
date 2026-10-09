@@ -1,0 +1,29 @@
+# code-map / Python Code Map — Cloudflare Pages 响应头
+# 由 npm run export 从 public/ 原样拷进 dist/，Pages 在边缘按此文件下发。
+# 改这里的任何一行后必须重跑 node scripts/browser-verify.mjs（本地静态服务会按同样的规则
+# 回响应头，等于把线上 CSP 提前在冒烟里跑一遍），以及部署后的 check-deploy.mjs。
+# 不写死任何主机名：换域名时这个文件应当是零改动。
+
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# 入口 HTML 必须每次校验，否则新构建发布后用户还会拿到旧 index.html（指向已消失的 hash 资产）
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# 以下两类文件名带内容 hash，可永久缓存
+/_expo/*
+  Cache-Control: public, max-age=31536000, immutable
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/metadata.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+# wasm 文件名没有 hash：绝对不能 immutable，否则旧 wasm + 新 JS = LinkError
+/wasm/*
+  Cache-Control: public, max-age=0, must-revalidate

@@ -21,6 +21,7 @@ import { layoutGraph } from '../src/graph/layout';
 import { applyScope } from '../src/graph/scope';
 import type { CallGraph, PickedFile } from '../src/parser/types';
 import { useAppStore } from '../src/state/store';
+import { tapGraphNode } from './helpers/graphTap';
 import { describeWasm, fixtureFile, getTestParser } from './helpers/wasm';
 
 jest.mock('react-native-svg', () => {
@@ -143,7 +144,7 @@ describeWasm('全链路：验收 1 图 -> 代码', () => {
     await load(THREE);
     render(<AppRoot />);
 
-    clickFirst('graph-node-utils.py::load_config');
+    tapGraphNode('utils.py::load_config');
 
     const st = useAppStore.getState();
     expect(st.activeFile).toBe('utils.py');

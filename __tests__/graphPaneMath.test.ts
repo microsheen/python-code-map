@@ -16,11 +16,14 @@ import {
   ZOOM_IN,
   ZOOM_OUT,
   fitLabel,
+  hitTestNode,
   wheelScaleFactor,
   zoomAround,
 } from '../src/components/GraphPane';
 import type { ViewBox } from '../src/components/GraphPane';
+import type { FuncId } from '../src/parser/types';
 import { CHAR_W, MAX_SCALE, MIN_SCALE } from '../src/graph/layout';
+import type { NodeBox } from '../src/graph/layout';
 
 describe('GraphPane 常量', () => {
   it('jsdom 不触发 onLayout，需要兜底视口', () => {
@@ -129,6 +132,58 @@ describe('zoomAround', () => {
     expect(cur.scale).toBeCloseTo(once.scale, 8);
   });
 });
+
+describe('hitTestNode', () => {
+  const box = (x: number, y: number, w: number, h: number): NodeBox => ({
+    x,
+    y,
+    w,
+    h,
+    cx: x + w / 2,
+    cy: y + h / 2,
+  });
+  const nodes = new Map<FuncId, NodeBox>([
+    ['a.py::alpha', box(100, 40, 120, 34)],
+    ['b.py::beta', box(100, 120, 120, 34)],
+  ]);
+  const identity = { tx: 0, ty: 0, scale: 1 };
+
+  it('命中矩形内部返回对应节点 id', () => {
+    expect(hitTestNode(nodes, identity, { x: 150, y: 55 })).toBe('a.py::alpha');
+    expect(hitTestNode(nodes, identity, { x: 150, y: 135 })).toBe('b.py::beta');
+  });
+
+  it('四条边都算命中（否则缩小后边缘点击会漏）', () => {
+    const n: NodeBox = nodes.get('a.py::alpha')!;
+    expect(hitTestNode(nodes, identity, { x: n.x, y: n.cy })).toBe('a.py::alpha');
+    expect(hitTestNode(nodes, identity, { x: n.x + n.w, y: n.cy })).toBe('a.py::alpha');
+    expect(hitTestNode(nodes, identity, { x: n.cx, y: n.y })).toBe('a.py::alpha');
+    expect(hitTestNode(nodes, identity, { x: n.cx, y: n.y + n.h })).toBe('a.py::alpha');
+  });
+
+  it('矩形外返回 null', () => {
+    expect(hitTestNode(nodes, identity, { x: 99, y: 55 })).toBeNull();
+    expect(hitTestNode(nodes, identity, { x: 150, y: 75 })).toBeNull();
+    expect(hitTestNode(new Map(), identity, { x: 0, y: 0 })).toBeNull();
+  });
+
+  it('先把容器坐标按 view 逆变换成世界坐标：平移与缩放都跟随', () => {
+    const view = { tx: -30, ty: 12, scale: 2 };
+    const n = nodes.get('b.py::beta')!;
+    // 世界点 -> 容器点的正向换算，再喂给 hitTestNode 应当还原
+    const local = { x: view.tx + n.cx * view.scale, y: view.ty + n.cy * view.scale };
+    expect(hitTestNode(nodes, view, local)).toBe('b.py::beta');
+    // 同一个容器坐标在 identity 下不再是那个节点
+    expect(hitTestNode(nodes, identity, local)).toBeNull();
+  });
+
+  it('缩放后节点在屏幕上变大，原来的空白点也会命中', () => {
+    const zoomed = { tx: 0, ty: 0, scale: 3 };
+    // alpha 右下角世界坐标 (220, 74) -> 容器 (660, 222)
+    expect(hitTestNode(nodes, zoomed, { x: 660, y: 222 })).toBe('a.py::alpha');
+  });
+});
+
 
 describe('fitLabel', () => {
   it('短标签原样返回', () => {

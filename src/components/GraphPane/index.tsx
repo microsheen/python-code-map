@@ -102,6 +102,25 @@ export function zoomAround(
   return { tx: anchorX - wx * nextScale, ty: anchorY - wy * nextScale, scale: nextScale };
 }
 
+/**
+ * 容器内坐标 -> 命中的节点 id，命中不到返回 null。
+ *
+ * 纯函数：把"这个点落在哪个矩形里"从 DOM 事件里剥出来。视图坐标到世界坐标的换算
+ * 只有这一处（view 的逆变换），拖动平移与点击命中都走它，避免两套算法各自漂移。
+ */
+export function hitTestNode(
+  nodes: Map<FuncId, NodeBox>,
+  view: ViewBox,
+  local: { x: number; y: number },
+): FuncId | null {
+  const wx = (local.x - view.tx) / view.scale;
+  const wy = (local.y - view.ty) / view.scale;
+  for (const [id, box] of nodes) {
+    if (wx >= box.x && wx <= box.x + box.w && wy >= box.y && wy <= box.y + box.h) return id;
+  }
+  return null;
+}
+
 /** 节点标签按节点宽度截断，超出用省略号。 */
 export function fitLabel(label: string, boxW: number): string {
   const max = Math.max(6, Math.floor((boxW - 16) / CHAR_W));
@@ -117,12 +136,11 @@ export interface GraphNodeViewProps {
   neighbor: boolean;
   dimmed: boolean;
   showFile: boolean;
-  onPress: (id: FuncId) => void;
+  /** 节点自身不挂 onPress：命中由容器的 pointer 事件 + hitTestNode 决定。 */
 }
 
 export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewProps): ReactNode {
-  const { func, box, colorIndex, selected, neighbor, dimmed, showFile, onPress } =
-    props;
+  const { func, box, colorIndex, selected, neighbor, dimmed, showFile } = props;
   const stroke = selected
     ? colors.selected
     : neighbor
@@ -265,15 +283,8 @@ export function GraphPane(): ReactNode {
             if (curLayout) {
               const curEl = asElement(containerRef);
               const lp = localPoint(curEl, upEvent.clientX, upEvent.clientY);
-              const st = useAppStore.getState();
-              const wx = (lp.x - st.view.tx) / st.view.scale;
-              const wy = (lp.y - st.view.ty) / st.view.scale;
-              for (const [id, box] of curLayout.nodes) {
-                if (wx >= box.x && wx <= box.x + box.w && wy >= box.y && wy <= box.y + box.h) {
-                  onNodePress(id);
-                  break;
-                }
-              }
+              const hit = hitTestNode(curLayout.nodes, useAppStore.getState().view, lp);
+              if (hit) onNodePress(hit);
             }
           }
         },
@@ -367,7 +378,6 @@ export function GraphPane(): ReactNode {
           neighbor={hasSelection && neighbors.has(n.id)}
           dimmed={hasSelection && selection.funcId !== n.id && !neighbors.has(n.id)}
           showFile={layout.showFile}
-          onPress={onNodePress}
         />
       );
     }

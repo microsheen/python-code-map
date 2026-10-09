@@ -5,18 +5,20 @@
  *   2. 点击代码中的函数 -> 右侧自动把该节点居中并高亮
  *
  * 环境说明：jest.config.js 用的是 jest-expo/web 预设，即 jsdom + `react-native` 别名到
- * `react-native-web`，所以这里用 @testing-library/react 与 fireEvent.click（真实 DOM 事件），
- * 而不是 @testing-library/react-native 的 fireEvent.press —— 后者在 RNW 下会因为
- * "Text strings must be rendered within a <Text>" 不变量直接炸掉。
+ * `react-native-web`，所以顶栏与代码区用 @testing-library/react 的 fireEvent.click（真实
+ * DOM 事件），而不是 @testing-library/react-native 的 fireEvent.press —— 后者在 RNW 下会
+ * 因为 "Text strings must be rendered within a <Text>" 不变量直接炸掉。
  *
- * react-native-svg 被打桩成 RN 基础组件：只保留 testID / onPress / children，
- * 丢掉全部 SVG 几何属性（既避免 DOM 未知属性告警，也让节点在 jsdom 里真的可点）。
+ * react-native-svg 被打桩成 RN 基础组件：只保留 testID / children，丢掉全部 SVG 几何属性，
+ * 避免 DOM 未知属性告警。代价是 jsdom 里的节点方块没有尺寸，于是"点图上的节点"必须走
+ * helpers/graphTap：按产品实现的真实事件路径（容器 pointerdown + 抬起时几何 hit-test）
+ * 把节点中心换算成容器坐标再点，fireEvent.click(testID) 是点不中的。
  */
 /* eslint-disable @typescript-eslint/no-require-imports */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { AppRoot } from '../src/components/AppRoot';
 import { FLASH_MS } from '../src/components/CodePane/CodeView';
-import { DEFAULT_VIEWPORT } from '../src/components/GraphPane';
+import { DEFAULT_VIEWPORT, DRAG_SLOP } from '../src/components/GraphPane';
 import { layoutGraph } from '../src/graph/layout';
 import {
   ALL_SCOPE,
@@ -27,6 +29,7 @@ import {
 } from '../src/graph/scope';
 import type { PythonParser } from '../src/parser/treeSitter';
 import { DEFAULT_SPLIT, IDENTITY_VIEW, NO_SELECTION, useAppStore } from '../src/state/store';
+import { dragGraph, nodeClientPoint, tapGraphNode } from './helpers/graphTap';
 import {
   A_PATH,
   B_PATH,
@@ -118,12 +121,39 @@ describe('验收 1：图 -> 代码', () => {
     preset(sampleProject());
     render(<AppRoot />);
 
-    clickTestId('graph-node-' + ID_ALPHA);
+    tapGraphNode(ID_ALPHA);
 
     const sel = useAppStore.getState().selection;
     expect(sel.funcId).toBe(ID_ALPHA);
     expect(sel.source).toBe('graph');
     expect(sel.nonce).toBe(1);
+  });
+
+  it('拖动超过阈值只平移视图：不能顺手选中节点（图 -> 代码 的误触防护）', () => {
+    preset(sampleProject());
+    render(<AppRoot />);
+
+    const start = nodeClientPoint(ID_BETA);
+    const before = useAppStore.getState().view;
+
+    dragGraph(start, DRAG_SLOP + 20, 0);
+
+    const st = useAppStore.getState();
+    expect(st.selection.funcId).toBeNull();
+    expect(st.view.tx).toBeCloseTo(before.tx + DRAG_SLOP + 20, 6);
+    expect(st.view.ty).toBeCloseTo(before.ty, 6);
+    // 位移超过阈值但没点中：scale 不该被 setView 的部分更新丢掉
+    expect(st.view.scale).toBe(before.scale);
+  });
+
+  it('阈值内的小抖动仍算点击', () => {
+    preset(sampleProject());
+    render(<AppRoot />);
+
+    const start = nodeClientPoint(ID_BETA);
+    dragGraph(start, 1, 1);
+
+    expect(useAppStore.getState().selection.funcId).toBe(ID_BETA);
   });
 
   it('点击另一个文件里的节点：左侧自动切换文件并画出函数体高亮带', () => {
@@ -133,7 +163,7 @@ describe('验收 1：图 -> 代码', () => {
     // 前置：当前显示的是 a.py（第 1 行是 "import b"，没有 from）
     expect(screen.getByTestId('code-line-1').textContent ?? '').not.toContain('from');
 
-    clickTestId('graph-node-' + ID_GAMMA);
+    tapGraphNode(ID_GAMMA);
 
     const st = useAppStore.getState();
     expect(st.activeFile).toBe(B_PATH);
@@ -150,7 +180,7 @@ describe('验收 1：图 -> 代码', () => {
     render(<AppRoot />);
     expect(screen.queryByTestId('code-flash')).toBeNull();
 
-    clickTestId('graph-node-' + ID_GAMMA); // gamma 在 b.py，属于跨文件定位
+    tapGraphNode(ID_GAMMA); // gamma 在 b.py，属于跨文件定位
 
     expect(screen.queryByTestId('code-flash')).not.toBeNull();
   });
@@ -159,7 +189,7 @@ describe('验收 1：图 -> 代码', () => {
     preset(sampleProject(), A_PATH);
     render(<AppRoot />);
 
-    clickTestId('graph-node-' + ID_BETA); // beta 也在 a.py
+    tapGraphNode(ID_BETA); // beta 也在 a.py
 
     expect(useAppStore.getState().activeFile).toBe(A_PATH);
     expect(screen.queryByTestId('code-flash')).not.toBeNull();
@@ -180,7 +210,7 @@ describe('验收 1：图 -> 代码', () => {
       preset(sampleProject(), A_PATH);
       render(<AppRoot />);
 
-      clickTestId('graph-node-' + ID_BETA);
+      tapGraphNode(ID_BETA);
       expect(screen.queryByTestId('code-flash')).not.toBeNull();
 
       act(() => {
@@ -195,9 +225,9 @@ describe('验收 1：图 -> 代码', () => {
     preset(sampleProject());
     render(<AppRoot />);
 
-    clickTestId('graph-node-' + ID_BETA);
-    clickTestId('graph-node-' + ID_BETA);
-    clickTestId('graph-node-' + ID_BETA);
+    tapGraphNode(ID_BETA);
+    tapGraphNode(ID_BETA);
+    tapGraphNode(ID_BETA);
 
     const sel = useAppStore.getState().selection;
     expect(sel.funcId).toBe(ID_BETA);

@@ -14,6 +14,7 @@
  * 截图与 JSON 报告写到系统临时目录（codemap-shots / codemap-verify-report.json）。
  */
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -62,36 +63,103 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-/** 托管 dist/；端口被占用时假定已有服务在跑，直接复用。 */
+/**
+ * dist/ 路径解析：唯一一处。静态服务器与"每个被请求的资产都必须真实存在于 dist/"这条断言
+ * 共用它 —— 也就是说服务器根本没有能力端出 dist/ 以外的东西。
+ */
+function distFileFor(pathname) {
+  const decoded = decodeURIComponent(pathname);
+  const p = decoded.endsWith('/') ? decoded + 'index.html' : decoded;
+  const file = path.join(DIST, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
+  if (!file.startsWith(DIST + path.sep) && file !== DIST) return null;
+  return fs.existsSync(file) && fs.statSync(file).isFile() ? file : null;
+}
+
+/** _headers 的 glob -> 锚定正则：* 任意串、? 单字符、:name 单个路径段 */
+function globToRe(pattern) {
+  let out = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '*') out += '.*';
+    else if (c === '?') out += '[^/]';
+    else if (c === ':') {
+      const j = pattern.indexOf('/', i);
+      const end = j < 0 ? pattern.length : j;
+      out += '[^/]+';
+      i = end - 1;
+    } else out += c.replace(/[{}()|^$.\[\]\\+]/g, '\\$&');
+  }
+  return new RegExp('^' + out + '$');
+}
+
+/**
+ * 读 dist/_headers 并在本地静态服务上原样生效：冒烟必须跑在真正会上线的 CSP / 缓存策略下，
+ * 否则"本地全绿、线上红"是结构性的。pathname 与解析后的 dist 相对路径任一命中都算（取并集），
+ * 也就是本地比线上更严 —— 只会多拦，不会漏拦。
+ */
+function loadHeaderRules() {
+  const file = path.join(DIST, '_headers');
+  if (!fs.existsSync(file)) return [];
+  const rules = [];
+  let cur = null;
+  for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const line = raw.replace(/\t/g, '  ');
+    if (!line.trim() || line.trim().startsWith('#')) continue;
+    if (/^\S/.test(line)) {
+      cur = { pattern: line.trim(), headers: [] };
+      rules.push(cur);
+      continue;
+    }
+    if (cur) {
+      const m = line.trim().match(/^([^:]+):\s*(.+)$/);
+      if (m) cur.headers.push([m[1].trim(), m[2].trim()]);
+    }
+  }
+  for (const r of rules) r.re = globToRe(r.pattern);
+  return rules;
+}
+
+const HEADER_RULES = loadHeaderRules();
+
+/** 后命中的规则覆盖同名头；同时返回命中的 pattern，供报告核对 */
+function headersFor(pathname, relFile) {
+  const headers = {};
+  const matched = [];
+  for (const r of HEADER_RULES) {
+    if (r.re.test(pathname) || (relFile && r.re.test(relFile))) {
+      for (const kv of r.headers) headers[kv[0].toLowerCase()] = kv[1];
+      matched.push(r.pattern);
+    }
+  }
+  return { headers, matched };
+}
+
+/** 托管 dist/（含 _headers 规则）；端口被占用时假定已有服务在跑，直接复用。 */
 function startStaticServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      let p = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-      if (p.endsWith('/')) p += 'index.html';
-      const file = path.join(DIST, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
-      if (!file.startsWith(DIST + path.sep) && file !== DIST) {
-        res.writeHead(403);
-        res.end('forbidden');
-        return;
-      }
-      fs.readFile(file, (err, buf) => {
-        if (err) {
-          // Chrome 会自己去要 /favicon.ico，dist 里没有；回 204 免得污染控制台错误列表
-          if (p === '/favicon.ico') {
-            res.writeHead(204);
-            res.end();
-            return;
-          }
-          res.writeHead(404);
-          res.end('not found');
+      const pathname = new URL(req.url, 'http://localhost').pathname;
+      const file = distFileFor(pathname);
+      if (!file) {
+        // Chrome 会自己去要 /favicon.ico，dist 里没有；回 204 免得污染控制台错误列表
+        if (decodeURIComponent(pathname) === '/favicon.ico') {
+          res.writeHead(204);
+          res.end();
           return;
         }
-        res.writeHead(200, {
-          'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
-          'Cache-Control': 'no-store',
-        });
-        res.end(buf);
-      });
+        res.writeHead(404);
+        res.end('not found');
+        return;
+      }
+      const rel = '/' + path.relative(DIST, file).split(path.sep).join('/');
+      const rule = headersFor(decodeURIComponent(pathname), rel);
+      const out = {
+        'content-type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+        'cache-control': 'no-store',
+      };
+      for (const k of Object.keys(rule.headers)) out[k] = rule.headers[k];
+      res.writeHead(200, out);
+      res.end(fs.readFileSync(file));
     });
     server.on('error', (e) => {
       if (e.code === 'EADDRINUSE') {
@@ -104,7 +172,25 @@ function startStaticServer() {
   });
 }
 
-/** 复用别人的服务有风险：先确认这个端口上跑的确实是本应用。 */
+const ENTRY_SCRIPT_RE = /<script[^>]+src="([^"]*\/_expo\/static\/js\/web\/entry-[0-9a-f]+\.js)"[^>]*>/;
+const ABS_URL_RE = /https?:\/\/[^\s"'<>)\]]+/gi;
+
+function sha256(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+/** dist/index.html 应该是谁：入口脚本 + 整文件 sha256（被测字节 == 上线字节的锚点） */
+function distIndex() {
+  const buf = fs.readFileSync(path.join(DIST, 'index.html'));
+  const m = buf.toString('utf8').match(ENTRY_SCRIPT_RE);
+  return { bytes: buf.length, entry: m ? m[1] : null, sha256: sha256(buf) };
+}
+
+/**
+ * 复用别人的端口有风险，必须先确认这个端口上跑的确实是"当前 dist/ 的那个应用"。
+ * 判据不能用 <title>：标题来自 app.json，文案一改就会误判（历史上真的这么红过）。
+ * 用"HTML 里带着本项目 Metro 入口脚本标签"作身份判据，顺带把 sha256 与响应头取回来。
+ */
 async function probeAppUrl() {
   let res;
   try {
@@ -113,19 +199,49 @@ async function probeAppUrl() {
     throw new Error('访问 ' + APP_URL + ' 失败：' + e.message + '（端口 ' + APP_PORT + ' 上没有可用服务）');
   }
   if (!res.ok) throw new Error(APP_URL + ' 返回 HTTP ' + res.status);
-  const html = await res.text();
-  if (html.indexOf('<title>code-map</title>') < 0) {
+  const text = await res.text();
+  const buf = Buffer.from(text, 'utf8');
+  const m = text.match(ENTRY_SCRIPT_RE);
+  if (!m) {
     throw new Error(
-      APP_URL + ' 返回的内容不是本应用（端口 ' + APP_PORT + ' 可能被别的服务占用），用 CODEMAP_PORT 换个端口再跑',
+      APP_URL + ' 返回的 HTML 里没有本应用的 Metro 入口脚本标签：端口 ' + APP_PORT +
+        ' 上可能不是这个服务，或者它是旧产物。用 CODEMAP_PORT 换个端口再跑',
     );
   }
-  return html.length;
+  return {
+    bytes: buf.length,
+    entry: m[1],
+    sha256: sha256(buf),
+    headers: Object.fromEntries(res.headers.entries()),
+    html: text,
+  };
 }
 
 const FIXTURES = ['main.py', 'shapes.py', 'utils.py'];
 const TARGET_A = { id: 'shapes.py::Shape.area', defLine: 14, label: 'Shape.area' };
 const TARGET_B = { id: 'utils.py::Registry.add', defLine: 95, label: 'Registry.add' };
 const ROW_H = 20;
+
+/**
+ * "用户内容"标记集合：fixture 文件名 + 其中每个 def/class 名 + 若干代码行片段。
+ * 这些字符串只要出现在任何一条真实网络请求的 URL 里（原文或 percent-encoded），
+ * 就说明浏览器把用户代码发到网上去了 —— 这是要害承诺，不是风格问题。
+ * 长度 < 5 的标记丢掉，免得偶然子串制造假阳性。
+ */
+function userContentTokens() {
+  const set = new Set();
+  for (const f of FIXTURES) {
+    set.add(f);
+    set.add(f.replace(/\.py$/i, ''));
+    const text = fs.readFileSync(path.join(ROOT, 'fixtures', f), 'utf8');
+    for (const m of text.matchAll(/\b(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]{4,})/g)) set.add(m[1]);
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      if (t.length >= 12 && !t.startsWith('#')) set.add(t.slice(0, 24));
+    }
+  }
+  return [...set].filter((t) => t.length >= 5);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const report = { startedAt: new Date().toISOString(), steps: [], checks: [], samples: [] };
@@ -506,7 +622,31 @@ async function main() {
   const srv = await startStaticServer();
   globalThis.SRV = srv;
   note('static server', srv.reused ? 'reused :' + APP_PORT : 'started :' + APP_PORT);
-  note('app url probe', APP_URL + ' html=' + (await probeAppUrl()) + 'B');
+  const expectIndex = distIndex();
+  note('dist/index.html', expectIndex);
+  note(
+    'header rules loaded',
+    HEADER_RULES.length
+      ? HEADER_RULES.map((r) => r.pattern + ' -> ' + r.headers.map((h) => h[0]).join(',')).join(' | ')
+      : '(没有 dist/_headers，本地冒烟将跑在无 CSP 下)',
+  );
+  const servedIndex = await probeAppUrl();
+  note('app url probe', APP_URL + ' html=' + servedIndex.bytes + 'B entry=' + servedIndex.entry);
+  check(
+    'S1 本地服务端出来的就是当前 dist/ 的字节',
+    servedIndex.sha256 === expectIndex.sha256 && servedIndex.entry === expectIndex.entry,
+    'served sha=' + servedIndex.sha256.slice(0, 16) + ' dist sha=' + expectIndex.sha256.slice(0, 16),
+  );
+  check(
+    'S2 _headers 真的生效了（响应里带 CSP）',
+    !!servedIndex.headers['content-security-policy'],
+    servedIndex.headers['content-security-policy'] || '响应里没有 content-security-policy',
+  );
+  check(
+    'S3 上线 HTML 字节里零绝对 URL（含注释）',
+    (servedIndex.html.match(ABS_URL_RE) || []).length === 0,
+    (servedIndex.html.match(ABS_URL_RE) || []).join(' ') || '0 个',
+  );
 
   fs.rmSync(PROFILE, { recursive: true, force: true });
   let proc = await launch('--headless=new');
@@ -539,10 +679,38 @@ async function main() {
     if (p.entry && (p.entry.level === 'error')) console_.push('log: ' + String(p.entry.text).slice(0, 300));
   });
 
+  // ============ 承诺面取证：记下浏览器真实发出的每一个请求 ============
+  const netRequests = new Map();
+  cdp.on('Network.requestWillBeSent', (p) => {
+    const rq = p.request || {};
+    netRequests.set(p.requestId, {
+      url: rq.url,
+      method: rq.method,
+      kind: p.type,
+      hasPostData: !!rq.hasPostData,
+      postDataBytes: rq.postData ? Buffer.byteLength(rq.postData) : 0,
+    });
+  });
+  cdp.on('Network.responseReceived', (p) => {
+    const rec = netRequests.get(p.requestId);
+    if (rec) rec.status = p.response ? p.response.status : null;
+  });
+  cdp.on('Network.loadingFailed', (p) => {
+    const rec = netRequests.get(p.requestId);
+    if (rec) rec.failed = p.errorText || 'failed';
+  });
+
   await cdp.send('Page.enable');
+  await cdp.send('Network.enable');
   await cdp.send('Runtime.enable');
   await cdp.send('Log.enable');
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+  // CSP 违规不会在控制台留下稳定文本，自己在文档创建前装好计数器
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source:
+      "window.__cspViolations=[];window.addEventListener('securitypolicyviolation',function(e){" +
+      'window.__cspViolations.push({blocked:e.blockedURI,directive:e.violatedDirective,original:e.originalURL});});',
+  });
   await cdp.send('Page.navigate', { url: APP_URL });
 
   await poll(cdp, 'document.querySelector(\'[data-testid="app-root"]\') || document.querySelector(\'[testid="app-root"]\') ? 1 : 0', (v) => v === 1, 45000, 'app-root');
@@ -706,6 +874,63 @@ async function main() {
   note('body line click (utils.py:53)', { selInfo: afterD2.selInfo, band: afterD2.band });
   check('D2 clicking a body line selects the enclosing function', afterD2.selInfo.indexOf('load_config') >= 0, afterD2.selInfo);
   check('D3 body click moves the selection band to load_config', afterD2.band && parseInt(afterD2.band.top, 10) === (52 - 1) * ROW_H, JSON.stringify(afterD2.band));
+
+  // ================= ACCEPTANCE 4: 承诺面 —— 浏览器里真实发生的一切 =================
+  const httpReqs = [...netRequests.values()].filter((r) => /^https?:/i.test(r.url));
+  const selfOrigin = new URL(APP_URL).origin;
+  const originOf = (u) => {
+    try {
+      return new URL(u).origin;
+    } catch {
+      return null;
+    }
+  };
+  const pathnameOf = (u) => {
+    try {
+      return new URL(u).pathname;
+    } catch {
+      return u;
+    }
+  };
+  note(
+    'browser requests',
+    httpReqs.map((r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED:' + (r.failed || '?'))),
+  );
+  report.network = httpReqs;
+  const cross = httpReqs.filter((r) => originOf(r.url) !== selfOrigin);
+  check('E1 每一个浏览器请求都是同源', cross.length === 0, cross.map((r) => r.url).join(', ') || '总请求数=' + httpReqs.length);
+  const nonGet = httpReqs.filter((r) => r.method !== 'GET');
+  check('E2 每一个浏览器请求都是 GET', nonGet.length === 0, nonGet.map((r) => r.method + ' ' + r.url).join(', ') || httpReqs.length + ' 个全 GET');
+  const bodies = httpReqs.filter((r) => r.hasPostData || r.postDataBytes > 0);
+  check('E3 零请求体（没有任何数据被送出浏览器）', bodies.length === 0, bodies.map((r) => r.method + ' ' + r.url + ' ' + r.postDataBytes + 'B').join(', ') || '0');
+  const bad = httpReqs.filter((r) => r.status && r.status >= 400);
+  check('E4 没有 4xx/5xx 响应', bad.length === 0, bad.map((r) => r.status + ' ' + r.url).join(', ') || '0');
+  const notAsset = httpReqs.filter((r) => r.status === 200 && !distFileFor(pathnameOf(r.url)));
+  check(
+    'E5 每个 200 响应都对应 dist/ 里真实存在的文件（被测字节 == 上线字节）',
+    notAsset.length === 0,
+    notAsset.map((r) => pathnameOf(r.url)).join(', ') || 'ok',
+  );
+  const liveEntry = await evalJs(
+    cdp,
+    'Array.prototype.slice.call(document.getElementsByTagName("script")).map(function(s){return s.getAttribute("src")}).filter(function(u){return u && u.indexOf("/entry-") > -1})[0] || null',
+  );
+  check('E6 页面里执行的入口 JS 就是 dist 的那个文件', liveEntry === expectIndex.entry, 'live=' + liveEntry + ' dist=' + expectIndex.entry);
+  const tokens = userContentTokens();
+  const leaks = [];
+  for (const r of httpReqs) {
+    if (distFileFor(pathnameOf(r.url))) continue; // 真资产路径本身不算泄露
+    for (const t of tokens) {
+      if (r.url.indexOf(t) >= 0 || r.url.indexOf(encodeURIComponent(t)) >= 0) leaks.push(t + ' -> ' + r.url);
+    }
+  }
+  check(
+    'E7 URL 里没有用户内容（文件名/函数名/代码片段）',
+    leaks.length === 0,
+    leaks.slice(0, 5).join(' | ') || tokens.length + ' 个标记 x ' + httpReqs.length + ' 个请求，零命中',
+  );
+  const cspViolations = (await evalJs(cdp, 'window.__cspViolations || []')) || [];
+  check('E8 生产 CSP 下零违规', cspViolations.length === 0, JSON.stringify(cspViolations).slice(0, 600));
 
   // note() 只是打印；真正的错误要变成一条断言，否则 CI 里没人会去看日志
   const consoleErrors = console_.filter((c) => c.indexOf('error:') === 0 || c.indexOf('log:') === 0);

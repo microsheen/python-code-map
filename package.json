@@ -9,13 +9,15 @@
     "start": "expo start",
     "export": "expo export --platform web",
     "preexport": "node scripts/copy-wasm.mjs",
+    "postexport": "node scripts/polish-dist.mjs",
     "copy-wasm": "node scripts/copy-wasm.mjs",
     "postinstall": "node scripts/copy-wasm.mjs",
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "verify": "npm run typecheck && npm run lint && npm test"
+    "verify": "npm run typecheck && npm run lint && npm test",
+    "smoke": "node scripts/browser-verify.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "3.1.1",

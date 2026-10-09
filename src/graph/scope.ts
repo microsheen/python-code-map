@@ -31,6 +31,7 @@ function subgraph(graph: CallGraph, keep: Set<FuncId>): CallGraph {
     ...graph,
     nodes,
     edges,
+    unresolved,
     files: [...new Set(nodes.map((n) => n.file))],
     stats: {
       ...graph.stats,

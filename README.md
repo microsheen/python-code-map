@@ -2,7 +2,12 @@
 
 上传一个或多个 `.py` 文件，在浏览器里看到它们的函数调用关系图，左边代码、右边图，两边点击互相定位。
 
-- **纯前端**：没有后端服务，没有数据库。源码全程留在浏览器内存里，刷新即清空，不落任何持久化存储。
+- **纯前端、零上行**：没有后端服务，没有账号，没有数据库，没有第三方脚本或统计。源码只在浏览器里
+  解析，不作为任何请求的一部分离开这台机器 —— 这不是口号，是真浏览器门禁里的逐条断言
+  （每个请求都是同源、都是 GET、请求体为空、URL 里没有你的文件名或代码片段）。
+- **会话只存在你自己的机器上**：文件内容写入浏览器本地 IndexedDB（库 `code-map` /
+  store `session` / key `current`），刷新页面可恢复；点 Clear 或清除站点数据即彻底删除，
+  服务端永远看不到它。
 - **真语法解析**：用 tree-sitter（WASM）解析 Python，不是正则扫行 —— 嵌套 `def`、类方法、
   `async def`、装饰器、相对导入都能正确识别。
 - **技术栈**：Expo SDK 57 + React Native Web + react-native-svg + dagre 布局 + zustand。
@@ -98,7 +103,7 @@ npm run web
       broken.py，其余三个文件照常出图，整个流程不崩
 - [ ] 大文件滚动流畅：上传一个几千行的文件，快速滚动代码区不掉帧
       （代码区是窗口化渲染，只画可视区间 ± 24 行）
-- [ ] 刷新页面 → 全部清空，没有任何残留（不写 localStorage / IndexedDB）
+- [ ] 刷新页面 → 文件与图还在（从本机 IndexedDB 恢复）；点 Clear 后再刷新 → 干净无残留
 
 上面**加粗的三组核心项**（图 → 代码、代码 → 图、调用点跳转）已经自动化了，
 改交互逻辑时优先跑 `node scripts/browser-verify.mjs`，见下一节。
@@ -112,12 +117,14 @@ Chromium 就能跑。
 
 ```bash
 npm run export                  # 先产出 dist/
-node scripts/browser-verify.mjs # 30 项断言，全绿退出码 0
+node scripts/browser-verify.mjs # 39 项断言（含 8 项承诺面），全绿退出码 0
 ```
 
-脚本自己起一个静态服务器托管 `dist/`（端口被占用时复用已有服务，但会先校验那个端口上跑的
-确实是本应用），拉起 headless Chrome，把 `fixtures/` 三个文件喂进去，然后**用真实鼠标事件**
-点击 SVG 节点与代码 token，逐项断言：
+脚本自己起一个静态服务器托管 `dist/`，并把 `dist/_headers` 里的规则原样套到每个响应上
+（冒烟跑的正是线上那一套 CSP）。端口被占用时会复用已有服务，但先校验两件事：那个端口上跑的
+确实是本应用（判据是 HTML 里带着本项目 Metro 的入口脚本标签，**不用 `<title>`**，标题一改
+就会误判），且服务端字节与 `dist/index.html` 完全一致。然后拉起 headless Chrome，把
+`fixtures/` 三个文件喂进去，**用真实鼠标事件**点击 SVG 节点与代码 token，逐项断言：
 
 | 组           | 覆盖                                                                                                    |
 | ------------ | ------------------------------------------------------------------------------------------------------- |
@@ -127,12 +134,14 @@ node scripts/browser-verify.mjs # 30 项断言，全绿退出码 0
 | C 深层跨文件 | 从 `shapes.py` 跳到 `utils.py:95`，滚动量、高亮带位置、闪烁都对                                         |
 | D 语义点击   | 点调用点选中的是被调方；点函数体中间行选中的是所在函数                                                  |
 | 稳定性       | 控制台无 error、页面无未捕获异常                                                                        |
+| S 产物一致性 | 服务端返回的字节 == `dist/index.html` 的字节（sha256 相同）；响应头里真的带着 `_headers` 的 CSP；产物 HTML 里零绝对 URL |
+| E 承诺面     | 全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件 / 跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
 
 可选环境变量：
 
 | 变量               | 默认     | 作用                                                               |
 | ------------------ | -------- | ------------------------------------------------------------------ |
-| `CODEMAP_PORT`     | `8099`   | 静态服务端口；被占用时复用已有服务（会校验内容确实是本应用）       |
+| `CODEMAP_PORT`     | `8099`   | 静态服务端口；被占用时复用已有服务（会校验字节与 `dist` 一致且确为本应用） |
 | `CODEMAP_CDP_PORT` | `9333`   | Chrome 远程调试端口                                                |
 | `CHROME_PATH`      | 自动探测 | 浏览器可执行文件路径（Windows / macOS / Linux 常见位置都会试一遍） |
 
@@ -144,23 +153,30 @@ node scripts/browser-verify.mjs # 30 项断言，全绿退出码 0
 | 命令                              | 作用                                                    |
 | --------------------------------- | ------------------------------------------------------- |
 | `npm run web`                     | 启动 dev server（自动同步 wasm）                        |
-| `npm run export`                  | 生产导出到 `dist/`（自动同步 wasm），可扔到任意静态托管 |
+| `npm run export`                  | 生产导出到 `dist/`：preexport 同步 wasm，postexport 剥掉 HTML 注释并自检产物 |
 | `npm run copy-wasm`               | 只同步 + 冒烟校验 wasm；加 `-- --no-verify` 跳过校验    |
 | `npm test`                        | jest 全量测试                                           |
 | `npm run typecheck`               | `tsc --noEmit`（strict）                                |
 | `npm run lint`                    | eslint                                                  |
 | `npm run format`                  | prettier 写入                                           |
 | `npm run verify`                  | typecheck + lint + test，提交前跑这个                   |
-| `node scripts/browser-verify.mjs` | 真 Chrome + CDP 自动化验收（先 `npm run export`）       |
+| `npm run smoke`                   | 真 Chrome + CDP 自动化验收（先 `npm run export`）        |
+| `node scripts/browser-verify.mjs` | 同上，直接跑脚本                                        |
 
 ## 目录结构
 
 ```
 app/                      expo-router 入口（单页）
-public/wasm/              两个 .wasm（由 copy-wasm 生成，不入库）
+public/
+  _headers                线上响应头（CSP / 缓存 / HSTS），`expo export` 会整目录拷进 dist/
+  robots.txt              允许被检索（改成 Disallow: / 即全站禁抓）
+  wasm/                   两个 .wasm（由 copy-wasm 生成，不入库）
 scripts/
   copy-wasm.mjs           同步 wasm + Node 冒烟校验
+  polish-dist.mjs         导出后处理：剥 HTML 注释 + 结构自检 + 零绝对 URL 自检
   browser-verify.mjs      真浏览器（headless Chrome + CDP）验收脚本
+.github/workflows/
+  ci-and-deploy.yml       门禁 -> 浏览器冒烟 -> 部署，三个 job 共用同一次构建的产物
 fixtures/                 测试样例（main/shapes/utils/broken）
 src/
   parser/
@@ -206,7 +222,8 @@ __tests__/                jest（纯函数 + 组件 + 真 wasm 全链路）
 其他限制：
 
 - 只接受 `.py` / `.pyi` 文本文件；单文件按 1MB 上限处理，超出会提示跳过。
-- 不持久化：刷新即清空。
+- 持久化只发生在你自己的浏览器里：会话（含全部文件内容）写入本机 IndexedDB，刷新可恢复；
+  没有服务端存储，清除站点数据等于彻底删除。
 - 解析在浏览器主线程分批执行（每批 3 个文件），几十个文件无感；上千文件的大仓会卡，
   Web Worker 是已预留但未启用的优化位。
 - 只做静态语法分析，不执行任何被上传的代码。
@@ -264,3 +281,11 @@ Expo 会往用户目录写状态文件（`~/.expo/state.json`）。在写入被�
 $env:EXPO_NO_TELEMETRY = "1"; $env:CI = "1"; $env:EXPO_HOME = "$PWD\.expo-home"
 npx expo export --platform web --output-dir dist
 ```
+
+## 发布与运维
+
+完整过程、平台坑与回滚步骤记录在 [docs/ops-deployment.md](docs/ops-deployment.md)。两条最常做的操作：
+
+- **停发布**：把仓库变量 `DEPLOY_ENABLED` 改成 `false`。这是唯一开关，不删代码、不删 job、不删凭据。
+- **确认线上就是我测过的那份**：`npm run export` 末尾会打印 `dist/index.html` 的 sha256；
+  冒烟的 `S1` 断言比对服务端字节；`check-deploy.mjs --dist=dist` 比对线上与本地产物。

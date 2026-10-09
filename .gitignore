@@ -11,3 +11,11 @@ expo-env.d.ts
 
 # tree-sitter WASM 由 npm run copy-wasm 从 @vscode/tree-sitter-wasm 同步，不入库
 public/wasm/*.wasm
+
+# 凭据与工具缓存：公开仓库靠机器规则，不靠记忆
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+.wrangler/

@@ -174,7 +174,7 @@ export function TopBar(): ReactNode {
       <View style={styles.row}>
         <View style={styles.brand}>
           <Text style={styles.title} numberOfLines={1}>
-            Python Call Graph
+            Python Code Map
           </Text>
           <Text style={styles.subtitle} numberOfLines={1}>
             Upload .py files, parse in-browser, bidirectional code & graph navigation
@@ -585,3 +585,4 @@ const styles = StyleSheet.create({
   },
   warnText: { color: colors.warn, fontFamily: fonts.ui, fontSize: 11 },
 });
+

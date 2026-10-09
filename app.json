@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "code-map",
+    "name": "Python Code Map",
     "slug": "code-map",
     "version": "0.1.0",
     "scheme": "code-map",
@@ -10,7 +10,7 @@
     "web": {
       "output": "single",
       "bundler": "metro",
-      "name": "code-map"
+      "name": "Python Code Map"
     },
     "plugins": [
       "expo-router"

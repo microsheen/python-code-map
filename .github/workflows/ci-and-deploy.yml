@@ -21,7 +21,13 @@ on:
   workflow_dispatch:
 
 permissions:
+  # 一旦显式写出下面任何一个 scope，没有被写出来的 scope 全部变成 none
+  # （workflow-syntax 文档原文："all of those that are not specified are set to none"）。
+  # job 之间传 dist/ 靠的是 Actions artifact，归 actions scope 管：少下面这一行，
+  # upload/download-artifact 会以 403 "Resource not accessible by integration" 失败，
+  # 门禁红在第一步。write 包含 read，所以下游两个 download 也被这条覆盖。
   contents: read
+  actions: write
 
 concurrency:
   group: ci-and-deploy-${{ github.ref }}
@@ -68,6 +74,20 @@ jobs:
           fi
           if grep -Eq 'https?://' dist/index.html; then
             echo "::error::dist/index.html 里仍有绝对 URL，部署后会被判为第三方引用"
+            exit 1
+          fi
+
+      - name: Production branch declared in both places
+        run: |
+          # deploy 的 job 级 if 读不到 env 上下文，只能把生产分支名再抄一遍（GitHub 的已知限制）。
+          # 两处一旦不同步，deploy 的 if 永远为 false：构建全绿、冒烟全绿、什么都没发布，
+          # 而且不会有任何报错。所以这是断言，不是文档里的提醒。
+          set -eu
+          f=.github/workflows/ci-and-deploy.yml
+          pat="github.ref_name == '$PRODUCTION_BRANCH'"
+          n=$(grep -cF "$pat" "$f" || true)
+          if [ "${n:-0}" != "1" ]; then
+            echo "::error::deploy 的 if 里匹配 env.PRODUCTION_BRANCH 的判断出现 $n 次（期望 1 次）：0 次会让 deploy 静默地永不执行，多于 1 次说明改默认分支时漏改了"
             exit 1
           fi
 

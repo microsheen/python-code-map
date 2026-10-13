@@ -1,6 +1,12 @@
 {
   "name": "code-map",
   "version": "0.1.0",
+  "license": "MIT",
+  "author": "microsheen",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/microsheen/python-code-map.git"
+  },
   "private": true,
   "main": "expo-router/entry",
   "scripts": {

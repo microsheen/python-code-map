@@ -301,12 +301,12 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 | 公开目标账号与仓库名 | ✅ `microsheen/python-code-map`（[实测] 此前在 github.com 上 404，即不存在同名仓库） |
 | 公开仓库默认分支 | ✅ `main`（用户未指定，采用建议默认值；workflow 两处同步见 §2 第 2 条） |
 | GHES 那份 workflow（O1–O4） | ✅ 选 O1，已实施，并于 2026-10-13 **实测通过**：推内网后 run 整体 `skipped`、不排队，见 §13 |
-| LICENSE | 待拍板（许可是选择，不是继承） |
-| `package.json` 的 `license` / `repository.url` / `author` | 待随许可证一起补 |
+| LICENSE | ✅ 选 MIT（2026-10-13，agent 代拍 —— 仓库此刻仍是 private，翻公开前你一句话就能换成 Apache-2.0 或撤掉）。`LICENSE` 文件已真实存在（1067 字节，LF），不是只在 README 里声称 |
+| `package.json` 的 `license` / `repository.url` / `author` | ✅ 已随许可证在同一次提交里补齐：`license: MIT`、`author: microsheen`、`repository.url` 指向公开仓。真正的许可 bug 是"manifest 声称 MIT 但没有 `LICENSE` 文件"，所以两者必须一起落 |
 | Cloudflare API token 与 account id | ✅ 2026-10-13 用户直接提供。只存在仓库之外的临时目录，并已写入 Actions secrets（`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`）；**任何一份拷贝都不进仓库、历史、文档** |
 | 域名：复用已有 zone 还是新注册 | ✅ `python-code-map.com` 的 zone 已在该账户下且 `status=active`；[实测] 区内 DNS 记录 0 条，是干净的。绑定要 API 加域名 + 手动建 `@` 与 `www` 两条 proxied CNAME（API 不会替你建 CNAME） |
 | Pages 项目名 | 待拍板。名字**全局唯一且不可改名**，它同时出现在 `<project>.pages.dev`、CI 的 `vars.PAGES_PROJECT_NAME` 和域名 CNAME 的目标里；最直白的候选很可能已被陌生人占用，要一次定下带备选的方案 |
-| 反馈渠道 | 待拍板。收信转发的**目标邮箱地址**绝不能进仓库、历史或文档（映射只存在于控制台）；另外要知道页面公开后，公开的联系地址会招来垃圾邮件 |
+| 反馈渠道 | ✅ 定为只用 GitHub Issues（2026-10-13，agent 代拍）：仓库已开 `has_issues`，零新增配置、不在页面上公开任何邮箱地址，也就没有垃圾邮件面。若以后要邮箱别名，只做 Email **Routing** 收信转发、**不开** Email **Sending**（那是带 DKIM/DMARC/配额/信誉的新负担），且转发的目标邮箱只留在控制台 |
 
 **本机已具备 / 尚缺的前置条件**（[实测] 2026-10-09 只读复探）
 

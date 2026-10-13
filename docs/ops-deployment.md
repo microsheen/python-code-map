@@ -93,10 +93,15 @@
      仅新增 `node_modules/@emnapi/{core,runtime}@1.11.3` 两条（`optional`+`dev`），无删除、无版本变动、
      无 `resolved` 变动 —— 所以"产物不变"是被比出来的。11.19.0 安装时报 `unrs-resolver` 的 postinstall
      未被 `allowScripts` 覆盖（warning，非 error），verify 仍全绿。
-   - 仍然存在的边界：`vars.DEPLOY_ENABLED == 'false'` 使 `deploy` 仍 skipped。skipped 的 job 不回答
-     "是哪一条条件为 false"，所以它既不能当 O1 的证据，也不能当 `deploy` 跑得通的证据。O1 已于
-     2026-10-13 用另一次推送单独验证（§13）；而 `deploy` 里 wrangler 的鉴权、以及 `actions: write`
-     覆盖的 download-artifact 路径**至今没有真实执行过**，第一次真跑仍可能红。
+    - [实测] **`deploy` 已于 2026-10-13 第一次真实执行并通过**（run `38359980657`，`workflow_dispatch`
+      触发在 `main` / `0a3e0cf`）：wrangler 4.149.0 用 Actions secrets 里的 token 鉴权通过，
+      `download-artifact` 在 `actions: write` 下取回了 `checks` 上传的那一个产物，URL 从 stdout 的
+      「✨ Deployment complete! Take a peek over at …」一行解析成功 —— 原先记在本条的那个边界已被这次运行作废。
+      `project create` 这次走的是**已存在**分支（日志里是 `8000002 A project with this name already
+      exists` 紧跟 `project 已存在，继续`，不是权限故障）；**首次创建**分支由同一天本机直连 API 建项目时
+      验证过 —— 两条分支各自都有过一次真实执行了。归属守卫 O1 是另一件事（§12），已于同日另一次推送实测，
+      两边不要混用成同一个开关。仍然没被实测过的只剩 `vars.DEPLOY_ENABLED` 的**回退**：`true → false`
+      真能止住发布、再翻回 `true` 又能发。
    - [实测] CI 报 `added 1098 packages`、本机 `npm ci` 报 `added 1096`，这 2 个已对上账，不是隐患：
      同一份锁跑 `npx npm@11.19.0 ci --dry-run --os=linux --cpu=x64` 得 `added 4 / removed 2`，增的是
      `lightningcss-linux-x64-{gnu,musl}` 与 `@unrs/resolver-binding-linux-x64-{gnu,musl}`，删的是对应
@@ -261,19 +266,25 @@ SPA history fallback：未知路径返回 **200 + index.html**，`/api/*` 也一
 ```bash
 node <skill>/scripts/check-deploy.mjs \
   --hosts=https://<apex>,https://www.<apex>,https://<project>.pages.dev \
-  --paths=/,/index.html,/wasm/tree-sitter.wasm,/robots.txt \
+  --paths=/,/wasm/tree-sitter.wasm,/wasm/tree-sitter-python.wasm,/robots.txt \
   --dist=dist --mode=browser
 ```
+
+**别把 `/index.html` 放进 `--paths`。** [实测] Pages 对 `/index.html` 返回 **308** canonical 到 `/`，
+而脚本取响应时用 `redirect: 'manual'`（不跟随跳转），于是那个 308 的跳转体被拿去和 `dist/index.html`
+比字节 ⇒ 必然计入 `differs from --dist bytes` 并把退出码打成 1，而线上其实是好的。`/` 已经覆盖了
+同一个文件（`--dist` 的映射里 `/` 就是 `index.html`），列它两次只会多一个假阳性。
 
 退出码：`0` 没有 counted finding，`1` 至少一个，`2` 用法错。counted 桶包括：跨 host 字节不一致、
 HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 头不一致、**状态码跨 host 不一致**、
 **任何 ≥400 的响应**（会连 `server` 头一起打）、传输错误。`--ignore-header` 只用于**已经判定为
 平台差异**的头 —— 它同时会把后面几次真正由你主机应答的运行也消音。
 
-**[实测] `pages.dev` 与自定义域名是不同的故障域。** 在某企业工作站上，同一分钟内 `*.pages.dev`
-返回 `200 + server: cloudflare`，而 apex 和 `www` 返回固定 ~15 KB 的拦截页，或 307 到一个
-不是你的主机名。不涉及 DNS、证书、部署 —— 是**验证机上面的中间设备**替 Cloudflare 应答了。
-比较内容之前先问"谁答的"；先修观测点，再判断字节。
+**[实测] `pages.dev` 与自定义域名是不同的故障域。** 2026-10-13 同一分钟内 `*.pages.dev` 直连得到
+`200 + server: cloudflare`（带 `cf-ray`），而刚绑定的 apex 与 `www` 在 443 上得到 13,850 / 14,935 B
+的拦截页，应答方的 `server` 头是中间设备的产品名（不是 `cloudflare`）且**没有 `cf-ray`**；80 端口是 307 跳到一个企业网关主机。不涉及
+DNS、证书、部署 —— 是**验证机上面的中间设备**替 Cloudflare 应答了；它按 SNI 过滤，所以拿 `--resolve`
+指到 Cloudflare 的 IP 也绕不过。比较内容之前先问"谁答的"；先修观测点，再判断字节。
 
 因此：**新的自定义域名上线后，必须换一个网络（比如手机热点）复测一次**，
 不能只信办公网里那次全绿。本机跑 `--mode=browser` 时也一样：企业网关改写过 HTML 时，
@@ -293,7 +304,7 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
   Disable Email Routing（撤销它自己加的记录）。Pages 的 CNAME 完全不在这条路径上。
 - 公开页面上放联系地址会在公开后招垃圾邮件：这是**决定推送顺序**的理由，不是砍掉渠道的理由。
 
-## 10. 尚未拍板的项目（阻塞 Phase 2 的公开推送）
+## 10. 拍板台账（Phase 2 各项的当前结论）
 
 | 项 | 状态 |
 | --- | --- |
@@ -304,8 +315,8 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 | LICENSE | ✅ 选 MIT（2026-10-13，agent 代拍 —— 仓库此刻仍是 private，翻公开前你一句话就能换成 Apache-2.0 或撤掉）。`LICENSE` 文件已真实存在（1067 字节，LF），不是只在 README 里声称 |
 | `package.json` 的 `license` / `repository.url` / `author` | ✅ 已随许可证在同一次提交里补齐：`license: MIT`、`author: microsheen`、`repository.url` 指向公开仓。真正的许可 bug 是"manifest 声称 MIT 但没有 `LICENSE` 文件"，所以两者必须一起落 |
 | Cloudflare API token 与 account id | ✅ 2026-10-13 用户直接提供。只存在仓库之外的临时目录，并已写入 Actions secrets（`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`）；**任何一份拷贝都不进仓库、历史、文档** |
-| 域名：复用已有 zone 还是新注册 | ✅ `python-code-map.com` 的 zone 已在该账户下且 `status=active`；[实测] 区内 DNS 记录 0 条，是干净的。绑定要 API 加域名 + 手动建 `@` 与 `www` 两条 proxied CNAME（API 不会替你建 CNAME） |
-| Pages 项目名 | 待拍板。名字**全局唯一且不可改名**，它同时出现在 `<project>.pages.dev`、CI 的 `vars.PAGES_PROJECT_NAME` 和域名 CNAME 的目标里；最直白的候选很可能已被陌生人占用，要一次定下带备选的方案 |
+| 域名：复用已有 zone 还是新注册 | ✅ 复用账户下已有的 `python-code-map.com` zone（`status=active`、区内原本 0 条记录）。[实测] 2026-10-13 绑定完成：`POST /pages/projects/<p>/domains`（字段名必须是 `name`）成功，状态 `initializing → pending → active`；再手建两条 proxied CNAME（`@`、`www` → `python-code-map.pages.dev`、`ttl: 1`），记录由 0 条变 2 条。这一步顺带**证实了 token 有 Zone / DNS: Edit** —— §7 那条「建 DNS 记录需要 token 有 Zone / DNS: Read + Edit」的前置条件到此已由实做证实。**但办公网无法端到端验证它**，见 §8 与 §13 |
+| Pages 项目名 | ✅ `python-code-map`（2026-10-13 agent 代拍，可撤销）。[实测] `POST /accounts/<acct>/pages/projects` 直接创建成功 ⇒ 这个名字**全局未被占用**，返回 `subdomain=python-code-map.pages.dev`、`production_branch=main`；`vars.PAGES_PROJECT_NAME` 已指向它。代价说清楚：项目名**不可改名**，换名的唯一路径是删项目重建 + 重绑域名 + 改变量，**已发出的 URL 会全部失效** |
 | 反馈渠道 | ✅ 定为只用 GitHub Issues（2026-10-13，agent 代拍）：仓库已开 `has_issues`，零新增配置、不在页面上公开任何邮箱地址，也就没有垃圾邮件面。若以后要邮箱别名，只做 Email **Routing** 收信转发、**不开** Email **Sending**（那是带 DKIM/DMARC/配额/信誉的新负担），且转发的目标邮箱只留在控制台 |
 
 **本机已具备 / 尚缺的前置条件**（[实测] 2026-10-09 只读复探）
@@ -315,7 +326,7 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 | `gh` 对 github.com 的 token scopes | ✅ 含 `workflow`（另有 `repo`、`read:org`、`gist`） | Phase 2 推 workflow 文件不会撞 `refusing to allow an OAuth App…`；缺就先 `gh auth refresh -h github.com -s workflow` |
 | GitHub noreply 身份 | ✅ 已取得 | 数字 id **不写在这份文档里**，用时现取（它和账号名一起构成可反推的公开身份） |
 | 推送传输方式 | ✅ 已定：HTTPS + gh 的凭据助手 | [实测] 2026-10-13 `git config --global` 里 github.com 与内网实例都配了 `credential.<host>.helper`（GitHub CLI）；`GIT_TERMINAL_PROMPT=0` 下 `git ls-remote` 走 https 不再索要用户名 ⇒ 不需要解锁 SSH key。上一版记的「协议是 ssh」说的是 gh 的 git-operations 配置，与 origin 实际走 https 是两回事 |
-| Cloudflare 凭据 | ❌ 无 | 环境变量 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` 都不存在；`wrangler` 不在 PATH；`%APPDATA%\xdg.config\.wrangler` 下**没有 `config/`** ⇒ 没有可复用的 OAuth 会话 |
+| Cloudflare 凭据（本机） | ❌ 本机仍无 | [实测] 本机没有 `wrangler`、没有可复用的 OAuth 会话、环境变量也没设。所有 Cloudflare 调用都是**临时目录里的 token 文件 + curl**，不落 shell 配置、不进仓库；CI 侧读 Actions secrets，与本行无关（见 §13） |
 | 公共 npm registry | ✅ | 全机无 `.npmrc`，registry = `https://registry.npmjs.org/` |
 
 最后一行是**检查过的**，不是假设：内部 npm 镜像地址如果写在全局 `.npmrc` 里，公开仓库的 CI
@@ -338,7 +349,7 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 
 **[实测] 沙盘已经跑通一遍**（临时目录 clone → 删 `origin` → scrub `AGENTS.md` →
 `git checkout --orphan` → 用 noreply 身份做**单个**提交 → 分支改名 `main` →
-`audit-public-repo.mjs --history .`）：**findings 0 / exit 0 / 84 个跟踪文件**。
+`audit-public-repo.mjs --history .`）：**findings 0 / exit 0 / 84 个跟踪文件**（那是当时的数字；2026-10-13 正式那一轮是 **85** 个，多出的是 `LICENSE`，见 §13 —— 跟踪数会变，所以每次推送前重跑，不拿「上次扫过」当依据）。
 被消掉的那条是 `personal-email-in-commit-metadata`（MEDIUM）：本机 git identity 的私人邮箱在
 **每一个提交的 author/committer 元数据**里 —— 它不在任何文件里，`--orphan` 之前删多少行都没用，
 只有"不带历史 + 换身份"这一种修法。（审计行的 `+39 commits` 是**命中次数** = 20 个提交 × 2，
@@ -415,7 +426,7 @@ pack 108 个对象）。
 "产生噪音"这个理由不再成立，而 AGENTS.md 要求的"改动前先 pull 再 push"重新占上风，于是推了：
 `fd40a45..341fe8d  master -> master`（11 个提交），推完 `origin/master..HEAD` = 0。结果见 §13。
 
-## 13. Phase 2 实况：公开仓已建（仍 private）、首跑红、内网那次验证已补上
+## 13. Phase 2 实况：站点已上线（`python-code-map.pages.dev`），域名已绑、待异网复测
 
 **已做到**（以下均 [实测] 2026-10-13）：
 
@@ -436,11 +447,52 @@ pack 108 个对象）。
   依据了。但这只证明**归属守卫**有效：`master` 本来也不是生产分支，两条条件同时为 false，
   这次 skipped 依然不能当作 `deploy` 可运行的证据。
 
-**没做到的，不许写成已完成**：
+- [实测] **公开镜像重做并强推**：`b31c700 → 0a3e0cf`（远端报 `main -> main (forced update)`）。
+  单提交、远端只有 `refs/heads/main` 一条 ref、tracked=**85**、`audit --history` findings **0**、
+  `commits_ALL=1`。旧的 `b31c700` 不含 `LICENSE` 与这几天的实测改正，所以必须整轮重跑 scrub。
+  顺带记一个坑：`drive-scrub6.sh` 会在 `scrub.sh` 末尾**停住** —— 那一步的 `audit --history` 在
+  还没删掉 `refs/heads/master` 之前跑，必然报那条 MEDIUM，`set -e` 于是把后续脚本切掉。这是
+  **预期行为**，不是失败：接着单独跑 `scrub2.sh`（删 ref → `reflog expire` → `gc --prune=now`）
+  才会拿到 findings 0。上一版那句「ref 卫生问题」说的就是这里。
+- [实测] **`deploy` 第一次真实执行 = run `38359980657`**：`checks` ✅、`browser-smoke` ✅、`deploy` ✅，
+  三个 job 全绿（这是 GitHub.com 上第一次三个 job 都真跑；前一次 push 触发的 run `38359728355` 里
+  `deploy` 仍因 `DEPLOY_ENABLED=false` 而 skipped）。
+- [实测] **发布 URL 只取 wrangler stdout，不许猜**：本次部署的不可变 URL 是
+  `https://36266ff7.python-code-map.pages.dev`；生产别名 `https://python-code-map.pages.dev` 同步生效
+  （两者字节一致）。Direct Upload 的主机形状是 `<~8hex>.<project>.pages.dev`，**不存在** git-SHA 主机。
+- [实测] **上线验证 exit 0 clean**：`check-deploy.mjs --mode=browser --dist=<CI 产物>` 下，`/`、
+  `wasm/tree-sitter.wasm`、`wasm/tree-sitter-python.wasm`、`robots.txt` 在两个 host 上字节一致，且
+  与 CI 产物字节一致；`server: cloudflare` + `cf-ray` 正常。这里的参照系是
+  `gh run download <id> -n dist` 取回的**CI 产物**，不是本机重建（原因见下下条）。
+- [实测] 两个 Pages 平台差异，先记下来免得下次误判：`/index.html` 返回 **308** canonical 到 `/`，
+  把它放进 `--paths` 会被算成「与 dist 不一致」；`x-robots-tag: noindex` 只出现在**部署 host**
+  （`<hash>.<project>.pages.dev`）上，生产别名没有 —— 是 Cloudflare 自己的行为，归入
+  「server-dependent 不计入」那一类。
+- [实测] **本机重建 ≠ CI 产物，而且与时间戳、与缓存都无关**：干净 `npm ci` + `npm run export` 得
+  `entry-d2ba5fa17c62fcd4af00956ad70d7874.js`（1,398,755 B），CI / 线上是
+  `entry-9069ffa5853c1ad65fdce8d140114034.js`（1,392,408 B）；删掉 `%TEMP%\metro-cache`（1758 个文件）
+  再加 `--clear` 重建，哈希**不变**。按行比对：`__d` 模块集合完全相同（827 个，零增删、零内容差异），
+  差的是一行 **6,346 B 的预运行时片段**（内含 `formatValueCalls`、`_isPolyfilled`，即 RN 的 console
+  polyfill 连 `pretty-format` 一起打进来），本机有、CI 没有 —— 也就是说差异在 **Metro 的 polyfill 段**，
+  不在业务代码里。**根因未定位**，所以在此之前不许对外声称「从源码能复现出逐字节相同的线上产物」。
+  站点的可信度不依赖这句话：CI 的冒烟与部署用的是**同一个 artifact**，tested==shipped 在流水线内部成立。
+- [实测] **这台机器的出口会拦自定义域名**：同一时刻 `*.pages.dev` 直连正常，而 `python-code-map.com`
+  与 `www.` 的 443 得到 13,850 / 14,935 B 的拦截页、80 端口得到 307 跳到一个网关主机，应答方
+  `server` 头是中间设备的产品名、**没有 `cf-ray`** ⇒ 不是 Cloudflare 答的（产品名按纪律不写在这里）。这正是 §8 那条「先问谁答的」。
 
-- 站点仍未上线。已到位的是 secrets（token + account id）和 zone；还缺 `vars.PAGES_PROJECT_NAME` —— 项目
-  名全局唯一且不可改名，这一项必须人拍板。定了之后 `deploy` 才是**第一次真实执行**：wrangler 鉴权、
-  `project create` 的两条分支（首次创建 / 已存在继续）、以及从 stdout 解析不可变 URL
-  （"✨ Deployment complete! …"那一行），只跑一次，URL 只取日志、不许猜。
+**没做到的，不许写成已完成**（[实测] 2026-10-13）：
+
+- **自定义域名还没被端到端验证。** Cloudflare 侧的证据已经齐了：域名 `status=active`，DoH 查
+  `python-code-map.com` 与 `www.` 各返回两条 Cloudflare anycast A 记录（apex 的 CNAME 被
+  flattening 藏起来，查不到 CNAME 是正常结果）。但这台机器**任何**出口都被中间设备接管，
+  拿不到 Cloudflare 的真实应答，`--resolve` 也绕不过（它按 SNI 过滤）。⇒ 必须换一个网络（手机热点）
+  拿 §8 那条命令复测一次，`--hosts=` 换成 `https://python-code-map.com,https://www.python-code-map.com,`
+  `https://python-code-map.pages.dev`（其余参数照 §8，尤其别再列 `/index.html`）。
+  在那之前，「办公网里打不开 `python-code-map.com`」**不算**站点故障。
+- **`www` 与 apex 现在同时可服务 = 两个 origin、两份 IndexedDB 命名空间**，这是数据完整性问题不是
+  美观问题（§7）。Redirect Rule `www.*/(.*)` → apex **还没建**（要 Zone Rules 权限，没权限时是 403）。
+  这件事该在推广入口地址之前定下来，否则同一批用户会因为输入的 host 不同而各自拥有独立的一份数据。
 - `Settings -> Actions -> Require approval for all outside collaborators` 仍要人在页面上勾（API 够不着）。
-- 可见性还没翻。既定顺序：CI 全绿 → 翻 public → **从干净克隆再审计一次** → 再谈域名与 Pages 项目名。
+- 可见性还没翻。既定顺序不变：CI 全绿（已达成）→ 翻 public → **从干净克隆再 `audit --history` 一次**。
+- `vars.DEPLOY_ENABLED` 的**回退路径**没实测过：现在它是 `true`，也就是说此后每一次推 `main`
+  都会真的发布。真要止住，把它设回 `false` 并**确认 run 里 `deploy` 变 skipped**，才算验证过 §3。

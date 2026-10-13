@@ -94,7 +94,8 @@
      无 `resolved` 变动 —— 所以"产物不变"是被比出来的。11.19.0 安装时报 `unrs-resolver` 的 postinstall
      未被 `allowScripts` 覆盖（warning，非 error），verify 仍全绿。
     - [实测] **`deploy` 已于 2026-10-13 第一次真实执行并通过**（run `38359980657`，`workflow_dispatch`
-      触发在 `main` / `0a3e0cf`）：wrangler 4.149.0 用 Actions secrets 里的 token 鉴权通过，
+      触发在 `main` / `0a3e0cf`；同日 `push` 触发也已跑通，见 §13 的 `38364378715` —— 两种触发方式都实测过了）：
+      wrangler 4.149.0 用 Actions secrets 里的 token 鉴权通过，
       `download-artifact` 在 `actions: write` 下取回了 `checks` 上传的那一个产物，URL 从 stdout 的
       「✨ Deployment complete! Take a peek over at …」一行解析成功 —— 原先记在本条的那个边界已被这次运行作废。
       `project create` 这次走的是**已存在**分支（日志里是 `8000002 A project with this name already
@@ -254,8 +255,12 @@ SPA history fallback：未知路径返回 **200 + index.html**，`/api/*` 也一
   HTTPS 在 Pages 翻到 `active` **之前**就能用：泛域名证书在 zone 接管域名的那一刻就覆盖了它，
   `active` 只表示 Pages 接受了归属。
 - **`www` 与 apex 是不同 origin ⇒ 不同 IndexedDB 命名空间。** 对本应用意味着同一份会话被劈成两份，
-  这是**数据完整性**问题不是美观问题。修法是一条 Redirect Rule：`www.*/(.*)` → apex，301
-  （需要 Zone Rules 权限，没有就 403）。
+  这是**数据完整性**问题不是美观问题。修法是一条 Redirect Rule：`www.*/(.*)` → apex，301。
+  [实测] 2026-10-13 这条规则**当前这个 token 建不了**：`GET /zones/<zone>/rulesets/phases/http_request_redirect/entrypoint`、
+  `.../http_request_static_redirects/entrypoint`、`.../entrypoint/entrypoint` 和 `GET /zones/<zone>/rulesets`
+  **四条只读接口全部 HTTP 403 `10000 Authentication error`**，而同一个 token 打 Pages 项目、Zone DNS、Zone 详情
+  都是 200 ⇒ 不是「规则还是空的」，是没有 **Zone / Rules** 权限。和上一条同理：改权限**不换** token 字符串，
+  CI 里那个 secret 不用重贴。
 - 保留 `pages.dev` 作为对照与回滚锚点。担心重复内容收录就在**那个 host 上**加
   `X-Robots-Tag: noindex`，而不是把它重定向走。本仓库 `robots.txt` 当前是 `Allow: /` —— 纯客户端工具被索引不会暴露任何用户内容；
   不想要检索就把那两行换成 `Disallow: /`（注意它同样只是**声明**，见 §5 的 TTL 覆写）。
@@ -447,27 +452,43 @@ pack 108 个对象）。
   依据了。但这只证明**归属守卫**有效：`master` 本来也不是生产分支，两条条件同时为 false，
   这次 skipped 依然不能当作 `deploy` 可运行的证据。
 
-- [实测] **公开镜像重做并强推**：`b31c700 → 0a3e0cf`（远端报 `main -> main (forced update)`）。
-  单提交、远端只有 `refs/heads/main` 一条 ref、tracked=**85**、`audit --history` findings **0**、
-  `commits_ALL=1`。旧的 `b31c700` 不含 `LICENSE` 与这几天的实测改正，所以必须整轮重跑 scrub。
-  顺带记一个坑：`drive-scrub6.sh` 会在 `scrub.sh` 末尾**停住** —— 那一步的 `audit --history` 在
-  还没删掉 `refs/heads/master` 之前跑，必然报那条 MEDIUM，`set -e` 于是把后续脚本切掉。这是
-  **预期行为**，不是失败：接着单独跑 `scrub2.sh`（删 ref → `reflog expire` → `gc --prune=now`）
-  才会拿到 findings 0。上一版那句「ref 卫生问题」说的就是这里。
-- [实测] **`deploy` 第一次真实执行 = run `38359980657`**：`checks` ✅、`browser-smoke` ✅、`deploy` ✅，
-  三个 job 全绿（这是 GitHub.com 上第一次三个 job 都真跑；前一次 push 触发的 run `38359728355` 里
-  `deploy` 仍因 `DEPLOY_ENABLED=false` 而 skipped）。
-- [实测] **发布 URL 只取 wrangler stdout，不许猜**：本次部署的不可变 URL 是
-  `https://36266ff7.python-code-map.pages.dev`；生产别名 `https://python-code-map.pages.dev` 同步生效
-  （两者字节一致）。Direct Upload 的主机形状是 `<~8hex>.<project>.pages.dev`，**不存在** git-SHA 主机。
-- [实测] **上线验证 exit 0 clean**：`check-deploy.mjs --mode=browser --dist=<CI 产物>` 下，`/`、
-  `wasm/tree-sitter.wasm`、`wasm/tree-sitter-python.wasm`、`robots.txt` 在两个 host 上字节一致，且
-  与 CI 产物字节一致；`server: cloudflare` + `cf-ray` 正常。这里的参照系是
-  `gh run download <id> -n dist` 取回的**CI 产物**，不是本机重建（原因见下下条）。
-- [实测] 两个 Pages 平台差异，先记下来免得下次误判：`/index.html` 返回 **308** canonical 到 `/`，
-  把它放进 `--paths` 会被算成「与 dist 不一致」；`x-robots-tag: noindex` 只出现在**部署 host**
-  （`<hash>.<project>.pages.dev`）上，生产别名没有 —— 是 Cloudflare 自己的行为，归入
-  「server-dependent 不计入」那一类。
+- [实测] **公开镜像重做并强推，两轮**：`b31c700 → 0a3e0cf → 2224d10`（远端每次都报
+  `main -> main (forced update)`）。单提交、远端只有 `refs/heads/main` 一条 ref、tracked=**85**、
+  `commits_ALL=1`。旧的 `b31c700` 不含 `LICENSE` 与这几天的实测改正，所以必须整轮重跑 scrub；
+  第二轮的动机是把文档里的 32 位全哈希换成「8 位前缀 + 完整字节数」（理由见 §4）—— 32 位独立 hex
+  和 Cloudflare 的 account/zone id **同形**，会命中 `audit` 的 `opaque-32-hex-id`。
+- [实测] **`drive-scrub6.sh` 停在 `scrub.sh` 末尾是预期行为，不是第二个故障**：那一步的 `audit --history` 在
+  还没删掉 `refs/heads/master` 之前跑，必然报 MEDIUM，`set -e` 于是把后续脚本切掉。[实测] 本轮报的是
+  **3 条 MEDIUM**：2× `opaque-32-hex-id` + 1× `personal-email-in-commit-metadata`，命中行全部落在仍可从
+  `refs/heads/master` 达到的内网提交里，**不是**新工作树的内容 —— 先确认命中的是哪个 ref，再决定是改文档
+  还是删 ref，别一上来就动本来就没问题的正文。所以卡住时接着单独跑 `scrub2.sh`
+  （删 ref → `reflog expire` → `gc --prune=now`）才会拿到 findings 0。上一版那句「ref 卫生问题」说的就是这里。
+- [实测] **审计对象从「本地 stage」换成「远端干净克隆」**：`git clone` github.com 上那份再跑
+  `audit --history`，结果 `refs/heads/main = 2224d10`、`commits_ALL=1`、tracked=**85**、findings **0**、
+  退出码 0。这两件事不是一回事：审 stage 只证明「我打算推的东西干净」，审克隆才证明
+  「已经推上去、CI 也将要构建的那一份干净」。
+- [实测] **`deploy` 真跑过两次，两种触发方式都通了**：`38359980657`（`workflow_dispatch`，
+  `main` / `0a3e0cf`）与 `38364378715`（**`push` 触发**，`main` / `2224d10`），两次的
+  `checks` / `browser-smoke` / `deploy` 都是 `success`。push 那次才真正暴露 §3 那个开关的日常形态：
+  `DEPLOY_ENABLED=true` 之后**任何人推 `main` 都立刻发布**，中间没有确认步骤。
+- [实测] **生产别名会随每次部署移动，只有不可变 URL 不动**：`36266ff7` → `91eaa8c6`，
+  `python-code-map.pages.dev` 现在服务后者（[实测] Pages API 的 `latest_deployment.id` =
+  `91eaa8c6-f619-4946-af8c-01fd98af641a`）。所以文档与验证命令里**别写死 `<hash>` 主机**，写死的那条
+  下一次推送就过期。URL 只取 wrangler stdout 的「✨ Deployment complete! Take a peek over at …」这一行，
+  不许猜；Direct Upload 的主机形状是 `<~8hex>.<project>.pages.dev`，**不存在** git-SHA 主机。
+- [实测] **跨 run 的产物确定性要用字节证，不能用日志措辞证**：把两次部署的不可变 host 和生产别名一起比，
+  `/`（914 B）、`/_expo/static/js/web/entry-9069ffa5…js`（**1,392,408 B**）、`/wasm/tree-sitter.wasm`
+  （209,613 B）、`/metadata.json`（49 B）在三个 host 上 sha256 两两相同，且全部 `vs --dist MATCH`
+  —— 参照系是 `38364378715` 的 CI 产物。两个 commit 之间只差文档，两次独立构建产出同一份字节，这句话
+  到此才有依据。反过来，wrangler 那句 `✨ Success! Uploaded 0 files (7 already uploaded)` **不能**当证据：
+  `Uploading... (7/7)` 里的 7 和 `dist` 里实际的 **26** 个文件对不上，这个数字在数什么没搞清；
+  语义不明的日志行只能记下来，不能拿去支撑断言。
+- [实测] **上线验证 exit 0 clean**：`check-deploy.mjs --mode=browser --dist=<CI 产物>`，`/`、两个 wasm、
+  `robots.txt` 跨 host 字节一致且与 CI 产物一致。平台差异两条照旧：`x-robots-tag: noindex` 只在
+  `<hash>.<project>.pages.dev` 上有、生产别名没有，归入 server-dependent 不计入；`/index.html` 别放进
+  `--paths` —— 本轮又实测了一遍，四条路径里其余全部 MATCH，只有它因为 308 的跳转体被判成 diff，
+  `CHECK_EXIT=1`，是假的。这里的参照系始终是 `gh run download <id> -n dist` 取回的 **CI 产物**，
+  不是本机重建（原因见下条）。
 - [实测] **本机重建 ≠ CI 产物，而且与时间戳、与缓存都无关**：干净 `npm ci` + `npm run export` 得
   `entry-d2ba5fa1…js`（1,398,755 B），CI / 线上是
   `entry-9069ffa5…js`（1,392,408 B）；删掉 `%TEMP%\metro-cache`（1758 个文件）
@@ -487,10 +508,15 @@ pack 108 个对象）。
   flattening 藏起来，查不到 CNAME 是正常结果）。但这台机器**任何**出口都被中间设备接管，
   拿不到 Cloudflare 的真实应答，`--resolve` 也绕不过（它按 SNI 过滤）。⇒ 必须换一个网络（手机热点）
   拿 §8 那条命令复测一次，`--hosts=` 换成 `https://python-code-map.com,https://www.python-code-map.com,`
-  `https://python-code-map.pages.dev`（其余参数照 §8，尤其别再列 `/index.html`）。
+  `https://python-code-map.pages.dev`（其余参数照 §8，尤其别再列 `/index.html`）。**只用生产别名，
+  不要把 `<hash>` 主机写进去** —— [实测] 2026-10-13 它已经从 `36266ff7` 变成 `91eaa8c6`，写死的那条命令
+  下一次推送就失效；`--dist=` 也要配**同一次 run** 的产物，否则字节必然对不上。
   在那之前，「办公网里打不开 `python-code-map.com`」**不算**站点故障。
 - **`www` 与 apex 现在同时可服务 = 两个 origin、两份 IndexedDB 命名空间**，这是数据完整性问题不是
-  美观问题（§7）。Redirect Rule `www.*/(.*)` → apex **还没建**（要 Zone Rules 权限，没权限时是 403）。
+  美观问题（§7）。Redirect Rule `www.*/(.*)` → apex **还没建，而且 agent 建不了**：[实测] 2026-10-13
+  Zone Rules 的四个只读接口全 403（细节见 §7）。三条路都只能人来 —— ① 在控制台建这条 Redirect Rule；
+  ② 给这个 token 补 Zone / Rules: Edit（不换 token 字符串，CI 的 secret 不用重贴）；③ 删掉 `www` 那条
+  DNS 记录回到单 origin，代价是输 `www.` 的人打不开。
   这件事该在推广入口地址之前定下来，否则同一批用户会因为输入的 host 不同而各自拥有独立的一份数据。
 - `Settings -> Actions -> Require approval for all outside collaborators` 仍要人在页面上勾（API 够不着）。
 - 可见性还没翻。既定顺序不变：CI 全绿（已达成）→ 翻 public → **从干净克隆再 `audit --history` 一次**。

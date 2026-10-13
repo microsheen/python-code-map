@@ -202,3 +202,33 @@
   实际那段在 §4；② 用"替换区间"插入新 bullet 时，原来跟在镜像那条后面的缩进续行被划到了新 bullet 下面，
   归属漂移，另外还多出 1 个空格。修法是拆成独立 bullet + 按段落边界复读一遍，而不信"脚本没报错"。
 - **纪律**：门禁没红不等于扫描有效。本轮 `leak-scan2.mjs` 与 `npm run verify` 仍需在改完文档后重跑一遍才算数。
+## 2026-10-13 翻公开：唯一不可逆动作落地，匿名克隆复审计 0 findings；确定性改用 4 host × 5 path 字节证
+
+- 路线 B 的最后一道闸门是可见性。B① 用户的「允许」就是授权来源，B② 定的 `microsheen/python-code-map`
+  就是公开身份，这一步不需要再造条件：`gh repo edit --visibility public
+  --accept-visibility-change-consequences` 退出码 0，回读 `visibility=PUBLIC`、`isPrivate=false`。
+- 翻完用两条**翻之前做不到**的独立证据复验：① `git -c credential.helper= clone` 配
+  `GIT_TERMINAL_PROMPT=0` 匿名克隆成功，`HEAD=860e92d`、tracked 85、`commits_ALL=1`、`refs` 只剩 `main`；
+  ② 匿名取 `raw.githubusercontent.com` 上的 `README.md` = 200 / 19,941 B。中途拿 `robots.txt` 当探针
+  得到 404，那是**探针选错**（它只在 `dist` 里，仓库根没有），不是仓库不可读 —— 这种假阴性不记下来，
+  下一轮就会有人把它当故障再查一遍。
+- 匿名克隆那份再跑 `audit-public-repo.mjs --history`：`worktreeFiles=85 / historyBlobs=85 /
+  blocking=0 / findings=[]`、退出码 0；对同一份克隆按内网主机名、内网 owner、个人邮箱域、Windows
+  绝对路径前缀、token 前缀逐条 `git grep`，**全部 0 命中**。翻公开之前那次认证克隆的审计同样是
+  findings 0 —— 两条各自证明一件事：前者证明「世界看到的就是这一份」，后者证明「这一份内容干净」。
+- 翻公开带来的新面：`pull_request` 触发对全网 fork 打开。[实测] `actions/permissions` 是
+  `allowed_actions=all`，`actions/permissions/workflow` 是 `default_workflow_permissions=read`、
+  `can_approve_pull_request_reviews=false`；secrets 对 fork 触发的 `pull_request` 默认不下发，所以
+  这里的真实风险是**算力与日志噪音**，不是凭据泄漏。「Require approval for all outside collaborators」
+  仍是人在页面上勾的活（API 够不着），没勾之前不对外推广入口地址。
+- 第三次部署 run `38367105331`（`push` / `860e92d`，`deploy` job `115195285027`）三 job 全绿；
+  wrangler stdout 给 `https://d3a75dd9.python-code-map.pages.dev`，Pages API 的
+  `latest_deployment.id` = `d3a75dd9-d5e9-4dba-a1ae-81d90eba85d1` 与它互证。生产别名已连着移动过
+  `36266ff7 → 91eaa8c6 → d3a75dd9`，于是定一条停止规则：**不再为每次推送补 hash**，验证命令只用生产别名。
+- 确定性改用字节证：三次 run 的产物中可比的两份都是 **26 个文件 / 2,083,473 B**；3 个不可变 host 连
+  生产别名共 **4 host × 5 path**，sha256 两两相同且全部 `vs --dist MATCH`，`CHECK_EXIT=0`。上一版把
+  wrangler 那句「Uploaded 0 files (7 already uploaded)」当旁证是**错的**，已撤回 —— `7` 和 `dist` 里
+  实际的 **26** 个文件对不上，语义不明的日志行不能支撑断言。
+- 文档侧：`docs/ops-deployment.md` 524 → **553** 行，§10 加「仓库可见性」一行、§13 改写 12 处；
+  `mustDisappear` 14 条要求「当前恰好命中 1 且不被新文本写回」，其中「两次的」差点被自己新写的
+  「前两次的」命中，是断言拦下来的，不是人眼看出来的。

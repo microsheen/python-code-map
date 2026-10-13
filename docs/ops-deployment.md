@@ -51,7 +51,15 @@
    `if` 永远为 false ⇒ 构建全绿、冒烟全绿、什么都没发布、没有任何报错。已把它从"注释里的提醒"
    升级成 `checks` 里的断言：`grep -cF "github.ref_name == '<生产分支>'"` 必须**恰好 1 次**。
    [实测] 本机 Git Bash 跑过三种情形：两处一致 -> `n=1` 绿；**只改 env** -> `n=0` 红 exit 1；
-   两处一起改 -> `n=1` 绿。所以将来把默认分支换成 `main`（§11 的沙盘已经这么改过）不会撞假红灯。
+   两处一起改 -> `n=1` 绿。2026-10-13 生产分支正式定为 `main`：`env.PRODUCTION_BRANCH` 与 `deploy`
+   的 `if` 两处同步改完，改完复跑断言 = `n=1`，`'master'` 残留 0 次。
+3. **仓库归属守卫（O1）必须出现在三个 job 上。** job 级 `if` 同样读不到 `env`，所以
+   `github.repository == '<公开仓坐标>'` 这个字符串被抄了三遍。少抄一处的后果**不是红灯**，而是内网
+   GHES（`runners = 0`，见 §12）重新为每次 push 排一条最长 24 小时的僵尸 run。所以这是第二条断言：
+   `grep -cF` 该字符串必须**恰好 3 次**。[实测] 本机 Git Bash：`guard=3` / `ref_name_main=1` /
+   `ref_name_master=0`；另用 `js-yaml` 解析过整份文件，三个 job 的 `if` 与 `deploy` 的四个条件都在。
+   注意 workflow 级 `if`（写一处就全局生效）**不是** workflow-syntax 记录在案的顶层键（那一页的锚点里
+   查不到 `if`），所以只能三处抄；而写一个不认识的顶层键会让整份 workflow 解析失败，比僵尸 run 更糟。
 
 **fork 的 PR 也会执行 `npm ci`。** 触发器是裸 `on: push` + `on: pull_request`（无分支/路径过滤），
 `checks` 第一步 `npm ci` 会跑依赖的 postinstall，而 `pull_request` 跑的是 fork 的工作流 ——
@@ -248,8 +256,10 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 
 | 项 | 状态 |
 | --- | --- |
-| 现有代码库（公司内部 GitHub 实例）内容对外公开的合规性 | 待确认 |
-| 公开目标账号与仓库名 | 待确认 |
+| 现有代码库内容对外公开的合规性 | ✅ 2026-10-13 用户明确「允许」 |
+| 公开目标账号与仓库名 | ✅ `microsheen/python-code-map`（[实测] 此前在 github.com 上 404，即不存在同名仓库） |
+| 公开仓库默认分支 | ✅ `main`（用户未指定，采用建议默认值；workflow 两处同步见 §2 第 2 条） |
+| GHES 那份 workflow（O1–O4） | ✅ 选 O1，已实施，见 §12 |
 | LICENSE | 待拍板（许可是选择，不是继承） |
 | `package.json` 的 `license` / `repository.url` / `author` | 待随许可证一起补 |
 | Cloudflare API token 与 account id 的提供方式 | 待确认（本机无环境变量；wrangler 未安装） |
@@ -263,7 +273,7 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 | --- | --- | --- |
 | `gh` 对 github.com 的 token scopes | ✅ 含 `workflow`（另有 `repo`、`read:org`、`gist`） | Phase 2 推 workflow 文件不会撞 `refusing to allow an OAuth App…`；缺就先 `gh auth refresh -h github.com -s workflow` |
 | GitHub noreply 身份 | ✅ 已取得 | 数字 id **不写在这份文档里**，用时现取（它和账号名一起构成可反推的公开身份） |
-| 推送传输方式 | ⚠️ 待定 | gh 配的 protocol 是 ssh，但 `ssh-add -l` 无身份、`ssh -T -o BatchMode=yes git@github.com` = `Permission denied (publickey)` ⇒ key 大概率带 passphrase。要么用户解锁 agent，要么公开 remote 走 HTTPS + gh 的 credential helper |
+| 推送传输方式 | ✅ 已定：HTTPS + gh 的凭据助手 | [实测] 2026-10-13 `git config --global` 里 github.com 与内网实例都配了 `credential.<host>.helper`（GitHub CLI）；`GIT_TERMINAL_PROMPT=0` 下 `git ls-remote` 走 https 不再索要用户名 ⇒ 不需要解锁 SSH key。上一版记的「协议是 ssh」说的是 gh 的 git-operations 配置，与 origin 实际走 https 是两回事 |
 | Cloudflare 凭据 | ❌ 无 | 环境变量 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` 都不存在；`wrangler` 不在 PATH；`%APPDATA%\xdg.config\.wrangler` 下**没有 `config/`** ⇒ 没有可复用的 OAuth 会话 |
 | 公共 npm registry | ✅ | 全机无 `.npmrc`，registry = `https://registry.npmjs.org/` |
 
@@ -328,14 +338,18 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 `actions/upload-artifact@v4+` 在 GHES 上不受支持（§2）。所以就算以后接上 self-hosted runner，
 这份 workflow 还得退回 v3 —— 等于同一套门禁维护两份真相。
 
-**四条路（待拍板，见 §10）**：
+**四条路（已选 O1，2026-10-13 实施）**：
 
 | 选项 | 做法 | 代价 |
 | --- | --- | --- |
-| **O1（建议）** | 三个 job 各加 `if: github.repository == '<owner>/<repo>'` | 内网实例上整体 `skipped`（秒过、不产生僵尸 run），公开仓库门禁完整生效。前置：先定公开账号与仓库名 |
+| **O1（已采用）** | 三个 job 各加 `if: github.repository == 'microsheen/python-code-map'` | 内网实例上整体 `skipped`（秒过、不产生僵尸 run），公开仓库门禁完整生效。原先写的前置条件「先定公开账号与仓库名」已于 2026-10-13 满足 |
 | O2 | 照原样推 | 接受每次 push 一条排队到被取消的 run |
 | O3 | workflow 只进公开仓库 | 要重排本地**尚未推送**的历史，内网那份从此没有 CI |
 | O4 | 请管理员关掉内网实例的 Actions | 影响整个团队，不该由这次改动的作者代劳 |
+
+**已实施（2026-10-13，O1）**：`checks` / `browser-smoke` / `deploy` 三个 job 各带一条 `github.repository`
+判断，坐标放在 `env.PUBLISHED_REPO`，§2 的第 3 条断言守住「恰好 3 次」这件事。本地**验不到** skipped
+的实际效果 —— 那条结论只能等 Actions 上第一次真跑出来，现在说"内网已经安静了"是没有依据的。
 
 **O1 的 `if` 和 §3 的 `DEPLOY_ENABLED` 是两件事**，不要混用成一个开关：`DEPLOY_ENABLED` 回答
 "要不要发布"，O1 的 `if` 回答"这条流水线归谁跑"。

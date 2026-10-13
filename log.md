@@ -38,3 +38,20 @@
   用 scrub + `--orphan` 流程清除，沙盘已验证该流程可得到 0 findings。
 - 待用户拍板（阻塞后续）：对外公开合规性 / 公开仓坐标 / LICENSE / Cloudflare 凭据提供方式 /
   域名 / Pages 项目名（全局唯一且不可改名）/ 反馈渠道形态 / GHES 守卫方案 / 推送传输方式。
+## 2026-10-13 Phase 2 启动：O1 守卫落地，路线 B 又解锁三项
+
+- B1 合规：用户明确「允许」把本代码库对外公开。
+- B2 公开仓坐标：`microsheen/python-code-map`（实测 github.com 上此前返回 404，即不存在同名仓库）；
+  默认分支用户未指定，采用建议默认值 `main` —— `env.PRODUCTION_BRANCH` 与 `deploy` 的 `if` 两处同步
+  改完，复跑断言 `n=1`、`'master'` 残留 0 次。
+- B8 GHES 那份 workflow：选 O1。三个 job（checks / browser-smoke / deploy）各加一条
+  `if: github.repository == '<公开仓坐标>'`，并新增第二条断言要求该字符串**恰好出现 3 次**
+  （少抄一处不会红灯，只会让内网重新排僵尸 run）。查证：workflow 级 `if` 不是 workflow-syntax
+  记录在案的顶层键（该页锚点里查不到 `if`），所以不能写成一处生效。
+- B9 推送传输：origin 实际是 https；github.com 与内网实例都配了 gh 的 credential helper，
+  `GIT_TERMINAL_PROMPT=0` 下 `git ls-remote` 不再索要用户名 ⇒ 不需要解锁 SSH key。gh 对 github.com
+  的 token 含 `repo` + `workflow`，够建公开仓并推 workflow 文件。
+- 本地复验：`js-yaml` 解析 workflow 通过（顶层键 6 个、三个 job 的 `if`/`needs`/steps 数都符合预期）；
+  Git Bash 实跑两条断言 guard=3 / ref_name_main=1 / ref_name_master=0。
+- 文档：`docs/ops-deployment.md` 349 → 364 行（§2 新增第 3 条机器规则、§10 状态表更新、§12 实施记录）。
+- 仍待拍板：LICENSE / Cloudflare 凭据提供方式 / 域名 / Pages 项目名 / 反馈渠道形态。

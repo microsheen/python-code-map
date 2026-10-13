@@ -469,8 +469,8 @@ pack 108 个对象）。
   （`<hash>.<project>.pages.dev`）上，生产别名没有 —— 是 Cloudflare 自己的行为，归入
   「server-dependent 不计入」那一类。
 - [实测] **本机重建 ≠ CI 产物，而且与时间戳、与缓存都无关**：干净 `npm ci` + `npm run export` 得
-  `entry-d2ba5fa17c62fcd4af00956ad70d7874.js`（1,398,755 B），CI / 线上是
-  `entry-9069ffa5853c1ad65fdce8d140114034.js`（1,392,408 B）；删掉 `%TEMP%\metro-cache`（1758 个文件）
+  `entry-d2ba5fa1…js`（1,398,755 B），CI / 线上是
+  `entry-9069ffa5…js`（1,392,408 B）；删掉 `%TEMP%\metro-cache`（1758 个文件）
   再加 `--clear` 重建，哈希**不变**。按行比对：`__d` 模块集合完全相同（827 个，零增删、零内容差异），
   差的是一行 **6,346 B 的预运行时片段**（内含 `formatValueCalls`、`_isPolyfilled`，即 RN 的 console
   polyfill 连 `pretty-format` 一起打进来），本机有、CI 没有 —— 也就是说差异在 **Metro 的 polyfill 段**，

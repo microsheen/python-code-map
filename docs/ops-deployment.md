@@ -63,21 +63,38 @@
    注意 workflow 级 `if`（写一处就全局生效）**不是** workflow-syntax 记录在案的顶层键（那一页的锚点里
    查不到 `if`），所以只能三处抄；而写一个不认识的顶层键会让整份 workflow 解析失败，比僵尸 run 更糟。
 
-4. **CI 的 node 大版本必须等于产出锁文件的那台机器。** 首跑就是红在这里：`npm ci` 报
-   `Missing: @emnapi/core@1.11.3 / @emnapi/runtime@1.11.3 / react-native-worklets@0.10.4`，
-   结论是"锁文件与 package.json 不同步"。[实测] 本机复现 —— `npx --yes npm@10 ci --dry-run` exit 1
-   且报同样三条；本机 npm 11.6.2 的 `npm ci --dry-run` 则 `up to date` exit 0。根因是两个 npm 大版本
-   对**可选平台依赖**的解析结果不同，与操作系统无关：锁文件里根本没有 `@emnapi/*` 和 `sharp`
-   （本机 `node_modules` 里也没有），npm 10 却按自己的解析树认为它们该在；它报的
-   `react-native-worklets@0.10.4` 也不是锁文件记下的 0.12.2。
-   真正的危险不是"装不上"，而是**换个 npm 大版本就换了整棵依赖树** —— 门禁验的字节和线上发的字节
-   不再是同一次构建的产物，这是 tested≠shipped 的隐蔽形态。
-   修法：`node-version` 两处 22 → 24（npm 11 随 node 24 分发；wrangler 4.149 的 engines 要 ≥22，仍满足），
-   并在 `checks` 里加 `Toolchain matches the lockfile generator` 断言 `npm -v` 主版本为 11，
-   不符就红、并把两种修法写进 `::error::`。
-   **[实测] 这条本地验不出来**：改动前后 `npm run verify` 共跑过 5 次全绿（15 suites / 225 passed），
-   因为本机 npm 一直是 11。只有 Actions 第一次真跑才暴露 —— 所以"本地绿了"从来不等于"CI 会绿"。
-
+4. **锁文件由指定的那个 npm 生成，CI 必须把 npm 钉到完整版本号。** 这条结论改了两次才对，两次都留着，
+   因为它是"本地绿 ≠ CI 绿"的标准样本，也是我一次把错误结论写成定论的样本。
+   - **首跑**红在 `npm ci`：`Missing: @emnapi/core@1.11.3 / @emnapi/runtime@1.11.3 /
+     react-native-worklets@0.10.4`。我当时判定"npm 10 与 npm 11 对可选平台依赖解析不同"，依据是本机
+     `npx npm@10 ci --dry-run` exit 1 报同样三条。**该结论只对 `react-native-worklets` 那一条成立。**
+   - **第二次跑**（已把 `node-version` 22→24、并断言 npm 主版本 = 11）仍红，缺的还是那两条
+     `@emnapi/*` —— 大版本相同也会红，说明上一条的根因不充分。而 `react-native-worklets` 不再出现。
+   - **现在的结论**：runner 的 `node-version: '24'` 解析成 **node 24.21.0 / npm 11.19.0**（[实测] 取自
+     该 run `Toolchain` step 打印的 `node=… npm=… lockfileVersion=3`），本机是 **24.12.0 / npm 11.6.2**。
+     [实测] 本机 `npx npm@11.19.0 ci --dry-run`（Windows，不带任何 `--os/--cpu`）**完整复现** CI 的失败，
+     同一份锁在 11.6.2 下 exit 0。**是 npm 小版本差异，与操作系统无关。** 因此先前四轮
+     `--os=linux --cpu=x64` / `win32` / `darwin arm64` / `wasm32` 的复刻尝试方向就是错的，
+     "这条本地永远验不出来"也不成立 —— 只要把 npm 换成 runner 那一个版本，本机就能红。
+   - 机制（读锁文件得到的事实）：`@napi-rs/wasm-runtime` 把 `@emnapi/core|runtime` 声明为
+     **peerDependencies**，它自己挂在 `cpu=wasm32` 的可选子树里；锁中只有
+     `node_modules/@unrs/resolver-binding-wasm32-wasi/node_modules/@emnapi/{core,runtime}`
+     这份 1.10.0 的**嵌套副本**，**没有顶层条目**。npm 11.19.0 构树时要求补齐顶层 peer，锁里没有
+     → `EUSAGE`。npm 10 报的 `react-native-worklets@0.10.4` 是同一类缺口的另一处表现（锁里记 0.12.2）。
+   - **复发条件（最该记住的一句）**：[实测] 本机 npm 11.6.2 跑 `install --package-lock-only` 会把那两条
+     顶层条目**重新剪回去**（1137 → 1135），锁又变回 CI 装不动的那份。所以重新生成锁只能用
+     `npx npm@11.19.0 install --package-lock-only`；`checks` 里的断言也从"主版本 11"升级为
+     **完整版本 `11.19.0`**，不符先 `npm install -g npm@11.19.0` 再复核 —— 不再赌 node 小版本自带哪个 npm。
+   - 为什么算发布门禁而不是"装不上而已"：换 npm 就是换依赖树，门禁验的字节与线上发的字节不再是同一次
+     构建的产物，这是 tested≠shipped 的隐蔽形态。
+   - [实测] 补齐后的核对（全部本机跑过，不是推断）：`npm ci` 用 11.19.0 真实安装（含 root postinstall
+     copy-wasm）exit 0，`added 1096 packages`；`npm run verify` = 15 suites / 225 passed / exit 0；
+     `npm run export` 产物 26 个文件，与修复前的 dist **哈希集合与路径集合都完全一致**；锁文件 diff
+     仅新增 `node_modules/@emnapi/{core,runtime}@1.11.3` 两条（`optional`+`dev`），无删除、无版本变动、
+     无 `resolved` 变动 —— 所以"产物不变"是被比出来的。11.19.0 安装时报 `unrs-resolver` 的 postinstall
+     未被 `allowScripts` 覆盖（warning，非 error），verify 仍全绿。
+   - 仍然存在的边界：`vars.DEPLOY_ENABLED == 'false'` 使 `deploy` 仍 skipped，所以**这次红/绿与 O1 守卫
+     无关**，O1 的第一次真实验证仍未发生（见 §13）。
 **fork 的 PR 也会执行 `npm ci`。** 触发器是裸 `on: push` + `on: pull_request`（无分支/路径过滤），
 `checks` 第一步 `npm ci` 会跑依赖的 postinstall，而 `pull_request` 跑的是 fork 的工作流 ——
 恶意依赖能在 runner 上执行代码。建议在 Settings -> Actions -> General 打开

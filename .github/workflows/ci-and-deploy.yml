@@ -58,24 +58,34 @@ jobs:
           node-version: '24'
           cache: npm
 
-      - name: Toolchain matches the lockfile generator
+      - name: Toolchain pins the npm that generated the lockfile
         run: |
-          # 本仓库的 package-lock.json 由 npm 11 生成。npm 10 跑 npm ci 会直接判定锁文件与
-          # package.json 不同步 —— [实测] 2026-10-13 本机 npx npm@10 ci --dry-run exit 1，报
-          #   Missing: @emnapi/core@1.11.3 / @emnapi/runtime@1.11.3 / react-native-worklets@0.10.4
-          # 根因是两个 npm 大版本对"可选平台依赖"的解析结果不同，与操作系统无关：本地产物基线是
-          # npm 11 装的依赖算出来的，CI 用别的 npm 大版本就连依赖树都不一样。这条只有在 Actions
-          # 上第一次真跑才暴露 —— 本地跑了三次 verify 也看不见它。
-          # 换 node 大版本等于换 npm 大版本，所以这是断言，不是注释里的提醒。
+          # package-lock.json 必须由 npm 11.19.0 生成，这里把 runner 的 npm 钉到同一个版本。
+          # 为什么钉小版本而不是大版本 —— [实测] 2026-10-13，同一份锁在本机 Windows 上：
+          #   npm 11.6.2  npm ci --dry-run  -> exit 0
+          #   npm 11.19.0 npm ci --dry-run  -> exit 1，Missing: @emnapi/core@1.11.3 / @emnapi/runtime@1.11.3
+          # 与操作系统无关：本机 11.19.0 完整复现了 Actions 上的失败（先前误判为"npm 10/11 大版本
+          # 差异"，那条只对 react-native-worklets@0.10.4 成立，对 @emnapi/* 两条不成立）。
+          # 机制：@napi-rs/wasm-runtime 把 @emnapi/core|runtime 声明成 peerDependencies，而它自己
+          # 挂在 cpu=wasm32 的可选子树里。旧 npm 不把这些 peer 写进锁，新 npm 装树时要求补齐，
+          # 锁里没有顶层条目 -> npm ci 直接判锁不完整。
+          # 会复发，所以必须钉住 —— [实测] 用本机 npm 11.6.2 跑 install --package-lock-only 会把
+          # 这两条顶层条目重新剪掉（1137 -> 1135），锁又变回 CI 装不动的那份。要重新生成锁，用：
+          #   npx npm@11.19.0 install --package-lock-only
+          # 然后 npm ci + verify + export + 冒烟 + 产物 sha256 基线核对全部重跑一遍。
           set -eu
-          want=11
-          got=$(npm -v | cut -d. -f1)
-          echo "node=$(node -v) npm=$(npm -v) lockfileVersion=$(node -e 'process.stdout.write(String(require("./package-lock.json").lockfileVersion))')"
+          want=11.19.0
+          harness=$(npm -v)
+          if [ "$harness" != "$want" ]; then
+            echo "runner 自带 npm $harness，安装 $want 以免 node 小版本悄悄改变依赖树"
+            npm install -g "npm@$want"
+          fi
+          got=$(npm -v)
+          echo "node=$(node -v) npm=$got harness=$harness lockfileVersion=$(node -e 'process.stdout.write(String(require("./package-lock.json").lockfileVersion))')"
           if [ "$got" != "$want" ]; then
-            echo "::error::CI 的 npm 主版本是 $got，而锁文件由 npm $want 生成，npm ci 必然红。修法二选一：把 node-version 换回自带 npm $want 的大版本；或用 npm $got 重新生成锁文件，并重跑 verify + export + 冒烟 + 产物 sha256 基线核对。"
+            echo "::error::npm 钉不到 $want（实际 $got）。锁文件由 $want 生成，换 npm 就等于换依赖树。"
             exit 1
           fi
-
       - name: Install from lockfile
         run: npm ci
 

@@ -352,14 +352,19 @@ DNS、证书、部署 —— 是**验证机上面的中间设备**替 Cloudflare
 4. `node <skill>/scripts/audit-public-repo.mjs --history .` 必须干净
 5. 推公开 remote（token scope 需含 `workflow`，否则报
    `refusing to allow an OAuth App to create or update workflow` → `gh auth refresh -h github.com -s workflow`）
+6. **推送前把改动过的文档自己重读一遍**：凡是会随这次推送移动的计数或当前状态 —— 跑过几个 run、别名此刻
+   服务哪一份、最近一次部署的 hash、某条结论重复验证过几次 —— 一律写成**带 commit 锚点的历史陈述**（到
+   `<commit>` 为止……）或纯规则，不许留下没有截止点的「此刻 / 最后一次 / 下一个」。[实测] 本文在这一条上
+   被自己咬过不止一次：点名别名 hash 的句子就当场变假过，`deploy` 的次数与「最后一次」也在下一次发布后
+   变假。这不是「记得补记」能救的 —— 补记描述的永远是下一次推送**之前**的状态。
 
 **[实测] 沙盘已经跑通一遍**（临时目录 clone → 删 `origin` → scrub `AGENTS.md` →
 `git checkout --orphan` → 用 noreply 身份做**单个**提交 → 分支改名 `main` →
 `audit-public-repo.mjs --history .`）：**findings 0 / exit 0 / 84 个跟踪文件**（那是当时的数字；2026-10-13 正式那一轮是 **85** 个，多出的是 `LICENSE`，见 §13 —— 跟踪数会变，所以每次推送前重跑，不拿「上次扫过」当依据）。
 被消掉的那条是 `personal-email-in-commit-metadata`（MEDIUM）：本机 git identity 的私人邮箱在
 **每一个提交的 author/committer 元数据**里 —— 它不在任何文件里，`--orphan` 之前删多少行都没用，
-只有"不带历史 + 换身份"这一种修法。（审计行的 `+39 commits` 是**命中次数** = 20 个提交 × 2，
-不是提交数，别把它读成"还有 39 个别的提交"。）
+只有"不带历史 + 换身份"这一种修法。（审计行的 `+39 commits` 是**命中次数**，按 §13 查到的根因它是 2C-1
+= 2×20-1 = 39，不是提交数，别把它读成"还有 39 个别的提交"。）
 
 **[实测] 2026-10-13 沙盘复跑：findings 0 / exit 0**，但踩到一件 `--orphan` **不会**替你做的事：
 分支改名成 `main` 之后，暂存仓里残留的 `refs/heads/master` 仍指向旧历史，而审计是**照着 ref 扫历史**的，
@@ -486,8 +491,10 @@ pack 108 个对象）。
   `hits.length - 1`。设 C = 带着这个邮箱的提交数，那就等于 **2C-1**。三个历史数字对得严丝合缝：内网 32 个
   提交时报 `+63 commits`、33 个报 `+65 commits`、34 个报 `+67 commits` —— 每多 1 个提交，这个数多 2。
   所以**它压根不是提交数**，拿它去核对「有多少提交带着这个邮箱」一定错；要核对就直接
-  `git rev-list --count master`（本轮 = **34**）。这条解释同时是一条**可推翻的预测**：下一个内网提交把 C
-  变成 35 时，这里应该报 `+69 commits`，对不上就说明这个解释还差一环。
+  `git rev-list --count master`（到 `e87ab5d` 为止 = **34**）。这条解释同时是一条**可推翻的预测**，已经兑现
+  过一次：`4f63c15` 把内网提交数 C 推到 35，从它重建的 stage 报的正是 `+69 commits` = 2×35-1。此后每重跑一轮
+  scrub 都多一次同样的核对，本文不逐个补记 —— 谁要复核，当场 `git rev-list --count master` 取 C，再看审计
+  后缀是不是 2C-1。
 - [实测] **审计对象是「远端干净克隆」，不是本地 stage**：翻公开之前用认证克隆审 `860e92d`，得到
   `worktreeFiles=85 / historyBlobs=85 / blocking=0 / findings=[]`、退出码 **0**；翻公开之后改用
   `git -c credential.helper= clone` 的**匿名**克隆，先审 `860e92d`、再审第四轮推上去的 `58775b7`，两次结论
@@ -496,26 +503,28 @@ pack 108 个对象）。
   内容干净，内容干净靠 `audit`，两条各证一件事，都要留。对 `58775b7` 那份匿名克隆再按内网主机名、内网 owner、
   个人邮箱域、Windows 绝对路径前缀、token 前缀、IDE 名、本机用户名逐类 `git grep`：**9 类全部 0 命中**。
   审 stage 只证明「我打算推的东西干净」，审克隆才证明「已经推上去、CI 也将要构建的那一份干净」。
-- [实测] **`deploy` 真跑过四次，两种触发方式都通了**：`38359980657`（`workflow_dispatch`，`0a3e0cf`）、
+- [实测] **到 `58775b7` 那次推送为止 `deploy` 真跑过四次，两种触发方式都通了**：
+  `38359980657`（`workflow_dispatch`，`0a3e0cf`）、
   `38364378715`（`push`，`2224d10`）、`38367105331`（`push`，`860e92d`）、`38381569045`（`push`，`58775b7`，
   `deploy` job `115243516823`），四次的 `checks` / `browser-smoke` / `deploy` 全部 `success`。push 触发才真正
   暴露 §3 那个开关的日常形态：`DEPLOY_ENABLED=true` 之后**任何人推 `main` 都立刻发布**，中间没有确认步骤。
   每一次都做一次互证：wrangler stdout 的「Take a peek over at …」与 Pages API 的 `latest_deployment.url`
-  和 `id` 对得上，最后一次是 `https://cf9de4e2.python-code-map.pages.dev` /
-  `cf9de4e2-7990-4586-a2b9-a0233f2dc611`。地址**只认 stdout**，API 只当旁证。
+  和 `id` 对得上。`58775b7` 那一次报的是 `https://cf9de4e2.python-code-map.pages.dev` /
+  `cf9de4e2-7990-4586-a2b9-a0233f2dc611`；此后每推一次都多一条这样的地址，本文不逐个补记（写法依据见
+  §11 第 6 条）。地址**只认 stdout**，API 只当旁证。
 - [实测] **deploy 日志里那行红色的 `[ERROR] A request to the Cloudflare API (/accounts/*****/pages/projects)
   failed.` 不是故障**：那是 workflow 故意「先试建项目」的分支，返回 `code: 8000002`
   （`A project with this name already exists`），紧跟着一行「project 已存在，继续」，job 最终 `success`。
   把 ERROR 字样读成部署失败，就会去找一个不存在的故障；为了日志干净把它消掉，又会丢掉「项目名全局唯一、
   重跑不报错」这个设计依据。两种冲动都别顺。
-- [实测] **生产别名每推一次 `main` 就换一个 host，只有不可变 URL 不动**：`36266ff7` → `91eaa8c6` →
-  `d3a75dd9` → `cf9de4e2`。写这句话时 `python-code-map.pages.dev` 服务的是 `cf9de4e2`（
-  `latest_deployment.id` = `cf9de4e2-7990-4586-a2b9-a0233f2dc611`）。上一版在这里立的停止规则是「只记
-  方法与当时那次的证据，不再为每次推送补 hash」，可这一轮又推了 `main`：那句点名 `d3a75dd9` 的话当场就成了
-  假声明，只能就地改掉 —— 于是规则收紧成**最后一次记录具体 hash**：这一条之后 §13 不再写「别名此刻服务
-  哪一份」这种会随推送移动的话，不可变部署 URL 照记（它们不会动）。验证命令因此**只能用生产别名**，地址
-  只取 wrangler stdout 的「✨ Deployment complete! Take a peek over at …」这一行，不许猜；Direct
-  Upload 的主机形状是 `<~8hex>.<project>.pages.dev`，**不存在** git-SHA 主机。
+- [实测] **生产别名每推一次 `main` 就换一个 host，只有不可变 URL 不动**：到 `58775b7` 为止的移动史是
+  `36266ff7` → `91eaa8c6` → `d3a75dd9` → `cf9de4e2`。这条链是历史陈述，不会过期；「别名此刻服务哪一份」
+  则一定过期，所以这里不再写它。上一版立的规则是「只记方法与当时那次的证据」，被自己撞破过一次（那句
+  点名 `d3a75dd9` 的话当场成了假声明）；后来收紧成「最后一次记录具体 hash」，而这一句又会在下一次推送后
+  立刻变假。结论写进 §11 第 6 条：会随推送移动的值**一律不写当前态**，要么写成带 commit 锚点的历史陈述，
+  要么只留规则。不可变部署 URL 照记（它们不会动）。验证命令因此**只能用生产别名**，地址只取 wrangler
+  stdout 的「✨ Deployment complete! Take a peek over at …」这一行，不许猜；Direct Upload 的主机形状是
+  `<~8hex>.<project>.pages.dev`，**不存在** git-SHA 主机。
 - [实测] **跨 run 的产物确定性要用字节证，不能用日志措辞证**：本轮参照系换成 `58775b7` 那次 run 的 `dist`，
   与 `860e92d` 那次取回的产物逐文件比 —— **26 / 26 个文件、文件名零差异、逐文件 sha256 零差异**，两份
   总量都是 **2,083,473 B**。线上另比一层：`91eaa8c6`、`d3a75dd9`、`cf9de4e2` 三个不可变 host 连

@@ -43,7 +43,9 @@
    `dist/` 靠 Actions artifact —— 归 `actions` scope 管。少了 `actions: write`，4 处
    artifact 操作（checks 上传 dist、browser-smoke 下载 dist + 上传证据、deploy 下载 dist）
    预期会红在第一步，报 `403 Resource not accessible by integration`。
-   **[推断，非实测]** —— 这条流水线还没在 CI 上真跑过，本地跑不出这个错，它是从权限模型推出来的。
+   **[推断]** —— 首跑（2026-10-13）红在第 4 步 `Install from lockfile`，**没走到**任何 artifact 操作，
+   所以这条 403 预测至今既没被证实也没被证伪；`actions: write` 已在 `permissions:` 块里，要等下一次真跑
+   走到 upload 那一步，才有资格改口。
    修法只加 `actions: write`，**没有**改成 `read-all`/`write-all`：那等于把这次显式声明作废。
    同一页另一句 "write includes read" 说明下游两次 download 也被这一条覆盖。
 2. **生产分支名硬编码在两处** —— `env.PRODUCTION_BRANCH` 与 `deploy` 的 job 级 `if`
@@ -60,6 +62,21 @@
    `ref_name_master=0`；另用 `js-yaml` 解析过整份文件，三个 job 的 `if` 与 `deploy` 的四个条件都在。
    注意 workflow 级 `if`（写一处就全局生效）**不是** workflow-syntax 记录在案的顶层键（那一页的锚点里
    查不到 `if`），所以只能三处抄；而写一个不认识的顶层键会让整份 workflow 解析失败，比僵尸 run 更糟。
+
+4. **CI 的 node 大版本必须等于产出锁文件的那台机器。** 首跑就是红在这里：`npm ci` 报
+   `Missing: @emnapi/core@1.11.3 / @emnapi/runtime@1.11.3 / react-native-worklets@0.10.4`，
+   结论是"锁文件与 package.json 不同步"。[实测] 本机复现 —— `npx --yes npm@10 ci --dry-run` exit 1
+   且报同样三条；本机 npm 11.6.2 的 `npm ci --dry-run` 则 `up to date` exit 0。根因是两个 npm 大版本
+   对**可选平台依赖**的解析结果不同，与操作系统无关：锁文件里根本没有 `@emnapi/*` 和 `sharp`
+   （本机 `node_modules` 里也没有），npm 10 却按自己的解析树认为它们该在；它报的
+   `react-native-worklets@0.10.4` 也不是锁文件记下的 0.12.2。
+   真正的危险不是"装不上"，而是**换个 npm 大版本就换了整棵依赖树** —— 门禁验的字节和线上发的字节
+   不再是同一次构建的产物，这是 tested≠shipped 的隐蔽形态。
+   修法：`node-version` 两处 22 → 24（npm 11 随 node 24 分发；wrangler 4.149 的 engines 要 ≥22，仍满足），
+   并在 `checks` 里加 `Toolchain matches the lockfile generator` 断言 `npm -v` 主版本为 11，
+   不符就红、并把两种修法写进 `::error::`。
+   **[实测] 这条本地验不出来**：改动前后 `npm run verify` 共跑过 5 次全绿（15 suites / 225 passed），
+   因为本机 npm 一直是 11。只有 Actions 第一次真跑才暴露 —— 所以"本地绿了"从来不等于"CI 会绿"。
 
 **fork 的 PR 也会执行 `npm ci`。** 触发器是裸 `on: push` + `on: pull_request`（无分支/路径过滤），
 `checks` 第一步 `npm ci` 会跑依赖的 postinstall，而 `pull_request` 跑的是 fork 的工作流 ——
@@ -259,7 +276,7 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 | 现有代码库内容对外公开的合规性 | ✅ 2026-10-13 用户明确「允许」 |
 | 公开目标账号与仓库名 | ✅ `microsheen/python-code-map`（[实测] 此前在 github.com 上 404，即不存在同名仓库） |
 | 公开仓库默认分支 | ✅ `main`（用户未指定，采用建议默认值；workflow 两处同步见 §2 第 2 条） |
-| GHES 那份 workflow（O1–O4） | ✅ 选 O1，已实施，见 §12 |
+| GHES 那份 workflow（O1–O4） | ✅ 选 O1，已实施，见 §12。但**对 GHES 的实际效果仍未验证**：本轮提交尚未推到内网，见 §13 |
 | LICENSE | 待拍板（许可是选择，不是继承） |
 | `package.json` 的 `license` / `repository.url` / `author` | 待随许可证一起补 |
 | Cloudflare API token 与 account id 的提供方式 | 待确认（本机无环境变量；wrangler 未安装） |
@@ -303,6 +320,17 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 只有"不带历史 + 换身份"这一种修法。（审计行的 `+39 commits` 是**命中次数** = 20 个提交 × 2，
 不是提交数，别把它读成"还有 39 个别的提交"。）
 
+**[实测] 2026-10-13 沙盘复跑：findings 0 / exit 0**，但踩到一件 `--orphan` **不会**替你做的事：
+分支改名成 `main` 之后，暂存仓里残留的 `refs/heads/master` 仍指向旧历史，而审计是**照着 ref 扫历史**的，
+于是继续报那条 MEDIUM `personal-email-in-commit-metadata`。上一版把它读成"main 上还带着私人邮箱"是
+**误判**，真相是自己的 ref 卫生问题。修法三步：删 `refs/heads/master` → `reflog expire --expire=now --all`
+→ `gc --prune=now`，然后**重跑审计**才拿到 0（worktree 84 文件、history blobs 84、`commits_ALL=1`、
+pack 108 个对象）。
+
+**公开侧与内网侧的 `AGENTS.md` 从此有意分叉**：scrub 把"issue 跟踪在内网 GHES"那句改写为
+`(this repository's GitHub Issues)`，公开那份指向公开 Issues，内网那份保持不变。分叉是**预期结果**，
+不是漏改。危险的方向是反向同步：把公开侧的改写稿回灌内网，会让内网同事的 issue 链接指到不存在的地方。
+合并方向只许**内网 → 公开**，而且每次都要重跑 scrub + 审计，不许拿"上次扫过"当依据。
 **公开是不可逆的。** 后面删文件不会把它从历史里删掉，`git log -p -- <path>` 免费拿回来。
 
 ## 12. 同一个 workflow 在两个 remote 上的不同命运
@@ -361,3 +389,26 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 （落后 0），但 push 会把这个 workflow 同时推进一个已知 `runners = 0` 的实例，副作用落在别人的
 CI 页面上。纪律的目的是不丢变更、不产生冲突，不是"必须把已知会产生噪音的东西推给团队"——
 所以这一步留给用户点头。
+所以这一步留给用户点头。**[实测] 截至本轮结束 `git rev-list --count origin/master..HEAD` = 10，一个都没推** —— 验证动作见 §13。
+
+## 13. Phase 2 实况：公开仓已建（仍 private）、首跑红、以及欠内网的那次验证
+
+**已做到**（以下均 [实测] 2026-10-13）：
+
+- 公开仓 `microsheen/python-code-map` 已建：`private: true`、`has_issues: true`、`auto_init: false`，
+  `default_branch` 已是 `main`。建法是 `gh api -X POST /user/repos`，**先私有**，绿了再翻公开。
+- 仓库变量 `DEPLOY_ENABLED` = `false` 已建。注意用 `POST`：`PUT /actions/variables/<name>` 是**更新**，
+  变量不存在时返回 404，拿 PUT 当创建会误以为"已经设过了"。
+- scrub 过的**单提交**已推到 `main`，远端只有 `refs/heads/main` 这一条 ref。
+- 首次 Actions run（push 触发，14 秒）：`checks` 红在 `Install from lockfile`，根因与修法见 §2 第 4 条；
+  `browser-smoke` 因 `needs` 级联 skipped —— **这是正常行为，不是第二个故障**；`deploy` skipped 的原因是
+  `DEPLOY_ENABLED=false`，**不能**拿它当 O1 归属守卫生效的证据：skipped 的 job 不告诉你到底是哪一条
+  条件为 false，两条开关的作用域要靠日志分开看。
+
+**没做到的，不许写成已完成**：
+
+- O1 对 GHES 的效果**还没验证**：那 10 个提交没推，所以"内网不会再产生僵尸 run"这句话目前没有依据。
+  验证动作是推上去之后看 run 是否整体 skipped 且不排队；万一仍在排队，就用 API 取消并如实记在这里。
+- 站点仍未上线：Cloudflare token/account id、域名、Pages 项目名三项还没到位（§10），
+  `Settings -> Actions -> Require approval for all outside collaborators` 也要人在页面上勾（API 够不着）。
+- 可见性还没翻。既定顺序：CI 全绿 → 翻 public → **从干净克隆再审计一次** → 再谈域名与 Pages 项目名。

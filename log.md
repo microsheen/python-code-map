@@ -259,3 +259,18 @@
 - 翻公开带来的新面进了「没做到的」：`pull_request` 触发对全网 fork 打开，[实测] `allowed_actions=all`、
   `default_workflow_permissions=read`、`can_approve_pull_request_reviews=false`；secrets 对 fork PR 不下发，
   所以真实风险是算力与日志噪音。「Require approval for all outside collaborators」仍是人在页面上勾的活。
+## 2026-10-13 发布路线 B（计数口径查到根因：audit 报的 +N commits 其实是 2C-1）
+
+- 读 `audit-public-repo.mjs` 的 commit 邮箱段（取 `%ae` 与 `%ce`，后缀取 `hits.length - 1`）把上一节那个
+  「多 1 个提交却涨 2」的现象查到根上：author 与 committer 各算一条 hit，报出来的数其实是 **2C-1**
+  （C = 带着该邮箱的提交数）。三组历史数字全部对上：内网 32 个提交报 `+63 commits`、33 报 `+65`、34 报
+  `+67`；`git rev-list --count master` 本轮实测 = **34**。结论写进 §13：这个后缀**不是提交数**，别拿它
+  核对提交；同时留一条可推翻的预测 —— 下一个内网提交把 C 变成 35 时这里该报 `+69 commits`。
+- 两条「计数」统一改成**带截止点**写法：O1 的「五次 skipped」标注到内网 `e87ab5d` 为止，镜像重做的「四轮」
+  标注到 `58775b7` 为止。上一节刚立的别名规则本轮就被自己撞了一次（推 `main` 之后那句点名 `d3a75dd9` 当场
+  成假声明），所以这里不再让文档背一个会一直变的计数器：要证的是「有没有例外」与方法，不是「共几次」。
+- 门禁确实拦下一次：`build-spec-r12.cjs` 的 `mustAppear` 要求 `+67 commits` 这个字面出现在新文本里，而 frag
+  当时只写了 `+67`，直接报错、补全后才通过 —— 数字与单位分开写就会失去可核对性，这条断言把它钉住了。
+- 文档 571 → **579** 行（§13 三处：计数根因、O1 截止点、镜像轮数截止点）；`forbidden` 仍为 10 条并对整份
+  正文断言 0 命中，`mustDisappear` 要求旧句「公开镜像重做并强推，四轮」不得被新文本回写，所以新句写成
+  「到 `58775b7` 为止四轮」。

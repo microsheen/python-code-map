@@ -145,3 +145,35 @@
   把 O1 / CF / 域名三行改成实测结论、新增"Pages 项目名""反馈渠道"两行、并删掉因此重复的两行；
   §12 那段"留给用户点头"改成已执行；§13 标题从"欠内网的那次验证"改成"已补上"，O1 证据从
   "没做到的"移到"已做到"。
+## 2026-10-13 站点真的上线了：deploy 首跑三 job 全绿；域名已绑，但本机出口验证不了
+
+- **Pages 项目已创建**：`python-code-map`、`production_branch=main`。[实测] `POST /accounts/<acct>/pages/projects`
+  直接成功 ⇒ 这个名字全局未被占用，之前担心的"改名方案"不需要了。项目名不可改名，换名的代价写进了 §10。
+- **[实测] `deploy` 第一次真实执行 = run `38359980657`**：`checks` / `browser-smoke` / `deploy` 三个 job 全绿。
+  wrangler 4.149.0 鉴权通过、`download-artifact` 在 `actions: write` 下取回产物，上一轮那条"0 次真实执行"的
+  边界已作废。`project create` 这次走"已存在"分支（`8000002`），"首次创建"分支由同一天本机直连 API 建项目时
+  覆盖 —— 两条分支各真跑过一次。发布 URL 只从 stdout 取：`https://36266ff7.python-code-map.pages.dev`。
+- **[实测] 上线验证 exit 0 clean**，但参照系换成了 CI 产物：`gh run download <id> -n dist` 取回的那 26 个文件
+  才是权威。`/`、两个 wasm、`robots.txt` 在部署 host 与生产别名上字节一致且等于 CI 产物。
+- **本机重建 ≠ CI 产物，且与时间戳、缓存无关**：干净 `npm ci` + `npm run export` 的 entry 是 1,398,755 B，
+  CI / 线上是 1,392,408 B；删掉 metro 缓存（1758 个文件）再 `--clear` 重建，哈希不变。按行比对：`__d` 模块
+  集合完全相同（827 个，零增删），差的是一行 6,346 B 的 RN console polyfill 段。**根因未定位**，所以不对外
+  声称"从源码能复现逐字节相同的线上产物"；tested==shipped 只在流水线内部成立（冒烟与部署同一 artifact）。
+- **[实测] 自定义域名绑好了但本机验不了**：`python-code-map.com` 与 `www.` 两条 proxied CNAME 已建（记录 0→2，
+  顺带证实 token 有 Zone / DNS: Edit），Pages 侧域名 `status=active`。可这台机器 443 拿到的是中间设备的拦截页、
+  80 端口 307 跳到网关，`--resolve` 按 SNI 过滤绕不过；同一时刻 `*.pages.dev` 正常。⇒ 结论只在 Cloudflare 侧，
+  端到端必须换网络复测。公开文档里不写该设备的厂商产品名，只写判别方法（看有没有 `cf-ray`）。
+- **公开镜像重做并强推**：`b31c700 → 0a3e0cf`，单提交、tracked 85、`audit --history` findings 0、远端只有 `refs/heads/main`。
+- **[实测] 修掉一个门禁自身的 bug**：`leak-scan` 的白名单 key 用 `line.split(':')[0]` 取到的是文件名而不是行号，
+  于是那条本来要放行的内网主机名永不匹配。改成按 `host|文件|` 前缀过滤 + 断言恰好 1 处命中 + 断言其余形状恒 0。
+  门禁报"没扫到"和"扫到了"都可能是假的，只有断言了数量的扫描才算扫过。
+- **两次自己制造的坑，记下来当纪律**：① 文档自检的 `mustDisappear` 会被我刚写进去的那句旧说法引用命中 ——
+  过期断言得带上下文成整句，短到不可复用；② 用 `replace()` 打补丁时字符串不匹配就静默不替换，这一轮 §8 的
+  引用改了一次没生效、靠复扫才发现。替换必须断言命中数恰为 1，和上面那条是同一个道理。
+- **出口是透明 MITM 时不要关校验**：`fetch` 报 `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`，取证发现签发方是网关的
+  根 CA。把那张根 CA 导出成 pem、用 `NODE_EXTRA_CA_CERTS` 只给这一个进程，站点立刻 200。关掉 TLS 校验换来的
+  "绿灯"证明不了任何事。
+- **`DEPLOY_ENABLED` 现在是 `true`**：此后每推一次 `main` 都会真的发布。它的回退路径没实测过，写在 §13 未办项里。
+- **文档**：`docs/ops-deployment.md` 446 → 498 行。§2 那条"从未真跑"的边界换成实测结论；§8 的示例命令删掉
+  `/index.html`（[实测] Pages 对它返回 308，脚本取响应时用 `redirect: manual`，跳转体必然被判成与 dist 不一致 ——
+  一个假阳性）并把"故障域不同"那条补成今天的实测数字；§10 从"待拍板"改成拍板台账；§13 增 8 条已做到、改 5 条未办。

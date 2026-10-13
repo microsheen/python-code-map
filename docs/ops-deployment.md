@@ -93,8 +93,15 @@
      仅新增 `node_modules/@emnapi/{core,runtime}@1.11.3` 两条（`optional`+`dev`），无删除、无版本变动、
      无 `resolved` 变动 —— 所以"产物不变"是被比出来的。11.19.0 安装时报 `unrs-resolver` 的 postinstall
      未被 `allowScripts` 覆盖（warning，非 error），verify 仍全绿。
-   - 仍然存在的边界：`vars.DEPLOY_ENABLED == 'false'` 使 `deploy` 仍 skipped，所以**这次红/绿与 O1 守卫
-     无关**，O1 的第一次真实验证仍未发生（见 §13）。
+   - 仍然存在的边界：`vars.DEPLOY_ENABLED == 'false'` 使 `deploy` 仍 skipped。skipped 的 job 不回答
+     "是哪一条条件为 false"，所以它既不能当 O1 的证据，也不能当 `deploy` 跑得通的证据。O1 已于
+     2026-10-13 用另一次推送单独验证（§13）；而 `deploy` 里 wrangler 的鉴权、以及 `actions: write`
+     覆盖的 download-artifact 路径**至今没有真实执行过**，第一次真跑仍可能红。
+   - [实测] CI 报 `added 1098 packages`、本机 `npm ci` 报 `added 1096`，这 2 个已对上账，不是隐患：
+     同一份锁跑 `npx npm@11.19.0 ci --dry-run --os=linux --cpu=x64` 得 `added 4 / removed 2`，增的是
+     `lightningcss-linux-x64-{gnu,musl}` 与 `@unrs/resolver-binding-linux-x64-{gnu,musl}`，删的是对应
+     的两个 `*-win32-x64-msvc`。全是构建期用的平台专属原生二进制，不进 `dist/`，与浏览器产物无关。
+     以后遇到"两边数字不同"先这样取证：既不默认良性，也不默认有问题。
 **fork 的 PR 也会执行 `npm ci`。** 触发器是裸 `on: push` + `on: pull_request`（无分支/路径过滤），
 `checks` 第一步 `npm ci` 会跑依赖的 postinstall，而 `pull_request` 跑的是 fork 的工作流 ——
 恶意依赖能在 runner 上执行代码。建议在 Settings -> Actions -> General 打开
@@ -293,13 +300,13 @@ HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 
 | 现有代码库内容对外公开的合规性 | ✅ 2026-10-13 用户明确「允许」 |
 | 公开目标账号与仓库名 | ✅ `microsheen/python-code-map`（[实测] 此前在 github.com 上 404，即不存在同名仓库） |
 | 公开仓库默认分支 | ✅ `main`（用户未指定，采用建议默认值；workflow 两处同步见 §2 第 2 条） |
-| GHES 那份 workflow（O1–O4） | ✅ 选 O1，已实施，见 §12。但**对 GHES 的实际效果仍未验证**：本轮提交尚未推到内网，见 §13 |
+| GHES 那份 workflow（O1–O4） | ✅ 选 O1，已实施，并于 2026-10-13 **实测通过**：推内网后 run 整体 `skipped`、不排队，见 §13 |
 | LICENSE | 待拍板（许可是选择，不是继承） |
 | `package.json` 的 `license` / `repository.url` / `author` | 待随许可证一起补 |
-| Cloudflare API token 与 account id 的提供方式 | 待确认（本机无环境变量；wrangler 未安装） |
-| 域名：复用已有 zone 还是新注册 | 待确认 |
-| Pages 项目名（**全局唯一、不可改名**） | 待确认 |
-| 反馈别名与回复身份 | 待确认 |
+| Cloudflare API token 与 account id | ✅ 2026-10-13 用户直接提供。只存在仓库之外的临时目录，并已写入 Actions secrets（`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`）；**任何一份拷贝都不进仓库、历史、文档** |
+| 域名：复用已有 zone 还是新注册 | ✅ `python-code-map.com` 的 zone 已在该账户下且 `status=active`；[实测] 区内 DNS 记录 0 条，是干净的。绑定要 API 加域名 + 手动建 `@` 与 `www` 两条 proxied CNAME（API 不会替你建 CNAME） |
+| Pages 项目名 | 待拍板。名字**全局唯一且不可改名**，它同时出现在 `<project>.pages.dev`、CI 的 `vars.PAGES_PROJECT_NAME` 和域名 CNAME 的目标里；最直白的候选很可能已被陌生人占用，要一次定下带备选的方案 |
+| 反馈渠道 | 待拍板。收信转发的**目标邮箱地址**绝不能进仓库、历史或文档（映射只存在于控制台）；另外要知道页面公开后，公开的联系地址会招来垃圾邮件 |
 
 **本机已具备 / 尚缺的前置条件**（[实测] 2026-10-09 只读复探）
 
@@ -402,13 +409,13 @@ pack 108 个对象）。
 顺带一条好消息：内网实例的默认 workflow 权限是 `write`，而本 workflow 显式写了
 `permissions:` 块（§2），落下去的范围**比平台默认更窄**。这次显式声明是往**窄**了收，不是往开放了放。
 
-**本轮只 commit、未 push。** AGENTS.md 要求改动前先 pull 再 push：pull 已跑且是 no-op
-（落后 0），但 push 会把这个 workflow 同时推进一个已知 `runners = 0` 的实例，副作用落在别人的
-CI 页面上。纪律的目的是不丢变更、不产生冲突，不是"必须把已知会产生噪音的东西推给团队"——
-所以这一步留给用户点头。
-所以这一步留给用户点头。**[实测] 截至本轮结束 `git rev-list --count origin/master..HEAD` = 10，一个都没推** —— 验证动作见 §13。
+**这一段已经执行完了（2026-10-13）。** 上一轮写的是"只 commit、未 push，留给用户点头"，当时确实
+一个都没推（[实测] `git rev-list --count origin/master..HEAD` = 10）：理由是把一个已知会在
+`runners = 0` 实例上产生噪音的 workflow 推上去，副作用落在别人的 CI 页面上。O1 守卫落地之后，
+"产生噪音"这个理由不再成立，而 AGENTS.md 要求的"改动前先 pull 再 push"重新占上风，于是推了：
+`fd40a45..341fe8d  master -> master`（11 个提交），推完 `origin/master..HEAD` = 0。结果见 §13。
 
-## 13. Phase 2 实况：公开仓已建（仍 private）、首跑红、以及欠内网的那次验证
+## 13. Phase 2 实况：公开仓已建（仍 private）、首跑红、内网那次验证已补上
 
 **已做到**（以下均 [实测] 2026-10-13）：
 
@@ -421,11 +428,19 @@ CI 页面上。纪律的目的是不丢变更、不产生冲突，不是"必须�
   `browser-smoke` 因 `needs` 级联 skipped —— **这是正常行为，不是第二个故障**；`deploy` skipped 的原因是
   `DEPLOY_ENABLED=false`，**不能**拿它当 O1 归属守卫生效的证据：skipped 的 job 不告诉你到底是哪一条
   条件为 false，两条开关的作用域要靠日志分开看。
+- [实测] **O1 对 GHES 的效果已验证通过**（2026-10-13，紧接上面那次推送）：
+  内网那条 push 只生成一条 run `4083631`（实例名与账号名按纪律不写在这里）
+  （`event=push`、`headBranch=master`、`status=completed`、`conclusion=skipped`）；
+  `gh run view 4083631 --json jobs` 里 `checks` / `browser-smoke` / `deploy` 三个 job 全部
+  `conclusion=skipped` 且 `queued` 为假。所以"内网不再产生排队到被自动取消的僵尸 run"这句话现在有
+  依据了。但这只证明**归属守卫**有效：`master` 本来也不是生产分支，两条条件同时为 false，
+  这次 skipped 依然不能当作 `deploy` 可运行的证据。
 
 **没做到的，不许写成已完成**：
 
-- O1 对 GHES 的效果**还没验证**：那 10 个提交没推，所以"内网不会再产生僵尸 run"这句话目前没有依据。
-  验证动作是推上去之后看 run 是否整体 skipped 且不排队；万一仍在排队，就用 API 取消并如实记在这里。
-- 站点仍未上线：Cloudflare token/account id、域名、Pages 项目名三项还没到位（§10），
-  `Settings -> Actions -> Require approval for all outside collaborators` 也要人在页面上勾（API 够不着）。
+- 站点仍未上线。已到位的是 secrets（token + account id）和 zone；还缺 `vars.PAGES_PROJECT_NAME` —— 项目
+  名全局唯一且不可改名，这一项必须人拍板。定了之后 `deploy` 才是**第一次真实执行**：wrangler 鉴权、
+  `project create` 的两条分支（首次创建 / 已存在继续）、以及从 stdout 解析不可变 URL
+  （"✨ Deployment complete! …"那一行），只跑一次，URL 只取日志、不许猜。
+- `Settings -> Actions -> Require approval for all outside collaborators` 仍要人在页面上勾（API 够不着）。
 - 可见性还没翻。既定顺序：CI 全绿 → 翻 public → **从干净克隆再审计一次** → 再谈域名与 Pages 项目名。

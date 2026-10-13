@@ -462,8 +462,10 @@ pack 108 个对象）。
   `ea7c3b8e`）、`4084948`（`e87ab5d8`），五次都是 `event=push`、`headBranch=master`、`status=completed`、
   `conclusion=skipped`，且 `gh run view --json jobs` 里三个 job 全部 `skipped`，没有一次例外。第五次
   的价值不在于把「能跑」证得更牢 —— 它证的还是同一件事 —— 而在于排掉「恰好那一次另有条件为 false」这种巧合。
+  「五次」是**带截止点**写的（到内网 `e87ab5d` 为止）：此后每次推内网只会再添一条形状相同的 skipped，本文不再
+  逐个补记 —— 和别名 hash 同一个道理，会一直变的东西写进文档就注定过期，要证的是「有没有例外」，不是「共几次」。
 
-- [实测] **公开镜像重做并强推，四轮**：`b31c700 → 0a3e0cf → 2224d10 → 860e92d → 58775b7`（远端每次都报
+- [实测] **公开镜像重做并强推，到 `58775b7` 为止四轮**：`b31c700 → 0a3e0cf → 2224d10 → 860e92d → 58775b7`（远端每次都报
   `main -> main (forced update)`，`ls-remote` 每次只有 `refs/heads/main` 一条 ref）。单提交、tracked=**85**、
   `commits_ALL=1`。旧的 `b31c700` 不含 `LICENSE` 与这几天的实测改正，所以必须整轮重跑 scrub；第二、三轮的
   动机都是文档自己：旧版 §13 留着 32 位全哈希，而 32 位独立 hex 与 Cloudflare 的 account/zone id **同形**，
@@ -471,15 +473,21 @@ pack 108 个对象）。
   `docs/ops-deployment.md` 的**旧 blob**，只在内网提交里可达，工作树文件里按同样的正则 `grep` **0 命中**；
   第四轮命中的**还是那个旧 blob** —— 这正说明「改好工作树」不会让旧 blob 消失，它只能靠 `scrub2.sh` 的删 ref
   + `gc --prune=now` 才离开仓库。[实测] 第四轮删完 ref：`refs` 只剩 `main`、`in-pack=109`、findings **0**、
-  `AUDIT_EXIT=0`。
+  `AUDIT_EXIT=0`。轮数同样**带截止点**（到 `58775b7` 为止四轮）：此后每重做一遍就多一轮，本文不再补记 ——
+  要留的是「每轮都得整轮重跑 scrub，旧 blob 只能靠删 ref + `gc --prune=now` 才走得掉」这条方法，不是计数器。
 - [实测] **`drive-scrub6.sh` 停在 `scrub.sh` 末尾是预期行为，不是第二个故障**：那一步的 `audit --history` 在
   还没删掉 `refs/heads/master` 之前跑，必然报 MEDIUM，`set -e` 于是把后续脚本切掉。[实测] 从第二轮起**每一轮
   重跑报的都是同样 3 条 MEDIUM**：2× `opaque-32-hex-id` + 1× `personal-email-in-commit-metadata`，命中行全部
   落在仍可从 `refs/heads/master` 达到的内网提交里，**不是**新工作树的内容 —— 先确认命中的是哪个 ref，再决定
   是改文档还是删 ref，别一上来就动本来就没问题的正文。所以卡住时接着单独跑 `scrub2.sh`
   （删 ref → `reflog expire` → `gc --prune=now`）才会拿到 findings 0。上一版那句「ref 卫生问题」说的就是这里。
-  [实测] 第四轮的三条与第三轮**同形**，只有 `author@…` 后面的提交计数从 `+63 commits` 涨到 `+65 commits`；
-  内网只多了 1 个提交，为什么计数 +2 没查（`audit` 的计数口径不在这次范围内），记下来但不解释。
+  [实测] 第五轮把那个计数查到了根上，不再是「记一笔现象」：`audit-public-repo.mjs` 收 commit 邮箱时按
+  **字段**记账 —— 它对每个提交取 `%ae` 与 `%ce`，author 和 committer 各算一条 hit，报出来的后缀其实是
+  `hits.length - 1`。设 C = 带着这个邮箱的提交数，那就等于 **2C-1**。三个历史数字对得严丝合缝：内网 32 个
+  提交时报 `+63 commits`、33 个报 `+65 commits`、34 个报 `+67 commits` —— 每多 1 个提交，这个数多 2。
+  所以**它压根不是提交数**，拿它去核对「有多少提交带着这个邮箱」一定错；要核对就直接
+  `git rev-list --count master`（本轮 = **34**）。这条解释同时是一条**可推翻的预测**：下一个内网提交把 C
+  变成 35 时，这里应该报 `+69 commits`，对不上就说明这个解释还差一环。
 - [实测] **审计对象是「远端干净克隆」，不是本地 stage**：翻公开之前用认证克隆审 `860e92d`，得到
   `worktreeFiles=85 / historyBlobs=85 / blocking=0 / findings=[]`、退出码 **0**；翻公开之后改用
   `git -c credential.helper= clone` 的**匿名**克隆，先审 `860e92d`、再审第四轮推上去的 `58775b7`，两次结论

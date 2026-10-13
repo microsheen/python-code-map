@@ -177,3 +177,28 @@
 - **文档**：`docs/ops-deployment.md` 446 → 498 行。§2 那条"从未真跑"的边界换成实测结论；§8 的示例命令删掉
   `/index.html`（[实测] Pages 对它返回 308，脚本取响应时用 `redirect: manual`，跳转体必然被判成与 dist 不一致 ——
   一个假阳性）并把"故障域不同"那条补成今天的实测数字；§10 从"待拍板"改成拍板台账；§13 增 8 条已做到、改 5 条未办。
+## 2026-10-13 push→deploy 端到端跑通：生产 URL 移到 91eaa8c6；Zone Rules 实测 403，www→apex 只能人来
+
+- **push→deploy 第一次真的走通**：run `38364378715`（`event=push`、`main` / `2224d10`），`checks` /
+  `browser-smoke` / `deploy` 三个 job 全部 `success`。生产别名随之从 `36266ff7` 移到
+  `91eaa8c6`（[实测] Pages API `latest_deployment.id = 91eaa8c6-f619-4946-af8c-01fd98af641a`）。
+  `DEPLOY_ENABLED=true` 的实际含义这一次是**被验证过的**而不是被告知的：推 `main` 即发布，中间没有确认。
+- **[实测] 跨 run 的产物确定性改用字节证**：`36266ff7`、`91eaa8c6`、`python-code-map.pages.dev` 三个 host
+  一起比，`/`（914 B）、`/_expo/static/js/web/entry-9069ffa5…js`（1,392,408 B）、`/wasm/tree-sitter.wasm`
+  （209,613 B）、`/metadata.json`（49 B）sha256 两两相同且全部等于 `38364378715` 的 CI 产物，`CHECK_EXIT=0`。
+- **差点把一条看不懂的日志写成证据**：wrangler 报 `✨ Success! Uploaded 0 files (7 already uploaded)`，
+  而 `Uploading... (7/7)` 里的 7 和 `dist` 实际的 **26** 个文件对不上。这个数字到底在数什么没搞清，
+  所以它只能记成"未解释的观察"，不能支撑"CI 构建可复现"这类断言 —— 结论改由上面那条字节比较来支撑。
+- **[实测] `www → apex` 这件事 agent 做不了**：`GET /zones/<zone>/rulesets/phases/{http_request_redirect,
+  http_request_static_redirects,entrypoint}/entrypoint` 和 `GET /zones/<zone>/rulesets` **四条只读接口全部
+  403 `10000 Authentication error`**，同一个 token 打 Pages、Zone DNS、Zone 详情都是 200 ⇒ 缺的是
+  **Zone / Rules** 权限，不是"规则还没建"。三条路都得人来：控制台建规则 / 给 token 补权限（不换 token 字符串，
+  CI secret 不用重贴）/ 删 `www` 记录回到单 origin。
+- **`/index.html` 的假阳性又复现一次**：把它放进 `--paths` 后其余三条全 MATCH，只有它因 308 跳转体被判 diff，
+  `CHECK_EXIT=1`。§8 的示例命令当初删掉它是对的，这次是反向验证。
+- **审计对象换成远端**：从 github.com `git clone` 再跑 `audit --history`，`refs/heads/main = 2224d10`、
+  `commits_ALL=1`、tracked 85、findings 0。审 stage 只证明"打算推的干净"，审克隆才证明"已经推上去的干净"。
+- **本轮自己写坏又改回来的两处**（都属于"补丁应用成功 ≠ 文本正确"）：① 引用写成"见本节末那条"，
+  实际那段在 §4；② 用"替换区间"插入新 bullet 时，原来跟在镜像那条后面的缩进续行被划到了新 bullet 下面，
+  归属漂移，另外还多出 1 个空格。修法是拆成独立 bullet + 按段落边界复读一遍，而不信"脚本没报错"。
+- **纪律**：门禁没红不等于扫描有效。本轮 `leak-scan2.mjs` 与 `npm run verify` 仍需在改完文档后重跑一遍才算数。

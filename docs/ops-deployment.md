@@ -457,54 +457,72 @@ pack 108 个对象）。
   `gh run view 4083631 --json jobs` 里 `checks` / `browser-smoke` / `deploy` 三个 job 全部
   `conclusion=skipped` 且 `queued` 为假。所以"内网不再产生排队到被自动取消的僵尸 run"这句话现在有
   依据了。但这只证明**归属守卫**有效：`master` 本来也不是生产分支，两条条件同时为 false，
-  这次 skipped 依然不能当作 `deploy` 可运行的证据。
+  这次 skipped 依然不能当作 `deploy` 可运行的证据。[实测] 到内网 `e87ab5d` 为止这条守卫已经重复验证**五次**：
+  run `4083631`（`341fe8d8`）、`4084045`（`97e5e727`）、`4084065`（`628146eb`）、`4084267`（
+  `ea7c3b8e`）、`4084948`（`e87ab5d8`），五次都是 `event=push`、`headBranch=master`、`status=completed`、
+  `conclusion=skipped`，且 `gh run view --json jobs` 里三个 job 全部 `skipped`，没有一次例外。第五次
+  的价值不在于把「能跑」证得更牢 —— 它证的还是同一件事 —— 而在于排掉「恰好那一次另有条件为 false」这种巧合。
 
-- [实测] **公开镜像重做并强推，三轮**：`b31c700 → 0a3e0cf → 2224d10 → 860e92d`（远端每次都报
-  `main -> main (forced update)`）。单提交、远端只有 `refs/heads/main` 一条 ref、tracked=**85**、
-  `commits_ALL=1`。旧的 `b31c700` 不含 `LICENSE` 与这几天的实测改正，所以必须整轮重跑 scrub；
-  第二、三轮的动机都是文档自己：旧版 §13 留着 32 位全哈希，而 32 位独立 hex 与 Cloudflare 的
-  account/zone id **同形**，会命中 `audit` 的 `opaque-32-hex-id`（改法与理由见 §4）。[实测] 第三轮把归因
-  做到了 blob 级：两处命中来自 `docs/ops-deployment.md` 的**旧 blob**，只在内网提交里可达，工作树文件里
-  按同样的正则 `grep` **0 命中** —— 「改好工作树」不等于「线上那份干净」，旧 blob 只能靠 `scrub2.sh`
-  的删 ref + `gc --prune=now` 才真的离开仓库。
+- [实测] **公开镜像重做并强推，四轮**：`b31c700 → 0a3e0cf → 2224d10 → 860e92d → 58775b7`（远端每次都报
+  `main -> main (forced update)`，`ls-remote` 每次只有 `refs/heads/main` 一条 ref）。单提交、tracked=**85**、
+  `commits_ALL=1`。旧的 `b31c700` 不含 `LICENSE` 与这几天的实测改正，所以必须整轮重跑 scrub；第二、三轮的
+  动机都是文档自己：旧版 §13 留着 32 位全哈希，而 32 位独立 hex 与 Cloudflare 的 account/zone id **同形**，
+  会命中 `audit` 的 `opaque-32-hex-id`（改法与理由见 §4）。[实测] 第三轮把归因做到了 blob 级：两处命中来自
+  `docs/ops-deployment.md` 的**旧 blob**，只在内网提交里可达，工作树文件里按同样的正则 `grep` **0 命中**；
+  第四轮命中的**还是那个旧 blob** —— 这正说明「改好工作树」不会让旧 blob 消失，它只能靠 `scrub2.sh` 的删 ref
+  + `gc --prune=now` 才离开仓库。[实测] 第四轮删完 ref：`refs` 只剩 `main`、`in-pack=109`、findings **0**、
+  `AUDIT_EXIT=0`。
 - [实测] **`drive-scrub6.sh` 停在 `scrub.sh` 末尾是预期行为，不是第二个故障**：那一步的 `audit --history` 在
   还没删掉 `refs/heads/master` 之前跑，必然报 MEDIUM，`set -e` 于是把后续脚本切掉。[实测] 从第二轮起**每一轮
   重跑报的都是同样 3 条 MEDIUM**：2× `opaque-32-hex-id` + 1× `personal-email-in-commit-metadata`，命中行全部
   落在仍可从 `refs/heads/master` 达到的内网提交里，**不是**新工作树的内容 —— 先确认命中的是哪个 ref，再决定
   是改文档还是删 ref，别一上来就动本来就没问题的正文。所以卡住时接着单独跑 `scrub2.sh`
   （删 ref → `reflog expire` → `gc --prune=now`）才会拿到 findings 0。上一版那句「ref 卫生问题」说的就是这里。
-- [实测] **审计对象是「远端干净克隆」，不是本地 stage**：翻公开之前 `git clone` github.com 上那份 →
-  `audit --history`，得到 `HEAD=860e92d`、`refs` 只剩 `main`、`commits_ALL=1`、tracked=**85**、机器可读结果
-  `worktreeFiles=85 / historyBlobs=85 / blocking=0 / findings=[]`、退出码 **0**；对同一份克隆再按内网主机名、
-  内网 owner、个人邮箱域、Windows 绝对路径前缀、token 前缀逐条 `git grep`，**全部 0 命中**。这两件事不是
-  一回事：审 stage 只证明「我打算推的东西干净」，审克隆才证明「已经推上去、CI 也将要构建的那一份干净」。
-  [实测] 翻公开**之后**换**匿名**方式又跑了一遍同样的审计：结论一致（findings 0 / 退出码 0）。匿名克隆
-  证明的是「世界看到的正是这一份」，认证克隆证明的是「内容干净」，两条互相替代不了，所以都要留。
-- [实测] **`deploy` 真跑过三次，两种触发方式都通了**：`38359980657`（`workflow_dispatch`，`main` / `0a3e0cf`）、
-  `38364378715`（**`push` 触发**，`main` / `2224d10`）、`38367105331`（**`push` 触发**，`main` / `860e92d`，
-  `deploy` job `115195285027`），三次的 `checks` / `browser-smoke` / `deploy` 全部 `success`。push 那次才真正
+  [实测] 第四轮的三条与第三轮**同形**，只有 `author@…` 后面的提交计数从 `+63 commits` 涨到 `+65 commits`；
+  内网只多了 1 个提交，为什么计数 +2 没查（`audit` 的计数口径不在这次范围内），记下来但不解释。
+- [实测] **审计对象是「远端干净克隆」，不是本地 stage**：翻公开之前用认证克隆审 `860e92d`，得到
+  `worktreeFiles=85 / historyBlobs=85 / blocking=0 / findings=[]`、退出码 **0**；翻公开之后改用
+  `git -c credential.helper= clone` 的**匿名**克隆，先审 `860e92d`、再审第四轮推上去的 `58775b7`，两次结论
+  一致：`commits_ALL=1`、`refs` 只剩 `main`、tracked=**85**、findings **0**、退出码 **0**。匿名这条路本身就
+  是「公开可读」的证明 —— 私有仓在 `GIT_TERMINAL_PROMPT=0` 下会直接失败在要用户名那一步 —— 但它**不**证明
+  内容干净，内容干净靠 `audit`，两条各证一件事，都要留。对 `58775b7` 那份匿名克隆再按内网主机名、内网 owner、
+  个人邮箱域、Windows 绝对路径前缀、token 前缀、IDE 名、本机用户名逐类 `git grep`：**9 类全部 0 命中**。
+  审 stage 只证明「我打算推的东西干净」，审克隆才证明「已经推上去、CI 也将要构建的那一份干净」。
+- [实测] **`deploy` 真跑过四次，两种触发方式都通了**：`38359980657`（`workflow_dispatch`，`0a3e0cf`）、
+  `38364378715`（`push`，`2224d10`）、`38367105331`（`push`，`860e92d`）、`38381569045`（`push`，`58775b7`，
+  `deploy` job `115243516823`），四次的 `checks` / `browser-smoke` / `deploy` 全部 `success`。push 触发才真正
   暴露 §3 那个开关的日常形态：`DEPLOY_ENABLED=true` 之后**任何人推 `main` 都立刻发布**，中间没有确认步骤。
-  第三次另做一次互证：wrangler stdout 的「Take a peek over at …」给出 `https://d3a75dd9.python-code-map.pages.dev`，
-  Pages API 的 `latest_deployment.url` 同一主机、`latest_deployment.id` = `d3a75dd9-d5e9-4dba-a1ae-81d90eba85d1`。
-  地址**只认 stdout**，API 只当旁证 —— 反过来用 API 拼出来的地址写进文档，下一次推送就可能是假的。
-- [实测] **生产别名会随每次部署移动，只有不可变 URL 不动**：`36266ff7` → `91eaa8c6` → `d3a75dd9`。
-  写这句话时 `python-code-map.pages.dev` 服务的是 `d3a75dd9`（`latest_deployment.id` =
-  `d3a75dd9-d5e9-4dba-a1ae-81d90eba85d1`），但**下一次推 `main` 它又会移动**，所以本文在此定一条停止规则：
-  §13 只记**方法与当时那次的证据**，不再为每次推送补 hash —— 否则文档永远落后于生产别名，补记本身
-  就变成一条新的过期声明。验证命令因此**只能用生产别名**。URL 只取 wrangler stdout 的
-  「✨ Deployment complete! Take a peek over at …」这一行，不许猜；Direct Upload 的主机形状是
-  `<~8hex>.<project>.pages.dev`，**不存在** git-SHA 主机。
-- [实测] **跨 run 的产物确定性要用字节证，不能用日志措辞证**：三次 run 的产物各自取回后，可比的两份
-  总量**全等** —— **26 个文件 / 2,083,473 B**（`2224d10` 与 `860e92d` 各是一次独立 CI 构建）。再把 `0a3e0cf`、
-  `2224d10`、`860e92d` 三个部署的不可变 host 连生产别名一起比：`/`（914 B）、
-  `/_expo/static/js/web/entry-9069ffa5…js`（**1,392,408 B**）、`/wasm/tree-sitter.wasm`（209,613 B）、
-  `/metadata.json`（49 B）、`/robots.txt`（209 B）—— **4 个 host × 5 条路径 sha256 两两相同**，且全部
-  `vs --dist MATCH`（参照系 = `860e92d` 那次 run 的产物）；唯一差异是 `x-robots-tag`，属平台差异不计入，
-  整轮 `CHECK_EXIT=0`。三个不同 commit、三次独立构建产出同一份字节，这句话到此才有依据。顺带一条工具坑：
-  `gh run download` 必须显式 `-R <owner>/<repo>`，否则它按当前目录的 `origin` 解析 run id，而本机 `origin`
-  是内网那台实例 ⇒ HTTP 404。反过来，wrangler 那句 `✨ Success! Uploaded 0 files (7 already uploaded)`
-  **不能**当证据：`Uploading... (7/7)` 里的 7 和 `dist` 里实际的 **26** 个文件对不上，这个数字在数什么
-  没搞清；语义不明的日志行只能记下来，不能拿去支撑断言。
+  每一次都做一次互证：wrangler stdout 的「Take a peek over at …」与 Pages API 的 `latest_deployment.url`
+  和 `id` 对得上，最后一次是 `https://cf9de4e2.python-code-map.pages.dev` /
+  `cf9de4e2-7990-4586-a2b9-a0233f2dc611`。地址**只认 stdout**，API 只当旁证。
+- [实测] **deploy 日志里那行红色的 `[ERROR] A request to the Cloudflare API (/accounts/*****/pages/projects)
+  failed.` 不是故障**：那是 workflow 故意「先试建项目」的分支，返回 `code: 8000002`
+  （`A project with this name already exists`），紧跟着一行「project 已存在，继续」，job 最终 `success`。
+  把 ERROR 字样读成部署失败，就会去找一个不存在的故障；为了日志干净把它消掉，又会丢掉「项目名全局唯一、
+  重跑不报错」这个设计依据。两种冲动都别顺。
+- [实测] **生产别名每推一次 `main` 就换一个 host，只有不可变 URL 不动**：`36266ff7` → `91eaa8c6` →
+  `d3a75dd9` → `cf9de4e2`。写这句话时 `python-code-map.pages.dev` 服务的是 `cf9de4e2`（
+  `latest_deployment.id` = `cf9de4e2-7990-4586-a2b9-a0233f2dc611`）。上一版在这里立的停止规则是「只记
+  方法与当时那次的证据，不再为每次推送补 hash」，可这一轮又推了 `main`：那句点名 `d3a75dd9` 的话当场就成了
+  假声明，只能就地改掉 —— 于是规则收紧成**最后一次记录具体 hash**：这一条之后 §13 不再写「别名此刻服务
+  哪一份」这种会随推送移动的话，不可变部署 URL 照记（它们不会动）。验证命令因此**只能用生产别名**，地址
+  只取 wrangler stdout 的「✨ Deployment complete! Take a peek over at …」这一行，不许猜；Direct
+  Upload 的主机形状是 `<~8hex>.<project>.pages.dev`，**不存在** git-SHA 主机。
+- [实测] **跨 run 的产物确定性要用字节证，不能用日志措辞证**：本轮参照系换成 `58775b7` 那次 run 的 `dist`，
+  与 `860e92d` 那次取回的产物逐文件比 —— **26 / 26 个文件、文件名零差异、逐文件 sha256 零差异**，两份
+  总量都是 **2,083,473 B**。线上另比一层：`91eaa8c6`、`d3a75dd9`、`cf9de4e2` 三个不可变 host 连
+  生产别名共 **4 个 host × 5 条路径** —— `/`（914 B）、`/metadata.json`（49 B）、`/robots.txt`（
+  209 B）、`/wasm/tree-sitter.wasm`（209,613 B）、`/_expo/static/js/web/entry-9069ffa5…js`（
+  **1,392,408 B**）—— sha256 两两相同且全部 `vs --dist MATCH`，整轮 `CHECK_EXIT=0`；上一轮已用同样
+  5 条路径把 `36266ff7` 与前两个 host 比齐，所以 `0a3e0cf`、`2224d10`、`860e92d`、`58775b7` 四个
+  不同 commit 的四次独立构建在这 5 条路径上字节相同。覆盖面要说清，不然这句就是虚的：**逐文件全等只对
+  那两份本地产物成立（2 个 commit）**，另两个 commit 只有 5 条抽样路径的证据，「四份产物 26 个文件全等」
+  目前**没有**依据。两次比对的参照系不同（上一轮 `dist-run9`、这一轮 `dist-run11`），而这两份已被上面
+  那句逐文件全等证到完全相同，所以 `MATCH` 与 `MATCH` 之间接得上。工具坑照旧：`gh run download` 必须
+  显式 `-R <owner>/<repo>`，否则它按当前目录的 `origin` 解析 run id，而本机 `origin` 是内网那台实例
+  ⇒ HTTP 404。反过来，wrangler 那句 `✨ Success! Uploaded 0 files (7 already uploaded)` **不能**
+  当证据：`Uploading... (7/7)` 里的 7 与 `dist` 里实际的 **26** 个文件对不上，这个数字在数什么没搞清；
+  语义不明的日志行只能记下来，不能拿去支撑断言。
 - [实测] **上线验证 exit 0 clean**：`check-deploy.mjs --mode=browser --dist=<CI 产物>`，`/`、两个 wasm、
   `robots.txt` 跨 host 字节一致且与 CI 产物一致。平台差异两条照旧：`x-robots-tag: noindex` 只在
   `<hash>.<project>.pages.dev` 上有、生产别名没有，归入 server-dependent 不计入；`/index.html` 别放进
@@ -531,8 +549,8 @@ pack 108 个对象）。
   拿不到 Cloudflare 的真实应答，`--resolve` 也绕不过（它按 SNI 过滤）。⇒ 必须换一个网络（手机热点）
   拿 §8 那条命令复测一次，`--hosts=` 换成 `https://python-code-map.com,https://www.python-code-map.com,`
   `https://python-code-map.pages.dev`（其余参数照 §8，尤其别再列 `/index.html`）。**只用生产别名，
-  不要把 `<hash>` 主机写进去** —— [实测] 2026-10-13 它已经连着移动了两次（`36266ff7` → `91eaa8c6` →
-  `d3a75dd9`），写死的那条命令下一次推送就失效；`--dist=` 也要配**同一次 run** 的产物，否则字节必然对不上。
+  不要把 `<hash>` 主机写进去** —— [实测] 它每推一次 `main` 就换一个新的不可变 host，把当时那一个写死进
+  命令，下一次推送就失效；`--dist=` 也要配**同一次 run** 的产物，否则字节必然对不上。
   在那之前，「办公网里打不开 `python-code-map.com`」**不算**站点故障。
 - **`www` 与 apex 现在同时可服务 = 两个 origin、两份 IndexedDB 命名空间**，这是数据完整性问题不是
   美观问题（§7）。Redirect Rule `www.*/(.*)` → apex **还没建，而且 agent 建不了**：[实测] 2026-10-13

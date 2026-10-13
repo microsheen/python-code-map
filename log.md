@@ -232,3 +232,30 @@
 - 文档侧：`docs/ops-deployment.md` 524 → **553** 行，§10 加「仓库可见性」一行、§13 改写 12 处；
   `mustDisappear` 14 条要求「当前恰好命中 1 且不被新文本写回」，其中「两次的」差点被自己新写的
   「前两次的」命中，是断言拦下来的，不是人眼看出来的。
+## 2026-10-13 发布路线 B（第四轮镜像上线；确定性升到逐文件；别名停止规则收紧）
+
+- 翻公开之后又走完一整轮：文档 round-2 落盘 → 内网提交 `e87ab5d` → 重做 scrub → 公开仓 `main` 强推到
+  `58775b7`（单提交、tracked 85、`commits_ALL=1`）。[实测] 对 `58775b7` 的**匿名**克隆复审计：
+  `audit --history` findings 0 / 退出码 0，9 类目标逐类 `git grep` 全部 0 命中；匿名 `ls-remote` exit 0 与
+  `raw.githubusercontent.com` 取 README = 200 / 19,941 B 各证一次公开可读（探针别选 `robots.txt`，仓库根没有它）。
+- [实测] 第四次发布 run `38381569045`（push / `58775b7`，`deploy` job `115243516823`）三 job 全绿，
+  wrangler stdout 给 `https://cf9de4e2.python-code-map.pages.dev`，与 Pages API `latest_deployment.id` 互证。
+  日志里那句红色 `[ERROR] … (/accounts/*****/pages/projects)` + `code: 8000002` 是「先试建项目」的预期分支，
+  紧跟「project 已存在，继续」：读成故障就会去找一个不存在的故障，为日志干净消掉它又会丢掉设计依据。
+- 确定性证据升级并划清覆盖面：两份 CI 产物（`860e92d` 与 `58775b7`）**26 / 26 文件、文件名零差异、逐文件
+  sha256 零差异**，总量都是 **2,083,473 B**；线上 **4 host × 5 path**（`91eaa8c6`/`d3a75dd9`/`cf9de4e2`/生产别名）
+  sha256 两两相同、全部 `vs --dist MATCH`、整轮 `CHECK_EXIT=0`。上一版那句「三个不同 commit 产出同一份字节」
+  实际只有 5 条抽样路径的证据撑着，被写成了全量 —— 本轮按覆盖面重写：四个 commit 在这 5 条路径上相等，
+  逐文件全等只对那两个本地产物成立，「四份产物 26 个文件全等」目前**没有**依据。
+- O1 归属守卫累计**五次** skipped：`4083631`/`4084045`/`4084065`/`4084267`/`4084948`，全部 `event=push`、
+  `headBranch=master`、`completed/skipped`，且 `--json jobs` 三个 job 全 `skipped`。第五次的价值是排掉
+  「恰好那一次另有条件为 false」这种巧合，仍然不能当作 `deploy` 可运行的证据。
+- §13 的别名停止规则收紧成「**最后一次记录具体 hash**」：上一版刚立「不再为每次推送补 hash」，这一轮就又推了
+  `main`，那句点名 `d3a75dd9` 的话当场成为假声明。此后 §13 不再写「别名此刻服务哪一份」，只记不可变 URL 与方法；
+  验证命令一律用生产别名，`<hash>` 主机不进命令。
+- 文档侧：`docs/ops-deployment.md` 553 → **571** 行，§13 一次改 8 处；`build-spec-r11.cjs` 的 `mustDisappear`
+  12 条继续要求「当前恰好命中 1 且不被新文本写回」，`forbidden` 从 4 条加到 10 条（token 前缀、内网主机名与
+  owner、个人邮箱域、account id、绝对路径前缀、本机用户名等），并额外对**整份当前正文**断言 0 命中。
+- 翻公开带来的新面进了「没做到的」：`pull_request` 触发对全网 fork 打开，[实测] `allowed_actions=all`、
+  `default_workflow_permissions=read`、`can_approve_pull_request_reviews=false`；secrets 对 fork PR 不下发，
+  所以真实风险是算力与日志噪音。「Require approval for all outside collaborators」仍是人在页面上勾的活。

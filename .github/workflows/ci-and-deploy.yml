@@ -34,12 +34,21 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # job 级 if 读不到 env 上下文，所以下面 deploy 的 if 里把分支名又写了一遍。
-  # 改默认分支名时这两处必须一起改（grep 整个仓库里的 "master"）。
-  PRODUCTION_BRANCH: master
+  # job 级 if 读不到 env 上下文，所以下面 deploy 的 if 里把分支名又抄了一遍。
+  # 这两处必须一起改；改错不会报错，只会让 deploy 静默地永不执行 —— 所以它是
+  # "Production branch declared in both places" 断言，不只是注释里的提醒。
+  PRODUCTION_BRANCH: main
+  # 路线 B 的归属守卫（O1）：这条流水线只属于公开仓库。
+  # 内网 GHES 实例上本仓库 runners=0，任何 run 只会排队，最长 24 小时后被自动取消
+  # （官方 limits 的用词是 cancelled，不是 failed），等于留下一排没有意义的僵尸 run。
+  # 所以三个 job 各自带一条 github.repository 判断，让内网整体 skipped。
+  # 同一个字符串抄三遍是 job 级 if 读不到 env 的代价，由
+  # "Route B ownership guard present on every job" 断言守住出现次数。
+  PUBLISHED_REPO: microsheen/python-code-map
 
 jobs:
   checks:
+    if: github.repository == 'microsheen/python-code-map'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +100,19 @@ jobs:
             exit 1
           fi
 
+      - name: Route B ownership guard present on every job
+        run: |
+          # O1 守卫必须同时挂在 checks / browser-smoke / deploy 三个 job 上。
+          # 谁删掉其中一条，内网 GHES 就会重新开始为每次 push 排一条 24 小时的僵尸 run；
+          # 这里是断言，不是文档里的提醒。
+          set -eu
+          f=.github/workflows/ci-and-deploy.yml
+          pat="github.repository == '$PUBLISHED_REPO'"
+          n=$(grep -cF "$pat" "$f" || true)
+          if [ "${n:-0}" != "3" ]; then
+            echo "::error::仓库归属守卫出现 $n 次（期望 3 次：checks / browser-smoke / deploy）。少任何一条，内网实例都会产生排队到超时的僵尸 run。"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -102,6 +124,7 @@ jobs:
     # URL 里没有用户内容 / 每个 200 都对应 dist 里真实存在的文件 / 生产 CSP 下零违规。
     # 它只读 package.json + scripts + fixtures + dist，不需要 node_modules。
     needs: checks
+    if: github.repository == 'microsheen/python-code-map'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,8 +157,9 @@ jobs:
 
   deploy:
     needs: [checks, browser-smoke]
-    # 这三条分别是：不是 PR、是生产分支（与 env.PRODUCTION_BRANCH 手工同步）、发布开关为 true
-    if: ${{ github.event_name != 'pull_request' && github.ref_name == 'master' && vars.DEPLOY_ENABLED == 'true' }}
+    # 这四条分别是：这条流水线归谁跑（O1）、不是 PR、是生产分支（与 env.PRODUCTION_BRANCH
+    # 手工同步，job 级 if 读不到 env）、发布开关为 true。
+    if: ${{ github.repository == 'microsheen/python-code-map' && github.event_name != 'pull_request' && github.ref_name == 'main' && vars.DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-node@v4

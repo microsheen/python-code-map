@@ -296,3 +296,38 @@
   单引号 here-string + `-Encoding utf8` 落盘后，仍要在 build 里断言无 `?`、`✨` 仍在，才算编码没被吃掉。
 - 文档 579 → **588** 行；门禁：`doccheck` 无连续空行/无 CR/末尾无换行，`longLines>140` 仍是 12 条且全是
   既有的表格行，没有新增超长行（frag 里最长 111）。
+## 2026-10-13 发布路线 B（www 此刻不服务：线上按 hostname 逐个实测，推翻「双 origin」）
+
+- 本轮推翻的是上一版的一句强声明：§7/§13 曾照 DNS 记录（`@` 与 `www` 两条 CNAME）和 DoH 结果写「两个
+  hostname 都在服务、同一份会话被劈成两份」。[实测] 2026-10-13 连取三次 `https://www.python-code-map.com/`
+  全是 `522` + 7,293 B 的 Cloudflare 错误页，同一分钟内 apex 与 `pages.dev` 全是 `200` + 914 B，三个应答都带
+  `server: cloudflare` 与 `cf-ray` ⇒ 答的是 CF 自己，不是中间设备、也不是部署坏了。成因在配置面：Pages 项目
+  `domains` 只有两条，`www` 从没作为 custom domain 挂进去。于是 §13 那条重写为「此刻不服务，双 origin 是
+  **潜在**风险」，三条处置按省事程度重排（删 CNAME＝行为零变化 / 挂域名＋301 两步一起做 / 什么都不做但对外
+  不给 `www.`），§7 那句也跟着改成条件句并指向 §13。
+- [实测] **出口按路径分，不按机器分**：同一天同一台机器，`node` 直连（不经系统代理）带浏览器形状的头能拿到
+  CF 真应答，而**真浏览器**（走系统代理）打 apex 仍是拦截页。上一版「这台机器任何出口都被接管」是过度断言，
+  已改成判据「每一次都看 `cf-ray` 在不在」；因此自定义域名剩下的缺口精确成「还没在另一张网络的**真浏览器**里
+  端到端验过」，异网复测清单里也注明 `www` 那条**必然**进 counted 桶（任何 `≥400` 都算 finding）。
+- [实测] **平台注入**：`--mode=browser` 下 apex 的 `/` 是 1,281 B，其余三个 host 与 `dist` 都是 914 B，多的
+  367 B 是 Cloudflare Web Analytics 往 `</body>` 前插的 `<script type="module">`（默认 UA 看不到、`pages.dev`
+  上没有）。这是 §6「平台会改写你发出去的东西」的新实例；按 `_headers` 里我们自己的 CSP 它应当被浏览器拦掉，
+  但本机真浏览器进不到 apex，**这条推断没实测**，文档就照推断标注。同一台真浏览器打 `pages.dev` 应用是跑起来
+  的（标题、`#root` 子节点、控制台零条消息），顺带证明 §5 那些头没在浏览器里把应用打死。
+- [实测] **两条只属于工具的假信号**：其一，1,392,408 B 的入口 JS 在 3 host 与 4 host 两次运行里各有一个 host
+  报 `FAILED This operation was aborted`（`--timeout` 默认 15000），改 240 s + 重试后三 host 全 `200` 且 sha
+  相同 ⇒ 大文件先怀疑超时，别把工具故障写成站点故障。其二，`git push` / `git ls-remote` 打 github.com 会
+  **静默挂死**：本机留着指向本机端口的 `http.https://github.com.proxy` 隧道，隧道吊住时 TCP 连上但永无响应，
+  git 自己不带超时。判据是用 `Invoke-WebRequest -Proxy <同一地址> -TimeoutSec 15` 单独问那个代理，处置是杀掉
+  自己刚起的 `git` 与 `git-remote-https` 再重推，**不改配置、不绕代理**；预防是统一包在 `Start-Job` +
+  `Wait-Job -Timeout 55` 里（[实测] `Start-Job -FilePath` 只吃 `.ps1`）。
+- [实测] **确定性证据从 2 个 commit 推到 3 个**：`860e92d` / `58775b7` / `daca42bb` 三次 run 取回的 `dist`
+  两两 26/26 文件、零名差、零 sha 差、总量都是 2,083,473 B；**「四个及以上全等」依旧没有依据**，本轮自己的
+  产物要等推上去才取得回。由此得到一条推论：跨 run 逐字节全等 ⇒「别名此刻服务哪一份」拿字节比对**永远**证不
+  出来，唯一权威是 Pages 项目的 `canonical_deployment`。CF API 两个坑一并记下：不带 project 段的
+  `/pages/deployments/<id>` 返回 404，`/environments` 的 `result` 是**项目形状的对象**而不是数组。
+- 工具坑（新）：`node -e` 里的模板字符串会被 PowerShell 吞掉，一律改走单引号 here-string +
+  `Set-Content -Encoding utf8` 落盘再 `node <文件>`；PowerShell 7.6.5 的 `-Encoding utf8` **无 BOM**（已按字节
+  验过），所以这条路径是安全的。
+- 文档 588 → **645** 行（§7 一处 DNS/522 同码不同因 + 一处把 `www` 的 origin 风险改成条件句、§13 七处）；
+  门禁：`doccheck` 无连续空行、无 CR、末尾无换行，`longLines>140` 仍是 12 条且全是既有表格行。

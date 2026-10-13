@@ -250,12 +250,18 @@ SPA history fallback：未知路径返回 **200 + index.html**，`/api/*` 也一
   灰云（direct）在 Pages 自定义域名上会得到 **525/522**，症状和"没有部署"一模一样 ——
   靠另一个 host 的表现来区分。apex 上的 CNAME 在这里合法，因为 Cloudflare 做 **CNAME flattening**
   （直接答 A/AAAA），所以 `dig CNAME <apex>` 返回 **ENODATA 是正常结果**，不是记录丢了。
+  **[实测] 但「两条记录建好了」只解决 DNS，不等于两个 hostname 都在服务。** Pages 要求每个 hostname
+  单独作为 custom domain 挂进项目：本项目 `domains` 只有 apex 与 `pages.dev` 两条（2026-10-13 取回），
+  从没挂过的 `www` 于是拿到 `522` 而不是应用（实测细节见 §13）。它和上一条的灰云故障**同码不同因**，
+  区分办法还是同一分钟里比另一个 host —— apex `200` 而 `www` `522` ⇒ 部署没坏，是这个 hostname 没挂上。
   建 DNS 记录需要 token 有 **Zone / DNS: Read + Edit**，否则 `10000 Authentication error`；
   改 token 权限**不会**换 token 字符串，所以 CI 里那个 secret 不用重新粘贴。
   HTTPS 在 Pages 翻到 `active` **之前**就能用：泛域名证书在 zone 接管域名的那一刻就覆盖了它，
   `active` 只表示 Pages 接受了归属。
-- **`www` 与 apex 是不同 origin ⇒ 不同 IndexedDB 命名空间。** 对本应用意味着同一份会话被劈成两份，
-  这是**数据完整性**问题不是美观问题。修法是一条 Redirect Rule：`www.*/(.*)` → apex，301。
+- **`www` 与 apex 是不同 origin ⇒ 不同 IndexedDB 命名空间。** 两个 hostname 都在服务时，
+  同一份会话会被劈成两份，这是**数据完整性**问题不是美观问题。[实测] 2026-10-13 `www` 并不服务
+  （稳定 `522`，见 §13），所以这条此刻是**潜在**风险而不是现状。修法是一条 Redirect Rule：
+  `www.*/(.*)` → apex，301。
   [实测] 2026-10-13 这条规则**当前这个 token 建不了**：`GET /zones/<zone>/rulesets/phases/http_request_redirect/entrypoint`、
   `.../http_request_static_redirects/entrypoint`、`.../entrypoint/entrypoint` 和 `GET /zones/<zone>/rulesets`
   **四条只读接口全部 HTTP 403 `10000 Authentication error`**，而同一个 token 打 Pages 项目、Zone DNS、Zone 详情
@@ -480,6 +486,14 @@ pack 108 个对象）。
   + `gc --prune=now` 才离开仓库。[实测] 第四轮删完 ref：`refs` 只剩 `main`、`in-pack=109`、findings **0**、
   `AUDIT_EXIT=0`。轮数同样**带截止点**（到 `58775b7` 为止四轮）：此后每重做一遍就多一轮，本文不再补记 ——
   要留的是「每轮都得整轮重跑 scrub，旧 blob 只能靠删 ref + `gc --prune=now` 才走得掉」这条方法，不是计数器。
+- [实测] **`git push` / `git ls-remote` 打 github.com 会静默挂死，不报错也不退出**：本机对 github.com 留着
+  `http.https://github.com.proxy`（一个本机端口上的隧道）。隧道吊住时 TCP 连上了却永远等不到响应，而 git
+  自己不带超时 ⇒ 命令就这么挂着，看上去和「网络断了」无法区分，实际远端一直是好的。诊断别用同一条会挂的
+  命令：用 `Invoke-WebRequest -Proxy <同一地址> -TimeoutSec 15` 单独去问那个代理答不答。[实测] 同一条探测
+  在这一天里既出现过无响应、也出现过 `200` ⇒ 它会自愈，所以这里只写判据、不写当前状态。处置：杀掉**自己
+  刚起的那两个**进程（`git` 与 `git-remote-https`）再重推；**不改 git 配置、不绕代理** —— 这台机器的出网
+  路径不归 agent 决定。预防（本节所有网络命令的统一跑法）：包在 `Start-Job` + `Wait-Job -Timeout 55` 里，
+  超时就 `Stop-Job`；[实测] `Start-Job -FilePath` 只接受 `.ps1`，把 `git.exe` 直接交给它会当场报错。
 - [实测] **`drive-scrub6.sh` 停在 `scrub.sh` 末尾是预期行为，不是第二个故障**：那一步的 `audit --history` 在
   还没删掉 `refs/heads/master` 之前跑，必然报 MEDIUM，`set -e` 于是把后续脚本切掉。[实测] 从第二轮起**每一轮
   重跑报的都是同样 3 条 MEDIUM**：2× `opaque-32-hex-id` + 1× `personal-email-in-commit-metadata`，命中行全部
@@ -540,12 +554,36 @@ pack 108 个对象）。
   ⇒ HTTP 404。反过来，wrangler 那句 `✨ Success! Uploaded 0 files (7 already uploaded)` **不能**
   当证据：`Uploading... (7/7)` 里的 7 与 `dist` 里实际的 **26** 个文件对不上，这个数字在数什么没搞清；
   语义不明的日志行只能记下来，不能拿去支撑断言。
+- [实测] **三份 CI 产物两两全等，于是「别名服务哪一份」反而不能用字节证**：`860e92d`、`58775b7`、`daca42bb`
+  三次 run 取回的 `dist`（`dist-run9` / `dist-run11` / `dist-run14`）互为参照，两两都是 **26 / 26 个文件、
+  文件名零差异、逐文件 sha256 零差异**，三份总量都是 **2,083,473 B**。覆盖面要说清：这只把逐文件全等从
+  2 个 commit 推到 **3 个**，「四个及以上全等」依旧**没有**依据 —— 本轮自己的产物要等推上去才取得回，
+  不可能在这段里替它背书。由此得到一条推论：既然跨 run 逐字节全等，「生产别名此刻服务的是哪一份部署」
+  **拿字节比对永远证不出来** —— 三份长得一模一样，比谁都是 `MATCH`。唯一权威是 Pages 项目的
+  `canonical_deployment` 字段：[实测] 到 `daca42bb` 为止它等于 `latest_deployment` =
+  `2a2133de-2f88-4e8d-80cf-c610addd1e9d`，带 commit 锚点（§11 第 6 条）所以不会随下一次推送变假。读法
+  一次就够：`GET /accounts/<acct>/pages/projects/<project>`；[实测] 不带 project 段的
+  `/pages/deployments/<id>` 返回 **404**，`/environments` 的 `result` 是**项目形状的对象**而不是数组，
+  直接迭代会抛 `object is not iterable`。
 - [实测] **上线验证 exit 0 clean**：`check-deploy.mjs --mode=browser --dist=<CI 产物>`，`/`、两个 wasm、
   `robots.txt` 跨 host 字节一致且与 CI 产物一致。平台差异两条照旧：`x-robots-tag: noindex` 只在
   `<hash>.<project>.pages.dev` 上有、生产别名没有，归入 server-dependent 不计入；`/index.html` 别放进
   `--paths` —— 本轮又实测了一遍，四条路径里其余全部 MATCH，只有它因为 308 的跳转体被判成 diff，
   `CHECK_EXIT=1`，是假的。这里的参照系始终是 `gh run download <id> -n dist` 取回的 **CI 产物**，
   不是本机重建（原因见下条）。
+  [实测] 2026-10-13 这一层又补两条**只属于工具和平台**的发现。其一，大文件会被工具自己的短超时打死：
+  `entry-9069ffa5…js`（**1,392,408 B**）在 3 host 与 4 host 两次运行里各有一个 host 报
+  `FAILED This operation was aborted`，`CHECK_EXIT` 因此是 **1**；同一条路径改用 240 s 超时加重试单独
+  重取，三个 host 全部 `200 1392408 B`、sha256 与产物相同，整趟十几秒 ⇒ **大文件先怀疑超时，别怀疑
+  内容**。把「exit 0 clean」当模板抄，就会把一次工具故障读成站点故障。其二，自定义域名会拿到**平台注入**：
+  `--mode=browser` 下 apex 的 `/` 是 **1,281 B**，其余三个 host 与 `dist` 都是 **914 B**，多出的 367 B
+  是 Cloudflare Web Analytics 往 `</body>` 前插的一段 `<script type="module">`，src 指向
+  `static.cloudflareinsights.com/beacon.min.js/v4…`，**只对浏览器形状的请求注入**（默认 UA 就看不到），
+  `pages.dev` 上也没有 —— 这是 §6「平台会改写你发出去的东西」的一个新实例，也正是 `--mode=browser`
+  这个开关存在的理由。按 `_headers` 里我们自己的 CSP（`script-src 'self' 'wasm-unsafe-eval'`）这段跨源
+  脚本应当被浏览器拦掉，但本机真浏览器打 apex 只拿到中间设备的拦截页，**这条推断没能在浏览器里实测**。
+  同一台机器的真浏览器打 `pages.dev` 是**跑起来的**：标题 `Python Code Map`、`#root` 有子节点、页面文本
+  471 字符、控制台零条消息、`<script>` 只有我们自己的 entry —— 顺带证明 §5 那些头没在浏览器里把应用打死。
 - [实测] **本机重建 ≠ CI 产物，而且与时间戳、与缓存都无关**：干净 `npm ci` + `npm run export` 得
   `entry-d2ba5fa1…js`（1,398,755 B），CI / 线上是
   `entry-9069ffa5…js`（1,392,408 B）；删掉 `%TEMP%\metro-cache`（1758 个文件）
@@ -554,35 +592,54 @@ pack 108 个对象）。
   polyfill 连 `pretty-format` 一起打进来），本机有、CI 没有 —— 也就是说差异在 **Metro 的 polyfill 段**，
   不在业务代码里。**根因未定位**，所以在此之前不许对外声称「从源码能复现出逐字节相同的线上产物」。
   站点的可信度不依赖这句话：CI 的冒烟与部署用的是**同一个 artifact**，tested==shipped 在流水线内部成立。
-- [实测] **这台机器的出口会拦自定义域名**：同一时刻 `*.pages.dev` 直连正常，而 `python-code-map.com`
-  与 `www.` 的 443 得到 13,850 / 14,935 B 的拦截页、80 端口得到 307 跳到一个网关主机，应答方
-  `server` 头是中间设备的产品名、**没有 `cf-ray`** ⇒ 不是 Cloudflare 答的（产品名按纪律不写在这里）。这正是 §8 那条「先问谁答的」。
+- [实测] **拦不拦自定义域名，取决于走哪条路，不取决于「这台机器」**：2026-10-13 上午同一时刻
+  `*.pages.dev` 直连正常，而 `python-code-map.com` 与 `www.` 的 443 得到 13,850 / 14,935 B 的拦截页、
+  80 端口得到 307 跳到一个网关主机，应答方 `server` 头是中间设备的产品名、**没有 `cf-ray`** ⇒ 不是
+  Cloudflare 答的（产品名按纪律不写在这里），这正是 §8 那条「先问谁答的」。同一天稍后，同一台机器上出现
+  相反的一面：`node` 直连（不经系统代理）带浏览器形状的请求头打 apex，拿到的是**真** Cloudflare 应答 ——
+  五条路径全 `200`、`cf-cache-status` 与 `server-timing` 里 `cfEdge` `cfOrigin` 俱在，只有 `www.` 稳定
+  `522`；而就在同一时刻，**真浏览器**（走系统代理那条路）打 apex 仍是一张「网站被拦」的错误页。⇒ 判据
+  不是「办公网等于全拦」，而是每一次都看 `cf-ray` 在不在；结论要按**路径**写，按机器写就注定哪天被推翻。
 
 **没做到的，不许写成已完成**（[实测] 2026-10-13）：
 
-- **自定义域名还没被端到端验证。** Cloudflare 侧的证据已经齐了：域名 `status=active`，DoH 查
+- **自定义域名还没在真浏览器里被端到端验证。** Cloudflare 侧的证据已经齐了：域名 `status=active`，DoH 查
   `python-code-map.com` 与 `www.` 各返回两条 Cloudflare anycast A 记录（apex 的 CNAME 被
-  flattening 藏起来，查不到 CNAME 是正常结果）。但这台机器**任何**出口都被中间设备接管，
-  拿不到 Cloudflare 的真实应答，`--resolve` 也绕不过（它按 SNI 过滤）。⇒ 必须换一个网络（手机热点）
-  拿 §8 那条命令复测一次，`--hosts=` 换成 `https://python-code-map.com,https://www.python-code-map.com,`
-  `https://python-code-map.pages.dev`（其余参数照 §8，尤其别再列 `/index.html`）。**只用生产别名，
-  不要把 `<hash>` 主机写进去** —— [实测] 它每推一次 `main` 就换一个新的不可变 host，把当时那一个写死进
-  命令，下一次推送就失效；`--dist=` 也要配**同一次 run** 的产物，否则字节必然对不上。
+  flattening 藏起来，查不到 CNAME 是正常结果）。[实测] 2026-10-13 `node` 直连这条路上 apex 已经拿到 CF
+  真应答、逐路径与产物相等（`/` 多一段平台注入，见本节那条 Web Analytics），但本机真浏览器仍被中间设备
+  挡住 ⇒ 「人打开它能不能用」在这一条路上还没有证据，`--resolve` 也绕不过（它按 SNI 过滤）。⇒ 必须换
+  一个网络（手机热点）拿 §8 那条命令复测一次，`--hosts=` 换成下面这三条生产别名（其余参数照 §8，尤其
+  别再列 `/index.html`）：`https://python-code-map.com`、`https://www.python-code-map.com`、
+  `https://python-code-map.pages.dev`。[实测] `www.` 那条**必然**进 counted 桶 —— 任何 `≥400` 都算
+  finding，它现在是 `522`；要么先按下面那条把它删掉，要么复测时把它单独归因，别当成部署坏了。
+  **只用生产别名，不要把 `<hash>` 主机写进去** —— [实测] 它每推一次 `main` 就换一个新的不可变 host，
+  把当时那一个写死进命令，下一次推送就失效；`--dist=` 也要配**同一次 run** 的产物，否则字节必然对不上。
   在那之前，「办公网里打不开 `python-code-map.com`」**不算**站点故障。
-- **`www` 与 apex 现在同时可服务 = 两个 origin、两份 IndexedDB 命名空间**，这是数据完整性问题不是
-  美观问题（§7）。Redirect Rule `www.*/(.*)` → apex **还没建，而且 agent 建不了**：[实测] 2026-10-13
-  Zone Rules 的四个只读接口全 403（细节见 §7）。三条路都只能人来 —— ① 在控制台建这条 Redirect Rule；
-  ② 给这个 token 补 Zone / Rules: Edit（不换 token 字符串，CI 的 secret 不用重贴）；③ 删掉 `www` 那条
-  DNS 记录回到单 origin，代价是输 `www.` 的人打不开。
-  这件事该在推广入口地址之前定下来，否则同一批用户会因为输入的 host 不同而各自拥有独立的一份数据。
+- **`www` 此刻不服务本应用，线上稳定实测 `522`；「两个 origin、两份 IndexedDB」还没发生。**
+  [实测] 2026-10-13 连取三次 `https://www.python-code-map.com/` 全是 `522` + 7,293 B 的 Cloudflare
+  错误页，同一分钟内 `python-code-map.com` 与 `python-code-map.pages.dev` 全是 `200` + 914 B；三个应答
+  都带 `server: cloudflare` 和 `cf-ray` ⇒ 答的是 Cloudflare 自己，不是 §8 那台中间设备（它的应答没有
+  `cf-ray`），也不是「部署坏了」（同一份部署的另两个 host 全好）。成因在配置面：[实测] Pages 项目
+  `domains` 只有 `python-code-map.pages.dev` 与 `python-code-map.com` 两条，而 zone 里是两条 CNAME
+  （`@` 与 `www`，都 `proxied: true`）⇒ `www` 只是一条 DNS 记录，**从没作为 custom domain 挂进项目**，
+  CF 于是按「有记录、没绑应用」去回源。上一版这一条照着 DNS 记录和 DoH 结果写成两个 hostname 都在服务，
+  比证据强，已按实测改掉。**双 origin 什么时候变成真**：有人只把 `www` 挂进 Pages 项目而不配 301。
+  三条处置按省事程度重排 —— ① 删掉 zone 里 `www` 那条 CNAME 回到单 origin：token 有 Zone DNS 权限，
+  而且**行为零变化**，因为它本来就不服务；② 真要让 `www` 可用，得「挂 Pages custom domain」和
+  「建 `www.*/(.*)` → apex 的 301 Redirect Rule」两步**一起做**，后者 agent 建不了（[实测] 2026-10-13
+  Zone Rules 四个只读接口全 403，细节见 §7），只能人来；③ 什么都不做，但对外只给
+  `python-code-map.com` 与 `python-code-map.pages.dev`，不给 `www.` 前缀。风险形状从「数据分裂」变成
+  「输 `www.` 的人看到一张 CF 错误页」，仍然该在推广入口地址之前定下来。
 - **翻公开带来的 Actions 审批面还没收。** `pull_request` 这条触发现在对全网 fork 打开：陌生人提 PR 就会
   排队消耗 Actions 分钟。[实测] 2026-10-13 `actions/permissions` 返回 `allowed_actions=all`、
   `actions/permissions/workflow` 返回 `default_workflow_permissions=read`、`can_approve_pull_request_reviews=false`；
   secrets 对 fork 触发的 `pull_request` 默认不下发，所以这条路的真实风险是**算力与日志噪音**，不是凭据泄漏。
   `Settings -> Actions -> Require approval for all outside collaborators` 只能人在页面上勾（API 够不着），
   而且要等一次真实 fork PR 被拦下来才算验证生效 —— 现在还没有过一次外部 PR。
-- **对外推广入口地址这件事仍然不该现在做。** 三条前置没齐：自定义域名没做异网复测、`www` 与 apex 还是
-  两个 origin、上面的审批面没收。在此之前只给 `python-code-map.pages.dev` 是安全的；给
-  `python-code-map.com` 就要先假定「收件人不在办公网里」，否则对方打开的是中间设备的拦截页。
+- **对外推广入口地址这件事仍然不该现在做。** 三条前置没齐：自定义域名没在**另一张网络的真浏览器**里验过、
+  `www` 的去留没定（它现在拿到的是 CF 的 `522`，见上）、Actions 的外部 PR 审批面没收。在此之前只给
+  `python-code-map.pages.dev` 是安全的 —— [实测] 2026-10-13 本机真浏览器打开它**应用是跑起来的**：标题、
+  `#root` 的子节点、控制台零条消息都对得上。给 `python-code-map.com` 就要先假定「收件人不在办公网里」，
+  否则对方打开的是中间设备的拦截页。
 - `vars.DEPLOY_ENABLED` 的**回退路径**没实测过：现在它是 `true`，也就是说此后每一次推 `main`
   都会真的发布。真要止住，把它设回 `false` 并**确认 run 里 `deploy` 变 skipped**，才算验证过 §3。

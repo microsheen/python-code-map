@@ -358,3 +358,38 @@
 - 文档同轮同步：README 新增「站点图标」节与命令表 `npm run icons` 行（形状描述在本轮改为 v4 的四色节点图）；ops 新增
   「[实测] 2026-10-14 图标轮基线」块、§5 图标档表格行、§8 给 check-deploy `--paths` 加 `/icon.svg` 与 `/favicon.ico`，
   并在基线块尾补同日再改版的历史注记。
+
+## 2026-10-14 第六轮发布（图标 v4 上线；线上逐字节 == CI 产物；www 已被 301 收掉）
+
+- 发布链路：内网 `513e25e` → 公开镜像单提交 `43c5d89`（强推 `+ 9ad753e...43c5d89`）→ run `38586197676`
+  （run_number 13）`completed / success`，`checks` / `browser-smoke`（**41 / 41**，console 与 page exception 均 0）/
+  `deploy` 三 job 全绿；wrangler 报 `Uploaded 7 files (5 already uploaded)`，不可变 URL 从 stdout 那行解析得
+  `https://8b5659f6.python-code-map.pages.dev`（没猜）。第五轮 `9ad753e` 当时没入册，它的不可变 host 已无从考据，
+  文档里按「没记下来」写，不补猜。
+- 出口这条路本轮换了两次：仓库里那条 `http.https://github.com.proxy=http://127.0.0.1:9000` 的本地隧道**已经死了**
+  （连接挂住不返回），改用用户授权的 `<internal-proxy>:8080`，而且**只用 `-c` 逐命令覆盖**、不动全局
+  git 配置。顺带查到 `%TEMP%\codemap-secrets\cf.token` 那个 Cloudflare token **已失效**（直连与经代理都是
+  `10000 Authentication error`）⇒ 本轮没法从 CF 侧读 `canonical_deployment`，「别名服务哪一份」这次只有
+  wrangler stdout 与三 host 字节一致这两条证据。
+- **本轮最硬的一条证据**：把 CI 产物（`gh api …/artifacts/11905721746/zip`，zip 579,788 B、展开 31 个文件）与
+  线上三个 host 逐条比 —— `/` 三处都是 1,455 B、sha256 `9d6a1461…`，与产物 `index.html` 同哈希；`/` 引用的
+  `entry-6f4f4584…js` 三处都是 `200` / 1,392,424 B、与产物同哈希；另外 8 条路径（两个 wasm、`robots.txt`、
+  5 个图标）逐个 `200` 且同哈希。5 个图标因此**确认上线**：`icon.svg` 900 B、`favicon.ico` 3,005 B、
+  `icon-192.png` 5,680 B、`icon-512.png` 16,197 B、`apple-touch-icon.png` 5,500 B，线上 / 本机 / 产物三方一致。
+- 工具坑两条，都记进 ops §13：① 本机打 `*.pages.dev` 全 `000`，`-v` 出来是 Schannel 的
+  `CRYPT_E_REVOCATION_OFFLINE (0x80092013)` —— **证书吊销服务器连不上**；DNS 正常、换公司代理也一样 `000`，
+  加 `--ssl-no-revoke` 立刻 `200`。同一分钟 apex 不加也能通，所以这不是「一直都要加」。② `node` / undici 直连
+  间歇性 `UND_ERR_CONNECT_TIMEOUT` / `aborted`，本轮打中 8 个 host × path，换 `curl --retry` 全过 ⇒
+  **传输层报错必须重试之后才算 finding**。
+- 一条会误导人的对照被定位了：`check-deploy --dist=dist` 拿**本机**产物去比线上，`/` 永远报 `DIFFERS`。本机 entry
+  `dd0b2e36`（1,398,771 B）vs CI `6f4f4584`（1,392,424 B），差 **6,347 B**，与 ops 里上次量到的 Metro polyfill 段
+  **6,346 B** 对得上（差 1 B 是段内长度字段随 bundle 变长）⇒ 老结论「本机重建 ≠ CI 产物」第二次复现，根因仍未定位。
+  所以 `--dist=` 只能指 CI 产物；本机 `dist` 与 CI 产物 31 个文件里 **29 个同哈希**，差的就是 `index.html` 与 entry。
+- 两条**已写进文档的现状被本轮实测推翻**，都按「带日期锚点的一次观测」改写而不是删掉：① `www` 从稳定 `522` 变成
+  **`301` 跳 apex 且保留原路径**（三次取样，`cf-ray` 分别落 PDX / LAX / ATL；四个路径含一个必然 404 的全 `301`）
+  ⇒ 「双 origin、两份 IndexedDB」这条风险**已收**，处置 ② 是人在 CF 侧做完的；② apex 在浏览器形状请求下的
+  **Web Analytics 注入已不出现**（apex 三次 + 别名两次全是 1,455 B，`cloudflareinsights` / `beacon` 零命中）。
+  `--mode=browser` 这个开关照旧留着 —— 它的理由是「平台可能改写 HTML」，不是「apex 一定被改写」。
+- 文档同轮同步：ops §7 两处 `www` / `522` 交叉引用改为已收、§13 别名链补 `8b5659f6`（并写明第五轮的没记下来）、
+  新增本轮 5 条实测、删掉「没做到的」里那条已被推翻的 `www` 长条目、推广入口地址的前置从三条减到两条；门禁复核：
+  无 CR、无连续空行、末尾无换行、`longLines>140` 仍是 **13** 条且与 HEAD 逐条等长（没有新增）。

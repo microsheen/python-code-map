@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Python Code Map">
+  <defs>
+    <clipPath id="clip"><rect width="512" height="512" rx="112"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="512" height="512" fill="#f6f8fa"/>
+    <g fill="none" stroke="#1f6feb" stroke-width="28" stroke-linecap="round">
+      <path d="M128 256 C200 256 200 116 296 116"/>
+      <path d="M128 256 C200 256 200 396 296 396"/>
+      <path d="M296 116 C380 116 408 160 408 256"/>
+    </g>
+    <rect x="244" y="64" width="104" height="104" rx="30" fill="#58a6ff"/>
+    <rect x="244" y="344" width="104" height="104" rx="30" fill="#3fb950"/>
+    <rect x="366" y="214" width="84" height="84" rx="26" fill="#bc8cff"/>
+    <rect x="68" y="196" width="120" height="120" rx="34" fill="#f0b429"/>
+  </g>
+</svg>

@@ -119,7 +119,7 @@ Chromium 就能跑。
 
 ```bash
 npm run export                  # 先产出 dist/
-node scripts/browser-verify.mjs # 39 项断言（含 8 项承诺面），全绿退出码 0
+node scripts/browser-verify.mjs # 41 项断言（含 10 项承诺面 E/F），全绿退出码 0
 ```
 
 脚本自己起一个静态服务器托管 `dist/`，并把 `dist/_headers` 里的规则原样套到每个响应上
@@ -138,6 +138,7 @@ node scripts/browser-verify.mjs # 39 项断言（含 8 项承诺面），全绿�
 | 稳定性       | 控制台无 error、页面无未捕获异常                                                                        |
 | S 产物一致性 | 服务端返回的字节 == `dist/index.html` 的字节（sha256 相同）；响应头里真的带着 `_headers` 的 CSP；产物 HTML 里零绝对 URL |
 | E 承诺面     | 全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件 / 跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
+| F 图标链路   | `<head>` 里真有注入的四个图标 link；每个 href 都能当 `<img>` 解码（同源 + CSP `img-src` + MIME 全对） |
 
 可选环境变量：
 
@@ -150,18 +151,33 @@ node scripts/browser-verify.mjs # 39 项断言（含 8 项承诺面），全绿�
 截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`）与 JSON 报告
 （`codemap-verify-report.json`）都写在系统临时目录，不入库。跑完脚本会关掉自己起的服务器。
 
+## 站点图标
+
+`public/icon.svg` 是唯一真源：浅纸面 + 抽象代码图 —— 四色实心圆角节点（蓝/黄/绿/紫，即主题的文件色），
+由三条主题强调色的圆头粗笔画相连（保留旧版「节点 + 连线」骨架，去掉网格、光晕、箭头与内线）；
+`npm run icons` 用真 Chrome 把它栅格化成 `favicon.ico`（16/32/48，PNG-in-ICO）、
+`apple-touch-icon.png`（180）、`icon-192.png`、`icon-512.png`，**全部入库** —— 导出与 CI 的
+checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 postexport 先跑
+`scripts/inject-html-head.mjs`，把四个 `<link>` 与两个 `<meta>` 写进产物 HTML 的 `<head>`
+（同源相对路径；幂等哨兵 `data-codemap="icon"`，重复运行不叠标签），再跑 `polish-dist.mjs`
+自检 —— 注入进来的 href 也在「零绝对 URL」门禁的覆盖范围内，不是门禁之外的飞地。
+图标配色只允许来自 `src/theme.ts`（`__tests__/icons.test.ts` 锁死这条不变量），
+换主题色时图标跟着换；headless Chrome 不抓 `<link rel="icon">`，所以冒烟里用 `<img>`
+主动把每个注入 href 拉一遍（F 组），请求同样进 E 组承诺面。
+
 ## 命令
 
 | 命令                              | 作用                                                    |
 | --------------------------------- | ------------------------------------------------------- |
 | `npm run web`                     | 启动 dev server（自动同步 wasm）                        |
-| `npm run export`                  | 生产导出到 `dist/`：preexport 同步 wasm，postexport 剥掉 HTML 注释并自检产物 |
+| `npm run export`                  | 生产导出到 `dist/`：preexport 同步 wasm，postexport 注入图标 `<head>` 再剥注释自检 |
 | `npm run copy-wasm`               | 只同步 + 冒烟校验 wasm；加 `-- --no-verify` 跳过校验    |
 | `npm test`                        | jest 全量测试                                           |
 | `npm run typecheck`               | `tsc --noEmit`（strict）                                |
 | `npm run lint`                    | eslint                                                  |
 | `npm run format`                  | prettier 写入                                           |
 | `npm run verify`                  | typecheck + lint + test，提交前跑这个                   |
+| `npm run icons`                   | 从 `public/icon.svg` 重生成 ico / 180 / 192 / 512 栅格档  |
 | `npm run smoke`                   | 真 Chrome + CDP 自动化验收（先 `npm run export`）        |
 | `node scripts/browser-verify.mjs` | 同上，直接跑脚本                                        |
 
@@ -172,9 +188,16 @@ app/                      expo-router 入口（单页）
 public/
   _headers                线上响应头（CSP / 缓存 / HSTS），`expo export` 会整目录拷进 dist/
   robots.txt              允许被检索（改成 Disallow: / 即全站禁抓）
+  icon.svg                站点图标唯一真源（矢量）；改完必须 npm run icons 重生成下面四个
+  favicon.ico             16/32/48 三档 PNG-in-ICO（派生物，入库）
+  apple-touch-icon.png    iOS 主屏 180x180（派生物，入库）
+  icon-192.png            通用 192x192（派生物，入库）
+  icon-512.png            512x512（派生物，入库）
   wasm/                   两个 .wasm（由 copy-wasm 生成，不入库）
 scripts/
   copy-wasm.mjs           同步 wasm + Node 冒烟校验
+  build-icons.mjs         真 Chrome 栅格化 icon.svg -> ico/180/192/512 + 自检
+  inject-html-head.mjs    postexport 第一步：把图标 link 与 meta 注入 dist 的 <head>
   polish-dist.mjs         导出后处理：剥 HTML 注释 + 结构自检 + 零绝对 URL 自检
   browser-verify.mjs      真浏览器（headless Chrome + CDP）验收脚本
 .github/workflows/

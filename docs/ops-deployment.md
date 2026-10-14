@@ -186,6 +186,31 @@ npm run smoke  -> 39/39 PASS，退出码 0
 lint 仍是 0 error / 12 warning。`verify` 的定义是 `npm run typecheck && npm run lint && npm test`，
 jest 是链条最后一步且全绿 ⇒ 前两步必然也通过了 —— 这是从 `package.json` 读出来的，不是猜的。
 
+**[实测] 2026-10-14 图标轮基线（请求集与 sha 取代上面两次）**
+
+```
+npm run export
+  entry: /_expo/static/js/web/entry-dd0b2e….js
+  index.html: 1723B -> 1455B（先注入 2 meta + 4 link，再剥掉 3 段 HTML 注释）
+  index.html sha256: 05acbf08114b0e3cfeaf5d2eecffce1836a24b12c886473a33cf136c31955f0a
+
+npm run smoke  -> 41/41 PASS，退出码 0（比上轮多 F1/F2 两项图标链路断言）
+  真实请求集 9 个，全同源、全 GET、零请求体、零 4xx：
+    / ->200 ; entry-*.js ->200 ; /favicon.ico ->200 ; 2 x /wasm/*.wasm ->200 ;
+    /icon.svg ->200 ; /favicon.ico ->200（F 组 <img> 探针）;
+    /icon-192.png ->200 ; /apple-touch-icon.png ->200
+```
+
+与 2026-10-09 基线相比只有两处结构性变化：`<head>` 多了注入标签（HTML 变大、sha 变），
+以及图标文件真的存在了 —— `/favicon.ico` 从"dist 里没有所以 204"变成 200，F 组探针再主动
+拉一遍四个注入 href。E5（每个 200 都对应 dist 真文件）在 9 个请求上仍全过：注入的 href
+没有一个指向空气。headless Chrome **不抓** `<link rel="icon">`（标签页图标属于浏览器 UI），
+所以没有 F 组探针的话，图标在真 CSP 下能不能加载是冒烟的盲区。
+
+同日补注：图标母版在 2026-10-14 内又改版一次（v3 单笔 S 形 -> v4 四色实心节点 + 三条连线，即现行版），
+四个派生物字节数随之变为 3005 / 5500 / 5680 / 16197 B，但文件名、缓存档、上面 9 个请求集与
+`index.html` 的 sha 均未变 —— 注入写进去的只是固定 href，与图标字节无关。
+
 ## 5. `public/_headers` 与"声明 ≠ 生效"
 
 `_headers` 里不写任何主机名，换域名是零 diff。缓存分档：
@@ -194,6 +219,7 @@ jest 是链条最后一步且全绿 ⇒ 前两步必然也通过了 —— 这�
 | --- | --- | --- |
 | `/index.html`、`/metadata.json`、`/robots.txt` | `max-age=0, must-revalidate` | 入口指针，必须每次问 |
 | `/wasm/*` | `max-age=0, must-revalidate` | **无内容 hash**：旧 wasm 配新 JS = `LinkError` |
+| `/icon.svg`、`/favicon.ico`、`/icon-192.png`、`/icon-512.png`、`/apple-touch-icon.png` | `max-age=0, must-revalidate` | 文件名固定**无 hash**：换了图标必须立刻生效。逐个列死路径而不用 `/*.png` 通配 —— `*` 跨路径分隔符，会连带命中 `/_expo/…/*.hash.png` 把 immutable 顶掉（同名头以最后命中的规则为准） |
 | `/_expo/*`、`/assets/*` | `max-age=31536000, immutable` | 文件名带 hash，可以永久 |
 
 **[实测·平台事实] Cloudflare zone 的 Browser Cache TTL（默认 4 小时）会覆写非 immutable 的
@@ -285,6 +311,10 @@ node <skill>/scripts/check-deploy.mjs \
 而脚本取响应时用 `redirect: 'manual'`（不跟随跳转），于是那个 308 的跳转体被拿去和 `dist/index.html`
 比字节 ⇒ 必然计入 `differs from --dist bytes` 并把退出码打成 1，而线上其实是好的。`/` 已经覆盖了
 同一个文件（`--dist` 的映射里 `/` 就是 `index.html`），列它两次只会多一个假阳性。
+
+图标轮之后 `--paths` 还应带上 `/icon.svg` 与 `/favicon.ico`：这两个文件名固定无 hash，
+是"声明 == 生效"最容易漏验的两条（§5 的 zone TTL 覆写对它们同样成立），而且改 `_headers`
+的图标档之后只有逐路径核对才能发现线上没跟上。
 
 退出码：`0` 没有 counted finding，`1` 至少一个，`2` 用法错。counted 桶包括：跨 host 字节不一致、
 HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 头不一致、**状态码跨 host 不一致**、

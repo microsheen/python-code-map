@@ -331,3 +331,30 @@
   验过），所以这条路径是安全的。
 - 文档 588 → **645** 行（§7 一处 DNS/522 同码不同因 + 一处把 `www` 的 origin 风险改成条件句、§13 七处）；
   门禁：`doccheck` 无连续空行、无 CR、末尾无换行，`longLines>140` 仍是 12 条且全是既有表格行。
+## 2026-10-14 站点图标轮（v4 定稿：旧骨架、抽象风、简背景）
+
+- 需求转了四圈：① 给 Python Code Map 设计图标并接进站点；② 反馈「太黑了、太复杂，简单抽象一点」；
+  ③ 贴来一笔靛蓝 S 形参考图「像这样简单就好」，于是出了 v3（浅纸面 + 一笔双钩 S）；④ 看到 v3 用户澄清参考图
+  **只是简单程度的例子**，要的还是原来那个图标 —— 风格更抽象、背景更简单 —— 于是 v4 定稿：保留旧版「四色节点 +
+  连线」的代码图骨架，节点改实心圆角方块（蓝/黄/绿/紫 = 主题 accent/selected/ok 与 FILE_COLORS 的紫），连线改三条
+  主题强调色圆头粗笔画，背景改纯色浅纸面；v2 的点阵网格、渐变底板、选中光晕、外框描边、箭头、节点内代码线全部去掉。
+- v4 的几何不靠记忆：v2 的派生 SVG 还在 temp 目录（`codemap-icons-*/icon-192.svg`），节点坐标、连线走向、配色
+  都从那里读回再化简。教训：未入库的重要产物要么早入库、要么留母版副本，否则「回退/参考」只能靠 temp 考古。
+- 链路定成四段：`public/icon.svg` 唯一真源 -> `npm run icons`（真 Chrome 栅格化 favicon.ico 16/32/48 PNG-in-ICO +
+  180/192/512 PNG，全部入库）-> `npm run export` 的 postexport 先跑 `scripts/inject-html-head.mjs` 把 4 个 `<link>` +
+  2 个 `<meta>` 写进 `<head>`（幂等哨兵 `data-codemap="icon"`）再跑 `polish-dist.mjs`；本轮顺带修了注入的缩进 bug
+  （按 `</head>` 所在行的缩进对齐注入块，不再破坏 polish 的字节基线）。
+- 不变量与门禁：图标配色 ⊆ `src/theme.ts` 且必含 accentDim 与 paper（新增 `__tests__/icons.test.ts` 锁死，含 ICO 三档
+  payload、PNG 角透明中心不透明、`_headers` 档位回放）；`npm run verify` 16 suites / 253 tests 全绿；`npm run smoke`
+  41/41（新增 F 组：四个注入 href 真在 `<head>` 里 + 逐个能当 `<img>` 解码 —— headless Chrome 不抓 `<link rel="icon">`，
+  没有这组图标就是真 CSP 下的盲区）；请求集 9 个，全同源、全 GET、零请求体、零 4xx。
+- 基线（截止本次提交）：`index.html` sha256 `05acbf08114b0e3cfeaf5d2eecffce1836a24b12c886473a33cf136c31955f0a`（1455B）、
+  入口 `entry-dd0b2e36….js`；v4 派生物字节数 favicon.ico 3005B / apple-touch-icon.png 5500B / icon-192.png 5680B /
+  icon-512.png 16197B。v3 -> v4 只换图标字节，注入内容与 theme.ts 未动，故两个 sha 不动 —— 这本身就是
+  「注入只写固定 href、与图标字节无关」的证据。
+- `_headers` 给无 hash 的图标加一档：五个路径逐个列死 `max-age=0, must-revalidate`，**不**写 `/*.png` 通配 ——
+  Cloudflare 的 `*` 跨路径分隔符，会连带命中 `/_expo/…/*.hash.png` 把 immutable 顶掉（同名头以最后命中规则为准）；
+  该档理由与回放断言分别记在 ops §5 与 icons.test.ts。
+- 文档同轮同步：README 新增「站点图标」节与命令表 `npm run icons` 行（形状描述在本轮改为 v4 的四色节点图）；ops 新增
+  「[实测] 2026-10-14 图标轮基线」块、§5 图标档表格行、§8 给 check-deploy `--paths` 加 `/icon.svg` 与 `/favicon.ico`，
+  并在基线块尾补同日再改版的历史注记。

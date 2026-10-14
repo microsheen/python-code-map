@@ -5,6 +5,8 @@ import type { TokenScope } from './parser/types';
 
 export const colors = {
   bg: '#0d1117',
+  /** 浅色纸面：站点图标底板，也是未来浅色主题的种子色 */
+  paper: '#f6f8fa',
   panel: '#11161d',
   panelAlt: '#161b22',
   raised: '#1c232c',

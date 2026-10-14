@@ -15,7 +15,7 @@
     "start": "expo start",
     "export": "expo export --platform web",
     "preexport": "node scripts/copy-wasm.mjs",
-    "postexport": "node scripts/polish-dist.mjs",
+    "postexport": "node scripts/inject-html-head.mjs && node scripts/polish-dist.mjs",
     "copy-wasm": "node scripts/copy-wasm.mjs",
     "postinstall": "node scripts/copy-wasm.mjs",
     "test": "jest",
@@ -23,7 +23,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "verify": "npm run typecheck && npm run lint && npm test",
-    "smoke": "node scripts/browser-verify.mjs"
+    "smoke": "node scripts/browser-verify.mjs",
+    "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "3.1.1",

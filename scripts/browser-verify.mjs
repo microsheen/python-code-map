@@ -916,6 +916,46 @@ async function main() {
   check('D2 clicking a body line selects the enclosing function', afterD2.selInfo.indexOf('load_config') >= 0, afterD2.selInfo);
   check('D3 body click moves the selection band to load_config', afterD2.band && parseInt(afterD2.band.top, 10) === (52 - 1) * ROW_H, JSON.stringify(afterD2.band));
 
+  // ---- F：注入进 <head> 的图标必须在真浏览器 + 真 CSP 下真的能加载 ----
+  // headless Chrome 不抓 <link rel="icon">（标签页图标属于浏览器 UI，不在无头渲染路径上），
+  // 所以 E1-E8 的请求集里天然没有 /icon.svg。这里用 <img> 把每个注入 href 主动拉一遍：
+  // 请求同样进 netRequests，于是 E1/E2/E4/E5 顺带覆盖图标 —— 同源、GET、200、且是 dist 真文件；
+  // 解码成功则同时证明 CSP img-src 与静态服务的 MIME 都没挡它。
+  const iconProbe = await evalJs(
+    cdp,
+    '(async function () {' +
+      'var links = Array.prototype.slice.call(document.querySelectorAll("link[href]"))' +
+      '.filter(function (l) { return (l.rel || "").indexOf("icon") > -1; })' +
+      '.map(function (l) { return l.getAttribute("href"); });' +
+      'var results = [];' +
+      'for (var i = 0; i < links.length; i++) {' +
+      'var href = links[i];' +
+      'var ok = await new Promise(function (resolve) {' +
+      'var img = new Image();' +
+      'img.onload = function () { resolve(img.naturalWidth > 0 && img.naturalHeight > 0); };' +
+      'img.onerror = function () { resolve(false); };' +
+      'img.src = href;' +
+      '});' +
+      'results.push({ href: href, loaded: ok });' +
+      '}' +
+      'return { links: links, results: results };' +
+      '})()',
+    true,
+  );
+  note('icon link probe', iconProbe);
+  check(
+    'F1 <head> 里真有注入的四个图标 link（svg 主档 + ico 兜底 + 192 + apple-touch）',
+    JSON.stringify(iconProbe.links) ===
+      JSON.stringify(['/icon.svg', '/favicon.ico', '/icon-192.png', '/apple-touch-icon.png']),
+    JSON.stringify(iconProbe.links),
+  );
+  const iconBroken = (iconProbe.results || []).filter((r) => !r.loaded);
+  check(
+    'F2 每个注入 href 都能当 <img> 解码（同源 + CSP img-src + MIME 全对）',
+    iconBroken.length === 0,
+    iconBroken.map((r) => r.href).join(', ') || 'ok',
+  );
+
   // ================= ACCEPTANCE 4: 承诺面 —— 浏览器里真实发生的一切 =================
   const httpReqs = [...netRequests.values()].filter((r) => /^https?:/i.test(r.url));
   const selfOrigin = new URL(APP_URL).origin;

@@ -494,6 +494,29 @@ pack 108 个对象）。
   刚起的那两个**进程（`git` 与 `git-remote-https`）再重推；**不改 git 配置、不绕代理** —— 这台机器的出网
   路径不归 agent 决定。预防（本节所有网络命令的统一跑法）：包在 `Start-Job` + `Wait-Job -Timeout 55` 里，
   超时就 `Stop-Job`；[实测] `Start-Job -FilePath` 只接受 `.ps1`，把 `git.exe` 直接交给它会当场报错。
+- [实测] **`git pull --ff-only`（不带 remote/branch）会间歇性报 `fatal: Cannot fast-forward to
+  multiple branches.` 并退出 128，而当时本地与远端本来就对齐**：2026-10-14 在内网 remote（GHES）上
+  连踩两次，都在同一个状态里 —— `master` 与 `origin/master` 同为 `077d3d8`、工作树 clean、远端只有
+  `refs/heads/master` 一条 head。所以报错点名的那个「多分支」**不存在**：这是工具假故障，不是远端多了
+  分支、不是历史分叉要 rebase、也不是仓库坏了。判据（当场全部取到，都在 `077d3d8` 这个状态上）：
+  ① `git ls-remote --heads origin` 只有一条；`git for-each-ref` 只有 `refs/heads/master` 与
+  `refs/remotes/origin/{master,HEAD}`，`refs/prefetch` 为空；② 手工 `git merge --ff-only FETCH_HEAD`
+  返回 `Already up to date.`、退出 0；③ 前后几分钟内三种替代写法各跑一次全过 —— `git pull`（不带
+  `--ff-only`）、`git pull --ff-only origin master`、`git -c maintenance.auto=false pull --ff-only`；
+  ④ `GIT_TRACE=1` 下失败那趟的链路是 `fetch --update-head-ok` → `maintenance run --auto --no-quiet
+  --detach` → `merge --ff-only FETCH_HEAD`；⑤ 紧接着连跑三次裸 `git pull --ff-only`，三次全过 ⇒
+  **自愈、非确定性**。次数因此按「到 `077d3d8` 为止」写死，此后每踩一次都只添一条同形记录，本文不补记。
+  一处保留：`.git/FETCH_HEAD` 是**失败之后**才读的，只有一条 for-merge 记录，而 git 不保留失败瞬间的
+  那一份 ⇒ 它只能算旁证，不能算「merge 当时看到几条」的直接证据。**推断（未证实）**：`maintenance run
+  --detach` 派生的后台进程与紧随其后的 `merge --ff-only FETCH_HEAD` 争用同一个 `FETCH_HEAD`，merge
+  读到多于一条 for-merge 记录，就按 `--ff-only` 的口径直接 die。这条推断带一个可推翻的预测：
+  `-c maintenance.auto=false` 应当**永不**复现 —— 但它只跑通一次，而间歇故障本来也会自愈，n=1 立不住
+  因果；同理，「不带 `--ff-only` 就免疫」也只有 n=1，**别**当成结论。所以在攒够样本之前不要照它去关
+  maintenance。处置：重跑一次即可（[实测] 会过）；要一次避开就写全 `git pull --ff-only origin master`，
+  或 `git fetch origin` + `git merge --ff-only origin/master`。**不改 git 配置、不动 `maintenance.*`**
+  —— 与上一条同一纪律：出网与本机 git 行为不归 agent 调。真正的危险动作是拿这句报错当依据去
+  `checkout` / `reset` / `rebase`：仓库本来是对齐的，这类操作只会把同步状态改坏（`AGENTS.md` 那条
+  「不要自行 `git checkout` 恢复文件」同样管这里）。版本锚点：git 2.52.0.windows.1。
 - [实测] **`drive-scrub6.sh` 停在 `scrub.sh` 末尾是预期行为，不是第二个故障**：那一步的 `audit --history` 在
   还没删掉 `refs/heads/master` 之前跑，必然报 MEDIUM，`set -e` 于是把后续脚本切掉。[实测] 从第二轮起**每一轮
   重跑报的都是同样 3 条 MEDIUM**：2× `opaque-32-hex-id` + 1× `personal-email-in-commit-metadata`，命中行全部

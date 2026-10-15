@@ -1347,6 +1347,8 @@ async function main() {
     i6.cursor === 'pointer',
     'cursor=' + i6.cursor
   );
+  // 截图停在「边已选中 + hover 提示还在」这一帧：I7 的 ✕ 清空之后再截就什么都看不到了，人审靠这张图
+  await shot(cdp, '11-edge-callsite.png');
 
   // ---- ✕ 清空：整条链路上的痕迹一起消失 ----
   const iClearBox = await focusElement(cdp, 'callsite-clear');
@@ -1370,7 +1372,6 @@ async function main() {
     netRequests.size === reqsBeforeEdge,
     'before=' + reqsBeforeEdge + ' after=' + netRequests.size
   );
-  await shot(cdp, '11-edge-callsite.png');
 
   // ---- F：注入进 <head> 的图标必须在真浏览器 + 真 CSP 下真的能加载 ----
   // headless Chrome 不抓 <link rel="icon">（标签页图标属于浏览器 UI，不在无头渲染路径上），

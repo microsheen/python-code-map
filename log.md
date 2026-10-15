@@ -585,3 +585,18 @@
   = Already up to date，`origin/master` 与 `master` 当时同为 `0a21886`（0/0）。
 - 写法纪律：本轮 `git add` 一律**点名**四个文件（`README.md`、`README.zh-CN.md`、`README.ja.md`、`log.md`），
   没有用过 `-A`；探测用的临时文件都写在 `%TEMP%`，没有落进仓库。
+
+## 2026-10-15 第八轮发布（README 三语 + Demo 段第一次进公开树；闸门第一次拦到它自己的规则字面量）
+
+- 发布事实：公开 `main` 从 `ff0697e` **覆盖推**到 `74dfb3d` —— 无父的孤儿提交、101 个在册文件、author 与 committer 同为公开侧那个 noreply 身份。推送客户端 `EXIT=0` 只当线索、不当判据；判据是 `git ls-remote` 回来的 `HEAD` 与 `refs/heads/main` 都是 `74dfb3d`，且**只有** `main` 这一个 ref（不变量 #4：被杀掉的客户端也可能留下已经把 ref 落地的孙进程）。推送照 §13 包在 `Start-Job` + `Wait-Job -Timeout 55` 里，因为这台机器到 github.com 的那条出口可能静默挂死。
+- 落地后做**匿名干净 clone 复审**（纪律：审「落地的树」而不是「暂存的候选」）：不带凭据就能 clone ⇒ 公开是真的公开；`commits_ALL=1`、根提交无父、`AGENTS.md` 第 7 行是清洗后的写法、`audit-public-repo --history .` 报 findings 0（97 扫 + 4 个媒体跳过 = 101）。
+- 本轮闸门**第一次拦到闸门自己**：一条 `MEDIUM internal-git-host` 命中 `log.md:504`（第七轮的记录）和 `:566`（本轮 README 那条），匹配上的正是脚本规则表里的**形状字面量**。这等于把闸门自己的规则内容写进公开树 —— 那份脚本是刻意不入公开树的。修法是把这两行重写成「保留教训、丢掉形状」（内网 `a39951c`），**没有**用 `--allow=` 放行：放行等于把闸门永久削弱。
+- 这一推新公开的正文是 `log.md` 第 491–587 行（第七轮记录 + README 三语化记录，97 行）。逐类别手工过：32 位十六进制 0 处、本机绝对路径 0 处、内网主机 0 处、拓扑值 0 处。唯一一条含 `@` 的落到 `hi@`，它指向 ops 文档里**早已公开**的那个将来别名，不是泄露。
+- 一处**旧的披露**本轮向用户点出而不静默改写：`log.md:369` 写着本机那条隧道的回环端口号。它在第七轮就随前 490 行进过公开树了，本轮并未新增它；对一个已经公开的历史条目偷偷动笔，比留着更难解释。
+- README 三份**没有因为镜像而变形**：`README.md`、`README.zh-CN.md`、`README.ja.md` 在内网 `HEAD` 与公开落地树里是**同一批 blob**（`93e1a944` / `4d222dd7` / `5480b2d9`），本轮清洗只碰了 `AGENTS.md`（`aa542d57` → `be5e07fb`）。公开树里三份结构计数仍对齐：14 个 h2 / 34 条 bullet / 7 对围栏，三份都带 Demo 链接。
+- CI run `38689322899`（push 触发）三个 job 全绿：`checks` 57 s、`browser-smoke` 25 s（`"passed": 47, "failed": []`，47 项基线守住）、`deploy` 19 s。`audit:egress` 的 stdout 是 `scanned 3 file(s)` 加 `clean: no egress primitive, no unpublished address`。workflow 文件本身也在那个孤儿提交里，能跑起来就证明这把 token 确实带着 `workflow` 权限 —— 缺它的话整次推送会被服务端拒。
+- 不可变 URL 只从 `deploy` 的 stdout 取（**不**从 SHA 反推）：`https://8aeedc81.python-code-map.pages.dev`。**本轮是一次空发布**：wrangler 报 `Uploaded 0 files (12 already uploaded)` —— 纯文档轮的 `dist/` 字节与上一轮同一份 bundle，所以「部署成功」不等于「有新内容上线」，话必须这么说。
+- 线上 == 产物（逐文件，`--dist` 用 CI artifact）：不可变 host 的 `/`、`/sw.js`、`/manifest.webmanifest`、`/robots.txt` 四条全 `200`，`distDiffs`/`thirdParty`/`badStatus`/`transportErrors` 皆空、`CHECK_EXIT=0`；生产 `python-code-map.pages.dev` 再补上入口 JS（`1,401,433 B`，sha256 前缀 `827c9e01`）也是逐条 `vs --dist MATCH`，`index.html` 仍是 `1,455 B` / `8e05b22f`。CSP、HSTS、`x-content-type-options` 那组头两侧一致。
+- apex 与 `www` **本轮依旧量不到真应答**，并且比上一轮多一个结论：直连与走本机那条隧道出口**两条路拿到同一个 `307`**，跳到网关自己的校验路径（参数里回指原始 URL），响应里没有 `server: cloudflare`、没有 `cf-ray`；而 DNS 两条都正常解析到 Cloudflare 的地址 ⇒ 拦在 HTTP 层而非 DNS 层，按 §8「先问谁答的」判成中间设备。既然隧道也是同一条被检查的出口，**这台机器上不存在第二个观察点**，换客户端并不能换来独立证据。写法沿用上一轮：README 只说「打不开就用兜底」，既不写「apex 可达」，也不写「apex 坏了」。
+- Node 的信任面坑按上轮记的修法复现成功：证书链深 4，根 CA 用 `$c.RawData` 导出、PEM 1,764 B（判据仍是 ≈1.8 KB，那个 55 B 的是空壳），设 `NODE_EXTRA_CA_CERTS` 之后 `check-deploy` 的结论才可信；**没有**加任何跳过校验的开关。
+- 公开侧元数据核对：`visibility=PUBLIC`、默认分支 `main`、描述句仍是「浏览器内解析、不上传」。遗留：`%TEMP%` 下 `cm-pub-7` 一路到 `cm-pub-14` 还在（含被闸门拦下的 `cm-pub-11`，留作证据），递归删除被本机策略挡住，只能人工清。回滚仍按 §11：下一次 scrub 轮覆盖推 `main`，不可变 host 各自留在历史里。这条记录本身要**第九轮**才进公开树 —— 这个滞后是既定写法。

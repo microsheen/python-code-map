@@ -477,12 +477,13 @@
   47 项断言/测试表/手动验收清单同步），`longLines>140` 6 → 7；新增 `docs/adr/0003-feedback-channel-href-only.md`
   148 行（Accepted，含「这三道闸门真的在拦」的证据表与回归基线块）。目标邮箱地址**永不**进仓库/历史/文档，只存在
   Cloudflare 控制台的 Destination 字段。
-- 本轮**只落内网 `master`**，公开镜像不推：公开侧按 ops §11 另起一轮（临时目录 clone → scrub `AGENTS.md` →
-  `--orphan` 单提交 → noreply 身份 → `audit-public-repo.mjs --history` 必须 0 findings → 推 `main` → CI
-  构建/冒烟/部署）。开工前按 AGENTS.md 复验过 `origin/master...HEAD` = 0/0。
+- 反馈这一轮的落地范围：代码只落内网 `master`；公开镜像按 ops §11 走独立一轮（临时目录 clone → scrub
+  `AGENTS.md` → `--orphan` 单提交 → noreply 身份 → `audit-public-repo.mjs --history` 必须 0 findings →
+  推 `main` → CI 构建/冒烟/部署）。开工前按 AGENTS.md 复验过 `origin/master...HEAD` = 0/0。
 - [实测] 推完内网后 `gh run list` 复核：`ci-and-deploy` 对 `8720972` 的 run 是 `completed / skipped`（上一个
   `a36b598` 同样 skipped）。原因不是坏了，是每个 job 都带 `if: github.repository ==
-  'microsheen/python-code-map'` 的 Route B 归属守卫，而内网仓是 `<internal-user>/code-map` ⇒ 整条 workflow 直接跳过。
-  也就是说本轮新加的 blocking 步骤 `npm run audit:egress` **在 CI 侧还没实跑过**，它现在只有本地两次 exit 0 +
-  workflow 里那段配置为证；第一次真被 CI 执行要等公开镜像那一轮。这条不是遗漏，是这台机器的仓库形状决定的，
-  但在闸门被远程验证之前不要把「CI 在拦」当成既成事实。
+  'microsheen/python-code-map'` 的 Route B 归属守卫，而内网那份仓的 owner/name 与它不同（实例名与账号
+  名按纪律不写在这里，同 ops §13）⇒ 整条 workflow 直接跳过。后果要说清：`8720972` 新加的 blocking
+  步骤 `npm run audit:egress` 到 `f2f3267` 为止只有**本地** exit 0 的记录，CI 侧一条执行记录都没有 —— 内网的
+  run 永远 `skipped`，所以它的第一次真执行只能发生在推给公开归属的那次 run 上。这条不是遗漏，是这台机器的仓库
+  形状决定的；但在那次 run 变绿之前，不要把「CI 在拦这道闸门」当成既成事实。

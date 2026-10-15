@@ -29,14 +29,27 @@ import {
 } from '../src/graph/scope';
 import type { PythonParser } from '../src/parser/treeSitter';
 import { DEFAULT_SPLIT, IDENTITY_VIEW, NO_SELECTION, useAppStore } from '../src/state/store';
-import { dragGraph, nodeClientPoint, tapGraphNode } from './helpers/graphTap';
+import {
+  dragGraph,
+  edgeClientPoint,
+  nodeClientPoint,
+  tapGraphNode,
+  tapGraphEdge,
+  tapPoint,
+} from './helpers/graphTap';
 import {
   A_PATH,
   B_PATH,
   ID_ALPHA,
   ID_BETA,
+  ID_CALLEE,
+  ID_CALLER,
   ID_GAMMA,
+  ID_INDIRECT,
+  M_PATH,
+  N_PATH,
   bigProject,
+  multiCallProject,
   sampleProject,
   type SampleProject,
 } from './helpers/sampleProject';
@@ -312,3 +325,156 @@ describe('代码区窗口化渲染', () => {
     expect(screen.queryByTestId('code-line-4200')).toBeNull();
   });
 });
+
+describe('验收 3：点调用关系图的线 -> 定位到 A 调用 B 的那一行', () => {
+  const countText = (): string => screen.getByTestId('callsite-count').textContent ?? '';
+
+  it('点线：代码区切到调用点所在文件，落在第 1 处，底栏写明定位到的 file:line', () => {
+    preset(multiCallProject(), N_PATH);
+    render(<AppRoot />);
+    // 首帧之后 GraphPane 会自己 fit 一次，之后就不该再动视图
+    const viewBefore = useAppStore.getState().view;
+
+    tapGraphEdge(ID_CALLER, ID_CALLEE);
+
+    const st = useAppStore.getState();
+    expect(st.activeFile).toBe(M_PATH);
+    expect(st.edgeSelection).toMatchObject({
+      source: ID_CALLER,
+      target: ID_CALLEE,
+      index: 0,
+      count: 3,
+      origin: 'graph',
+    });
+    // 只高亮这条线：不动节点选中 / 范围 / 视图（连平移都不该发生）
+    expect(st.selection).toEqual(NO_SELECTION);
+    expect(st.scope).toEqual(ALL_SCOPE);
+    expect(st.view).toBe(viewBefore);
+
+    expect(countText()).toBe('1/3');
+    expect(screen.getByTestId('graph-edge-info').textContent ?? '').toContain('m.py:5');
+    expect(screen.queryByTestId('code-flash')).not.toBeNull();
+  });
+
+  it('这条边的三处调用全部打点，只有当前那处是活动标记', () => {
+    preset(multiCallProject());
+    render(<AppRoot />);
+
+    tapGraphEdge(ID_CALLER, ID_CALLEE);
+
+    expect(screen.getAllByTestId(/callsite-mark-\d/)).toHaveLength(3);
+    expect(screen.queryByTestId('callsite-mark-active')).not.toBeNull();
+  });
+
+  it('同一条线连着点四次：1/3 -> 2/3 -> 3/3 -> 绕回 1/3', () => {
+    preset(multiCallProject());
+    render(<AppRoot />);
+
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      tapGraphEdge(ID_CALLER, ID_CALLEE);
+      seen.push(countText());
+    }
+    expect(seen).toEqual(['1/3', '2/3', '3/3', '1/3']);
+  });
+
+  it('Shift + 点线反向退：第一次仍是第 1 处，之后往上一处绕回', () => {
+    preset(multiCallProject());
+    render(<AppRoot />);
+
+    const seen: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      tapGraphEdge(ID_CALLER, ID_CALLEE, { shift: true });
+      seen.push(countText());
+    }
+    expect(seen).toEqual(['1/3', '3/3', '2/3']);
+  });
+
+  it('代码区右下角步进器：› 往前、‹ 往后，到头绕回', () => {
+    preset(multiCallProject());
+    render(<AppRoot />);
+
+    tapGraphEdge(ID_CALLER, ID_CALLEE);
+    clickTestId('callsite-next');
+    expect(countText()).toBe('2/3');
+    clickTestId('callsite-next');
+    clickTestId('callsite-next');
+    expect(countText()).toBe('1/3');
+    clickTestId('callsite-prev');
+    expect(countText()).toBe('3/3');
+    expect(screen.getByTestId('code-flash')).not.toBeNull();
+  });
+
+  it('✕ 清掉高亮，步进器整体消失', () => {
+    preset(multiCallProject());
+    render(<AppRoot />);
+
+    tapGraphEdge(ID_CALLER, ID_CALLEE);
+    clickTestId('callsite-clear');
+
+    expect(useAppStore.getState().edgeSelection).toBeNull();
+    expect(screen.queryByTestId('callsite-stepper')).toBeNull();
+    expect(screen.queryByTestId('callsite-mark-active')).toBeNull();
+  });
+
+  it('只有一处调用的线：显示 1/1，不需要 ‹ › 两个按钮', () => {
+    preset(multiCallProject());
+    render(<AppRoot />);
+
+    tapGraphEdge(ID_INDIRECT, ID_CALLEE);
+
+    expect(countText()).toBe('1/1');
+    expect(screen.queryByTestId('callsite-prev')).toBeNull();
+    expect(screen.queryByTestId('callsite-next')).toBeNull();
+  });
+
+  it('点节点 / 点空白都会取消线的高亮：一次只有一个焦点', () => {
+    preset(multiCallProject());
+    render(<AppRoot />);
+
+    tapGraphEdge(ID_CALLER, ID_CALLEE);
+    tapGraphNode(ID_CALLEE);
+    expect(useAppStore.getState().edgeSelection).toBeNull();
+
+    tapGraphEdge(ID_CALLER, ID_CALLEE);
+    expect(useAppStore.getState().edgeSelection).not.toBeNull();
+    tapPoint(770, 570);
+    expect(useAppStore.getState().edgeSelection).toBeNull();
+    expect(screen.queryByTestId('callsite-stepper')).toBeNull();
+  });
+
+  it('在线上起手拖动：只平移视图，不能误选中这条边', () => {
+    preset(multiCallProject());
+    render(<AppRoot />);
+
+    const p = edgeClientPoint(ID_CALLER, ID_CALLEE);
+    const tx0 = useAppStore.getState().view.tx;
+    dragGraph(p, DRAG_SLOP + 20, 0);
+
+    expect(useAppStore.getState().edgeSelection).toBeNull();
+    expect(useAppStore.getState().view.tx).toBeCloseTo(tx0 + DRAG_SLOP + 20, 6);
+  });
+
+  it('反向：点代码里的第 3 处调用，点亮线上对应的那一处且不再滚动', () => {
+    preset(multiCallProject(), M_PATH);
+    render(<AppRoot />);
+
+    // m.py 第 7 行 "    return callee()" 里的 callee
+    clickTestId('code-token-call-7');
+
+    const st = useAppStore.getState();
+    expect(st.selection).toMatchObject({ funcId: ID_CALLEE, source: 'code' });
+    expect(st.edgeSelection).toMatchObject({
+      source: ID_CALLER,
+      target: ID_CALLEE,
+      index: 2,
+      count: 3,
+      origin: 'code',
+    });
+    expect(countText()).toBe('3/3');
+    expect(screen.getByTestId('graph-edge-info').textContent ?? '').toContain('m.py:7');
+    // origin=code：代码本来就在眼前，不重放定位闪烁
+    expect(screen.queryByTestId('code-flash')).toBeNull();
+  });
+});
+

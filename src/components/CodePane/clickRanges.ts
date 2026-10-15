@@ -7,6 +7,7 @@
  * 命中不到任何区间时，退化为"点击函数体内任意行" -> 选中最内层函数。
  */
 import type { CallSite, FuncId, FuncSymbol } from '../../parser/types';
+import { compareCallSites, edgeKey } from '../../graph/edges';
 
 export type ClickKind = 'def' | 'call';
 
@@ -17,6 +18,13 @@ export interface ClickRange {
   end: number;
   funcId: FuncId;
   kind: ClickKind;
+  /**
+   * 仅 call：发起这次调用的函数（图上这条边的起点）。def 区间没有这个字段，
+   * 用 `r.caller !== undefined` 判断能否反向点亮边。
+   */
+  caller?: FuncId;
+  /** 仅 call：同一条边里的第几个调用点（0-based），口径 = graph/edges.sortedCallSites */
+  callIndex?: number;
 }
 
 export interface ColumnRange {
@@ -61,13 +69,40 @@ export function buildClickRanges(
     push(nr.startLine, { start: nr.startCol, end: nr.endCol, funcId: f.id, kind: 'def' });
   }
 
+  /**
+   * 「A 调 B 的第 k 处」的序号必须和图那边完全一致，否则点调用点反向点亮的边、以及
+   * 步进器显示的 index 就会指向别处。这里按 (caller, target) 分组，组内用与
+   * graph/edges.sortedCallSites 同一个比较器排序后编号。
+   */
+  const groups = new Map<string, CallSite[]>();
+  for (const c of calls) {
+    if (c.reason !== 'resolved' || !c.target || !c.caller) continue;
+    const key = edgeKey(c.caller, c.target);
+    const arr = groups.get(key);
+    if (arr) arr.push(c);
+    else groups.set(key, [c]);
+  }
+  const seqOf = new Map<CallSite, number>();
+  for (const arr of groups.values()) {
+    arr.sort(compareCallSites);
+    arr.forEach((c, i) => seqOf.set(c, i));
+  }
+
   for (const c of calls) {
     if (c.reason !== 'resolved' || !c.target) continue;
     const text = lines[c.line - 1];
     if (text === undefined) continue;
     const range = callExprRange(text, c.column);
     if (!range) continue;
-    push(c.line, { start: range.start, end: range.end, funcId: c.target, kind: 'call' });
+    const index = c.caller ? seqOf.get(c) : undefined;
+    push(c.line, {
+      start: range.start,
+      end: range.end,
+      funcId: c.target,
+      kind: 'call',
+      caller: c.caller ?? undefined,
+      callIndex: index,
+    });
   }
 
   for (const arr of out.values()) arr.sort((a, b) => a.start - b.start);

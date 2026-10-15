@@ -182,3 +182,77 @@ export function bigProject(count: number, path = 'big.py'): SampleProject {
     graph: graphFromAnalyses(analyses, 5),
   };
 }
+
+
+/**
+ * 「一个函数调另一个函数三次」的小工程：一条聚合边上有多个调用点。
+ *
+ * m.py
+ *   caller -> callee  三处（第 5 / 6 / 7 行，第 6 行一句里夹了个 print）
+ *   caller -> print   external（不该生成调用点）
+ * n.py
+ *   indirect -> m.callee 一处（跨文件，用来验证点边会切 activeFile）
+ *
+ * 单独一个工厂而不是复用 sampleProject()：那边的调用次数被别的断言写死了。
+ */
+export const M_PATH = 'm.py';
+export const N_PATH = 'n.py';
+
+export const M_SRC = [
+  'def callee():',
+  '    return 0',
+  '',
+  'def caller():',
+  '    callee()',
+  '    print(1); callee()',
+  '    return callee()',
+  '',
+].join('\n');
+
+export const N_SRC = [
+  'import m',
+  '',
+  'def indirect():',
+  '    return m.callee()',
+  '',
+].join('\n');
+
+export const ID_CALLEE: FuncId = makeFuncId(M_PATH, 'callee');
+export const ID_CALLER: FuncId = makeFuncId(M_PATH, 'caller');
+export const ID_INDIRECT: FuncId = makeFuncId(N_PATH, 'indirect');
+
+export function multiCallProject(): SampleProject {
+  const mFile = pyFile(M_PATH, M_SRC);
+  const nFile = pyFile(N_PATH, N_SRC);
+  const mFuncs = [
+    func(M_PATH, 'callee', { defLine: 1, startLine: 1, endLine: 2 }),
+    func(M_PATH, 'caller', { defLine: 4, startLine: 4, endLine: 7 }),
+  ];
+  const nFuncs = [func(N_PATH, 'indirect', { defLine: 3, startLine: 3, endLine: 4 })];
+  const mCalls = [
+    callSite({ file: M_PATH, line: 5, column: 4, text: 'callee', caller: ID_CALLER, target: ID_CALLEE }),
+    callSite({ file: M_PATH, line: 6, column: 14, text: 'callee', caller: ID_CALLER, target: ID_CALLEE }),
+    callSite({ file: M_PATH, line: 7, column: 11, text: 'callee', caller: ID_CALLER, target: ID_CALLEE }),
+    callSite({ file: M_PATH, line: 6, column: 4, text: 'print', caller: ID_CALLER, reason: 'external' }),
+  ];
+  const nCalls = [
+    callSite({
+      file: N_PATH,
+      line: 4,
+      column: 11,
+      text: 'm.callee',
+      caller: ID_INDIRECT,
+      target: ID_CALLEE,
+    }),
+  ];
+  const analyses = [analysisOf(mFile, mFuncs, mCalls), analysisOf(nFile, nFuncs, nCalls)];
+  const highlights = new Map<string, LineTokens[]>();
+  highlights.set(M_PATH, []);
+  highlights.set(N_PATH, []);
+  return {
+    files: [mFile, nFile],
+    analyses,
+    highlights,
+    graph: graphFromAnalyses(analyses, 8),
+  };
+}

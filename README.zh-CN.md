@@ -22,12 +22,13 @@ _仓库名、npm 包名、IndexedDB 库名都仍是 `code-map`：前两者只是
   `async def`、装饰器、相对导入都能正确识别。
 - **技术栈**：Expo SDK 57 + React Native Web + react-native-svg + dagre 布局 + zustand。
 
-四个关键设计决策记录在 ADR 里，改代码前建议先读：
+五个关键设计决策记录在 ADR 里，改代码前建议先读：
 
 - [ADR-0001 纯前端 + tree-sitter WASM，不引后端/Pyodide](docs/adr/0001-expo-rn-web-no-backend.md)
 - [ADR-0002 保守的调用解析与 reason 分类](docs/adr/0002-conservative-call-resolution.md)
 - [ADR-0003 反馈渠道只长成两枚 href](docs/adr/0003-feedback-channel-href-only.md)
 - [ADR-0004 界面主题用 CSS 自定义属性落地（六套可切换）](docs/adr/0004-css-variable-theming.md)
+- [ADR-0005 图上的一条线可以点 —— 聚合边的「第几处调用」循环定位](docs/adr/0005-clickable-edges-call-site-cycling.md)
 
 ## 快速开始
 
@@ -45,7 +46,7 @@ npm run web          # 启动 dev server 并打开浏览器（默认 http://loca
 `preweb` / `preexport` 再同步一次。若安装时带了 `--ignore-scripts`，手动补 `npm run copy-wasm`。
 
 然后：点「选择 .py 文件」上传，或者直接把文件拖进右侧区域。仓库里带了样例可以直接试：
-`fixtures/main.py`、`fixtures/shapes.py`、`fixtures/utils.py`。
+`fixtures/main.py`、`fixtures/shapes.py`、`fixtures/utils.py`、`fixtures/multi.py`（一根线上的三处调用）。
 
 ## 界面
 
@@ -108,6 +109,38 @@ npm run web          # 启动 dev server 并打开浏览器（默认 http://loca
 重复点击同一个函数也会重新触发定位动画（内部靠 `selection.nonce` 自增实现，
 否则 id 没变、React 认为什么都不用做）。
 
+### 点一条线：一根聚合边背后的 N 处调用
+
+节点是一个函数，边却是**聚合**：A 调用 B 的每一次都合并成一条折线，线宽随次数变粗（ADR-0002）。
+被合并掉的每一次调用仍然留在这条边上，所以**这根线本身也可以点**：
+
+- **点线** → 代码区切到 caller 所在的文件、滚到**第 1 处**调用、只闪那一行，并把这条边的**全部**
+  调用点标出来：不是当前的那几处画一条下划线，当前这一处铺底色 + 一枚序号角标。
+- **再点同一条线** → 第 2 处、第 3 处，到最后一处后再点**绕回**第 1 处。`Shift`+点击沿同一圈往回走。
+  点一条还没被标记的边时永远从第 1 处开始 —— 没有「当前」，也就无所谓「后退一步」。
+- **`‹ 2/3 ›`** 步进器在代码区右下角，不用去追一根细线；`✕` 清除。只有 1 处调用时显示 `1/1`，
+  两枚箭头直接不渲染。
+- **图底部那一行**说明现在落在哪：`caller → callee · 2/3 · multi.py:7`（只有 1 处调用时不显示 `· 2/3`）。
+- **悬停**：光标变成 pointer，浮层告诉你点下去会落到哪（`caller → callee · 3 call sites · first at line 6`）。
+  边数超过 1500 时悬停命中自动关掉以保住大图的流畅，点击不受影响。
+- **反向也点亮同一根线**：在代码里点一个调用点，会带着 `origin: 'code'` 选中这条边 —— 代码本来就在
+  眼前，所以那条路径不滚动、不闪烁。
+
+所有「第几处」的序号只有一个来源：`src/graph/edges.ts` 里的 `compareCallSites`（先按行号，同一行按列，
+最后拿原文兜底），所以角标、步进器、底部说明和测试里说的「第 2/3 处」是同一件事。还有一条解析层的不变量
+让这件事可做：**一条边的所有调用点必然在同一个文件里** —— caller 只可能定义在一个文件，它的调用点自然都
+在那个文件，代码区因此不需要跨文件分组。
+
+点线刻意**不碰别的东西**：选中态、范围、导航历史、缩放平移一个都不动，也不发一个请求。「我在看哪条边」
+和「我在看哪个函数」是两根轴，逐处看三次调用不该把你裁好的邻域炸掉。任何真实的选中变化（点节点、点代码、
+切范围、前进后退、移除文件、重传、Clear）都会清掉这些标记，点图的空白处同样会。
+
+线的命中用的是和画它同一批密采样点，容差 7 个**屏幕像素**（`EDGE_HIT_TOL`，除以当前缩放，所以无论放大
+缩小手感一致），并且节点永远优先于压在线上的光标。`data-testid` 就是契约：图侧 `graph-edge-<src>-><tgt>` /
+`graph-edge-tooltip` / `graph-edge-info`，代码侧 `callsite-stepper` / `callsite-prev` / `callsite-count` /
+`callsite-next` / `callsite-clear` / `callsite-mark-<i>`。为什么是循环，而不是拆成平行边、弹一个列表、
+只跳第一处、或在线上钉 ①②③：见 [ADR-0005](docs/adr/0005-clickable-edges-call-site-cycling.md)。
+
 ## 反馈渠道
 
 顶栏的 `Feedback` 打开一个只读面板。**页面对外只有两枚链接**：GitHub Issues 与邮件别名，
@@ -165,10 +198,11 @@ build / ua / files / funcs / edges / unresolved / warnings / persisted
 npm run web
 ```
 
-上传 `fixtures/` 里的 `main.py`、`shapes.py`、`utils.py`（三个一起选），逐项确认：
+上传 `fixtures/` 里的 `main.py`、`shapes.py`、`utils.py`、`multi.py`（四个一起选），逐项确认：
 
-- [ ] 顶部状态显示解析完成，统计约为 **函数 45 / 边 47 / 未解析 28**
-      （`ambiguous 1 / external 14 / dynamic 13 / unknown 0`）—— 与 ADR-0002 的基线一致
+- [ ] 顶部状态显示解析完成，统计约为 **函数 47 / 边 50 / 未解析 26** —— 也就是三个文件的 ADR-0002 基线
+      （**45 / 49 / 26**，`ambiguous 1 / external 14 / dynamic 11 / unknown 0`）再加上 `multi.py` 带来的
+      2 个函数与 1 条聚合边；不选 `multi.py` 就回到基线
 - [ ] 右侧出现调用图，节点按文件着色，底部有文件色图例
 - [ ] 能看到跨文件的边：`main.py::boot → utils.py::load_config`
 - [ ] 能看到递归自环：`main.py::factorial` 指向自己
@@ -177,12 +211,16 @@ npm run web
 - [ ] **代码 → 图**：点 main.py 第 22 行 `def boot():` 的函数名 → 右侧把 `boot` 居中并高亮
 - [ ] **调用点跳转**：点 main.py 第 24 行 `cfg = utils.load_config(...)` 里的名字 →
       选中的是 `utils.py::load_config`（被调方），不是 `boot`
+- [ ] **边 → 调用点**（要把 `multi.py` 和上面三个一起选）：点图里 `caller → callee` 那条线 → 左侧切到
+      multi.py、滚到第 6 行、三处调用都画上标记；再点同一条线 → 第 7 行，再点 → 第 8 行，再点 → 绕回第 6
+      行。`Shift`+点击往回走；代码区右下角的 `‹ 2/3 ›` 不追线也能走，`✕` 或点图的空白处清除；图底部那行
+      写着 `caller → callee · 2/3 · multi.py:7`，悬停时浮层预告 `3 call sites · first at line 6`
 - [ ] 缩放平移：滚轮以光标为锚点缩放、拖拽空白处平移、`+` / `−` / 适应窗口按钮都正常
 - [ ] 范围切换：邻域 / 本文件 / 全部 三档都能切，「全部」下节点多时顶部出现大图提示
 - [ ] 移除单个文件：点 `utils.py` chip 上的 × → 该文件相关的节点与跨文件边一起消失，
       左侧文件标签页同步移除，当前选中若指向被删文件则被清空
 - [ ] 错误隔离：再上传 `fixtures/broken.py`（故意语法错误）→ 顶部出现黄色告警条并点名
-      broken.py，其余三个文件照常出图，整个流程不崩
+      broken.py，其余四个文件照常出图，整个流程不崩
 - [ ] 大文件滚动流畅：上传一个几千行的文件，快速滚动代码区不掉帧
       （代码区是窗口化渲染，只画可视区间 ± 24 行）
 - [ ] 顶栏 `Feedback`：**解析进行中也能点**（它是只读入口，故意不受 busy 门控）；面板里的诊断块
@@ -193,7 +231,7 @@ npm run web
 - [ ] 主题持久化：刷新页面 → 还是 Nord，且首帧就是 Nord（不闪回默认深色）；切回 GitHub Dark →
       全部复原；点 Clear 后主题**不**跟着回到默认
 
-上面**加粗的三组核心项**（图 → 代码、代码 → 图、调用点跳转）已经自动化了，
+上面**加粗的四组核心项**（图 → 代码、代码 → 图、调用点跳转、边 → 调用点）已经自动化了，
 改交互逻辑时优先跑 `node scripts/browser-verify.mjs`，见下一节。
 
 ## 浏览器自动化验收（真 Chrome + CDP）
@@ -205,22 +243,23 @@ Chromium 就能跑。
 
 ```bash
 npm run export                  # 先产出 dist/
-node scripts/browser-verify.mjs # 53 项断言（含 16 项承诺面 E/F/G），全绿退出码 0
+node scripts/browser-verify.mjs # 68 项断言（含 16 项承诺面 E/F/G、15 项边 → 调用点），全绿退出码 0
 ```
 
 脚本自己起一个静态服务器托管 `dist/`，并把 `dist/_headers` 里的规则原样套到每个响应上
 （冒烟跑的正是线上那一套 CSP）。端口被占用时会复用已有服务，但先校验两件事：那个端口上跑的
 确实是本应用（判据是 HTML 里带着本项目 Metro 的入口脚本标签，**不用 `<title>`**，标题一改
 就会误判），且服务端字节与 `dist/index.html` 完全一致。然后拉起 headless Chrome，把
-`fixtures/` 三个文件喂进去，**用真实鼠标事件**点击 SVG 节点与代码 token，逐项断言：
+`fixtures/` 四个文件喂进去，**用真实鼠标事件**点击 SVG 节点、SVG 边与代码 token，逐项断言：
 
 | 组           | 覆盖                                                                                                    |
 | ------------ | ------------------------------------------------------------------------------------------------------- |
-| 上传         | 没有红色致命错误条；图渲染出来（基线 45 节点 / 47 边）                                                  |
+| 上传         | 没有红色致命错误条；图渲染出来（四个样例的基线 47 节点 / 50 边）                                                  |
 | A 图 → 代码  | 切文件、滚到 `def` 行且完整可见、高亮带落在 `def` 行；闪烁出现 → 峰值 → 淡出 → 卸载；重复点击能重新触发 |
 | B 代码 → 图  | 目标节点居中（偏差 < 40px）、描边加粗；代码 → 图方向**不**闪烁                                          |
 | C 深层跨文件 | 从 `shapes.py` 跳到 `utils.py:95`，滚动量、高亮带位置、闪烁都对                                         |
 | D 语义点击   | 点调用点选中的是被调方；点函数体中间行选中的是所在函数                                                  |
+| I 边 → 调用点 | 用真实鼠标点击 multi.py 里那条聚合折线 `caller → callee`：切文件、1/3 → 2/3 → 3/3 → 1/3 循环、`Shift` 反向逐步、三处调用点全打点且 x 严格递增、`‹ ›` 步进器与 `✕`、悬停浮层 + pointer 光标，整组**请求数一个都没多** |
 | 稳定性       | 控制台无 error、页面无未捕获异常                                                                        |
 | S 产物一致性 | 服务端返回的字节 == `dist/index.html` 的字节（sha256 相同）；响应头里真的带着 `_headers` 的 CSP；产物 HTML 里零绝对 URL |
 | E 承诺面     | 全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件 / 跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
@@ -236,7 +275,7 @@ node scripts/browser-verify.mjs # 53 项断言（含 16 项承诺面 E/F/G），
 | `CODEMAP_CDP_PORT` | `9333`   | Chrome 远程调试端口                                                |
 | `CHROME_PATH`      | 自动探测 | 浏览器可执行文件路径（Windows / macOS / Linux 常见位置都会试一遍） |
 
-截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`、`07-feedback-panel.png`、
+截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`、`11-edge-callsite.png`（I 组期间落的图）、`07-feedback-panel.png`、
 `08-theme-panel.png`、`09-theme-light.png`、`10-theme-default-restored.png`）与 JSON 报告
 （`codemap-verify-report.json`）都写在系统临时目录，不入库。跑完脚本会关掉自己起的服务器。
 
@@ -294,7 +333,7 @@ scripts/
   audit-egress.mjs        静态扫描联系路径：请求原语 / 未公开邮箱字面量（CI blocking 闸门）
 .github/workflows/
   ci-and-deploy.yml       门禁 -> 浏览器冒烟 -> 部署，三个 job 共用同一次构建的产物
-fixtures/                 测试样例（main/shapes/utils/broken）
+fixtures/                 测试样例（main/shapes/utils/multi/broken）
 src/
   parser/
     treeSitter.ts         wasm 生命周期：init / Language.load / 单例 / 冒烟校验
@@ -312,6 +351,7 @@ src/
     buildGraph.ts         符号 + 调用点 -> 节点/聚合边/统计
     scope.ts              邻域 / 本文件 / 全部 三种裁剪
     layout.ts             dagre 包装（纯函数，LR 分层，输出坐标与边路径）
+    edges.ts              边的身份（key）+ 一条边背后调用点的唯一排序口径
   state/store.ts          zustand：files / graph / selection(+nonce) / scope / view / split
   state/themeStore.ts     zustand：当前主题 id + setTheme（独立于 store，Clear 不会清掉偏好）
   components/
@@ -319,8 +359,8 @@ src/
     TopBar.tsx            上传、文件 chips、范围切换、主题选择器、反馈入口、统计、告警条
     FeedbackDialog.tsx    反馈面板：原生 div/a/textarea 的只读遮罩，对外只有两枚 href
     SplitLayout.tsx       左右分栏 + 可拖拽分隔条 + 窄屏堆叠
-    CodePane/             文件标签页 + 窗口化代码视图 + 可点击范围计算
-    GraphPane/            SVG 图：平移缩放、节点/边渲染、高亮与降透明
+    CodePane/             文件标签页 + 窗口化代码视图 + 可点击范围计算 + 调用点标记与步进器
+    GraphPane/            SVG 图：平移缩放、节点/边渲染、高亮、降透明、可点击的边
     UploadPanel/          空态：选择文件 + 拖放区
   feedback/contact.ts     反馈规则层：白名单 8 字段 + 计数收口 + 两枚 href（零框架 import）
   platform/web/           唯一的 DOM 触点：文件选择/拖放、非被动 wheel 与指针监听
@@ -356,7 +396,7 @@ __tests__/                jest（纯函数 + 组件 + 真 wasm 全链路）
 
 | 层                 | 文件                                                                                                                         | 依赖 wasm？                        |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| **纯函数单测**     | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke` / `theme`（调色板结构 + 变量闭合 + WCAG 门禁） | 否（用 `treeLike` 接口喂假语法树） |
+| **纯函数单测**     | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `edges` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke` / `theme`（调色板结构 + 变量闭合 + WCAG 门禁） | 否（用 `treeLike` 接口喂假语法树；`edges` 也吃手搓的图） |
 | **组件与交互**     | `appFlow.test.tsx` / `topBar.test.ts` / `feedback.test.tsx`（金丝雀 + 白名单形状 + 面板渲染） / `themePicker.test.tsx`（主题面板与切换） | 否（预置 store）                   |
 | **真 wasm 全链路** | `parser.wasm.test.ts` / `imports.wasm.test.ts` / `e2e.wasm.test.tsx`                                                         | 是                                 |
 
@@ -367,8 +407,9 @@ __tests__/                jest（纯函数 + 组件 + 真 wasm 全链路）
 `e2e.wasm.test.tsx` 是最接近真实使用的一份：真 wasm 解析 fixtures → `store.loadFiles` →
 渲染 `AppRoot` → 真点击，覆盖上面验收清单里的两条核心定位路径、坏文件降级、移除文件同步。
 
-改解析规则时注意 `fixtures/` 的统计基线（函数 45 / 边 47 / 未解析 28），
-数字变了要能解释原因，别顺手改测试。
+改解析规则时注意 `__tests__/parser.wasm.test.ts` 读的那三个文件的统计基线（函数 45 / 边 49 / 未解析 26），
+数字变了要能解释原因，别顺手改测试。`fixtures/multi.py`（为可点的边新增）和 `fixtures/broken.py`
+故意不进这份基线；`multi.py` 也正是真浏览器冒烟里四个样例渲染出 47 节点 / 50 边的原因。
 
 `npm test` 之外还有第四层：真浏览器验收（`node scripts/browser-verify.mjs`，不在 `npm test` 里）。
 它跑在真实 Chrome + rAF + 原生鼠标事件上，覆盖 jsdom 测不到的闪烁淡出与 SVG 命中，

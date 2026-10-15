@@ -6,7 +6,8 @@
  *
  * 三类点击：
  * - 函数名 token（def 行）   -> 选中该函数
- * - 已解析调用点的名字 token -> 选中 callee
+ * - 已解析调用点的名字 token -> 选中 callee，并反向点亮图上 caller->callee 这条边的第 k 处调用
+ *   （k 与 sortedCallSites 同口径；代码区自己发起的点击不触发滚动）
  * - 函数体内任意其它位置     -> 选中最内层包含函数
  * 前两类是嵌套的可点击 Text：web 上内层 PressResponder 会 stopPropagation，不会重复触发整行点击。
  */
@@ -30,7 +31,7 @@ import type {
   TokenSpan,
 } from '../../parser/types';
 import { useActiveFileLines, useFuncIndex } from '../../state/hooks';
-import { useAppStore } from '../../state/store';
+import { useAppStore, type EdgeSelection } from '../../state/store';
 import {
   CODE_FONT_SIZE,
   GUTTER_W,
@@ -41,7 +42,8 @@ import {
   spacing,
   tokenColors,
 } from '../../theme';
-import { buildClickRanges, type ClickKind, type ClickRange } from './clickRanges';
+import { buildClickRanges, callExprRange, type ClickKind, type ClickRange } from './clickRanges';
+import { callSiteAt, findEdge, sortedCallSites } from '../../graph/edges';
 
 /** 用于测量等宽字符真实宽度的字符数 */
 export const MEASURE_CHARS = 100;
@@ -53,12 +55,23 @@ export const FLASH_MS = 1200;
 export const FLASH_PEAK_OPACITY = 0.85;
 
 
+/** 代码里一个调用点指向的边：点它时同时反向高亮图上这条线 */
+export interface EdgeRef {
+  source: FuncId;
+  target: FuncId;
+  index: number;
+}
+
 /** 可点击片段（buildPieces 的返回类型） */
 export interface ClickPiece {
   text: string;
   color: string;
   funcId: FuncId | null;
   kind: ClickKind | null;
+  /** 仅 call：调用方函数 id，用于反向点亮边 */
+  caller: FuncId | null;
+  /** 仅 call：这条边的第几个调用点（0-based） */
+  callIndex: number | null;
   key: string;
   clickable: boolean;
 }
@@ -123,6 +136,8 @@ export function buildPieces(
       color: colorOf(s.scope),
       funcId: null,
       kind: null,
+      caller: null,
+      callIndex: null,
       key: line + ':' + i,
       clickable: false,
     }));
@@ -149,6 +164,8 @@ export function buildPieces(
         color: colorOf(seg.scope),
         funcId: range ? range.funcId : null,
         kind: range ? range.kind : null,
+        caller: range ? range.caller ?? null : null,
+        callIndex: range && range.kind === 'call' ? range.callIndex ?? null : null,
         key: line + ':' + idx++,
         clickable: !!range,
       });
@@ -166,7 +183,8 @@ export interface CodeRowProps {
   defFunc: FuncSymbol | null;
   inSelection: boolean;
   onBodyPress: (line: number) => void;
-  onTokenPress: (funcId: FuncId) => void;
+  /** edge 为 null 表示点的不是调用点（def 名 / ƒ 标记）：清除边高亮 */
+  onTokenPress: (funcId: FuncId, edge: EdgeRef | null) => void;
 }
 
 export const CodeRow = memo(function CodeRow(props: CodeRowProps): ReactNode {
@@ -182,7 +200,7 @@ export const CodeRow = memo(function CodeRow(props: CodeRowProps): ReactNode {
         <Pressable
           testID={'code-def-mark-' + line}
           disabled={!defFunc}
-          onPress={defFunc ? () => onTokenPress(defFunc.id) : undefined}
+          onPress={defFunc ? () => onTokenPress(defFunc.id, null) : undefined}
           style={styles.gutterMarkWrap}
         >
           <Text style={[styles.gutterMark, defFunc ? styles.gutterMarkOn : styles.gutterMarkOff]}>
@@ -197,7 +215,14 @@ export const CodeRow = memo(function CodeRow(props: CodeRowProps): ReactNode {
             <Text
               key={p.key}
               testID={'code-token-' + p.kind + '-' + line}
-              onPress={() => onTokenPress(p.funcId as FuncId)}
+              onPress={() =>
+                onTokenPress(
+                  p.funcId as FuncId,
+                  p.caller !== null && p.callIndex !== null
+                    ? { source: p.caller, target: p.funcId as FuncId, index: p.callIndex }
+                    : null,
+                )
+              }
               style={[{ color: p.color }, styles.clickable]}
             >
               {p.text}
@@ -231,6 +256,11 @@ export function CodeView(): ReactNode {
   const analyses = useAppStore((s) => s.analyses);
   const selection = useAppStore((s) => s.selection);
   const selectFromCode = useAppStore((s) => s.selectFromCode);
+  const graph = useAppStore((s) => s.graph);
+  const edgeSelection = useAppStore((s) => s.edgeSelection);
+  const selectEdgeFromCode = useAppStore((s) => s.selectEdgeFromCode);
+  const clearEdgeSelection = useAppStore((s) => s.clearEdgeSelection);
+  const stepEdge = useAppStore((s) => s.stepEdge);
   const allFuncs = useFuncIndex();
 
   const [viewport, setViewport] = useState({ w: 800, h: 600 });
@@ -243,6 +273,10 @@ export function CodeView(): ReactNode {
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
   const handledNonce = useRef(-1);
+  /** 已经处理过的边选中对象（按引用比较：每次点边都会生成新对象，重复点击也一定重跑） */
+  const handledEdge = useRef<EdgeSelection | null>(null);
+  /** 水平滚动位置：判断调用列在不在可视区里 */
+  const scrollLeftRef = useRef(0);
 
   const total = lines.length;
 
@@ -301,6 +335,7 @@ export function CodeView(): ReactNode {
 
   const onScrollChange = (e: NativeSyntheticEvent<NativeScrollEvent>): void => {
     const y = e.nativeEvent.contentOffset.y;
+    scrollLeftRef.current = e.nativeEvent.contentOffset.x ?? 0;
     setScrollTop((prev) => (Math.abs(prev - y) < 1 ? prev : y));
   };
 
@@ -366,6 +401,42 @@ export function CodeView(): ReactNode {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection.nonce, target, path, viewport.h]);
 
+  /**
+   * 图 -> 调用点：点边时滚到那一行（上方留 1/3 视口做上下文），调用列落到可视区外时
+   * 顺带水平滚过去，并且只闪这一行（不是整个函数体）。
+   *
+   * origin === 'code' 直接跳过：那是用户在代码里点了调用点，代码本来就在眼前，
+   * 再滚一下会把用户刚看的那行推走。effect 键是边选中对象本身而不是 nonce：
+   * 每次点边 / 步进都会生成新对象，重复点同一处也一定会重跑。
+   */
+  useEffect(() => {
+    if (!edgeSelection || edgeSelection.origin === 'code') return;
+    if (handledEdge.current === edgeSelection) return;
+    handledEdge.current = edgeSelection;
+    const site = callSiteAt(
+      findEdge(graph, edgeSelection.source, edgeSelection.target),
+      edgeSelection.index,
+    );
+    if (!site || !path || site.file !== path) return;
+    const y = Math.max(0, (site.line - 1) * ROW_H - Math.round(viewport.h / 3));
+    const opts: { y: number; x?: number; animated: boolean } = { y, animated: true };
+    const range = callExprRange(lines[site.line - 1] ?? '', site.column);
+    if (range) {
+      const left = GUTTER_W + range.start * charW;
+      const right = GUTTER_W + range.end * charW;
+      const viewLeft = scrollLeftRef.current + GUTTER_W + 8;
+      const viewRight = scrollLeftRef.current + viewport.w - 8;
+      if (left < viewLeft || right > viewRight) {
+        opts.x = Math.max(0, GUTTER_W + site.column * charW - Math.round(viewport.w * 0.35));
+        scrollLeftRef.current = opts.x;
+      }
+    }
+    scrollRef.current?.scrollTo(opts);
+    setScrollTop(y);
+    runFlash(site.line, site.line);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edgeSelection, graph, path, viewport.h, charW]);
+
   useEffect(() => {
     return () => {
       flashRun.current?.stop();
@@ -376,6 +447,7 @@ export function CodeView(): ReactNode {
   const onBodyPress = (line: number): void => {
     const owner = lineOwners.get(line);
     selectFromCode(owner ? owner.id : null);
+    clearEdgeSelection();
     // 复制函数体代码到剪贴板
     if (owner) {
       copyFuncCode(lines, owner.startLine, owner.endLine).then((ok) => {
@@ -387,8 +459,11 @@ export function CodeView(): ReactNode {
     }
   };
 
-  const onTokenPress = (funcId: FuncId): void => {
+  const onTokenPress = (funcId: FuncId, edge: EdgeRef | null): void => {
     selectFromCode(funcId);
+    // 代码 -> 图：点调用点时反向点亮对应那条边的第 k 处；点非调用点则清除
+    if (edge) selectEdgeFromCode(edge.source, edge.target, edge.index);
+    else clearEdgeSelection();
     // 复制函数体代码到剪贴板
     const func = allFuncs.get(funcId);
     if (func) {
@@ -400,6 +475,33 @@ export function CodeView(): ReactNode {
       });
     }
   };
+
+  /**
+   * 当前选中边在本文件里的全部调用点区间（N 处全打点）。
+   * 序号口径 = sortedCallSites，与 store 里 edgeSelection.index 完全一致。
+   */
+  const callSiteMarks = useMemo(() => {
+    if (!edgeSelection || !path) return [];
+    const out: { index: number; line: number; start: number; end: number }[] = [];
+    sortedCallSites(findEdge(graph, edgeSelection.source, edgeSelection.target)).forEach((s, i) => {
+      if (s.file !== path) return;
+      const r = callExprRange(lines[s.line - 1] ?? '', s.column);
+      if (!r) return;
+      out.push({ index: i, line: s.line, start: r.start, end: r.end });
+    });
+    return out;
+  }, [edgeSelection, graph, path, lines]);
+
+  const activeMark = edgeSelection
+    ? (callSiteMarks.find((m) => m.index === edgeSelection.index) ?? null)
+    : null;
+
+  /** 序号角标优先放调用名左边的缩进空白；缩进不够就挪到名字右边，绝不压住行号 */
+  const chipLeft = activeMark
+    ? activeMark.start >= 3
+      ? GUTTER_W + 2
+      : GUTTER_W + (activeMark.end + 1) * charW
+    : 0;
 
   const rows: ReactNode[] = [];
   for (let line = win.first; line <= win.last; line++) {
@@ -480,6 +582,47 @@ export function CodeView(): ReactNode {
               }}
             />
           ) : null}
+          {callSiteMarks.map((m) => {
+            const active = m.index === (edgeSelection?.index ?? -1);
+            return (
+              <View
+                key={'callsite-mark-' + m.index}
+                testID={'callsite-mark-' + m.index}
+                style={{
+                  pointerEvents: 'none',
+                  position: 'absolute',
+                  top: (m.line - 1) * ROW_H,
+                  left: GUTTER_W + m.start * charW,
+                  width: Math.max(6, (m.end - m.start) * charW),
+                  height: ROW_H,
+                  backgroundColor: active ? colors.selectedSoft : 'transparent',
+                  borderLeftWidth: active ? 2 : 0,
+                  borderLeftColor: colors.selected,
+                  borderBottomWidth: active ? 0 : 1,
+                  borderBottomColor: colors.accent,
+                }}
+              />
+            );
+          })}
+          {activeMark ? (
+            <View
+              testID="callsite-mark-active"
+              style={{
+                pointerEvents: 'none',
+                position: 'absolute',
+                top: (activeMark.line - 1) * ROW_H + 3,
+                left: chipLeft,
+                width: 14,
+                height: 14,
+                borderRadius: 4,
+                backgroundColor: colors.selected,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={styles.chipText}>{activeMark.index + 1}</Text>
+            </View>
+          ) : null}
         </View>
 
           {copyToast ? (
@@ -501,6 +644,43 @@ export function CodeView(): ReactNode {
             </View>
           ) : null}
       </ScrollView>
+      {edgeSelection ? (
+        <View style={styles.stepper} testID="callsite-stepper">
+          {edgeSelection.count > 1 ? (
+            <Pressable
+              testID="callsite-prev"
+              style={styles.stepBtn}
+              onPress={() => stepEdge(-1)}
+              accessibilityLabel="previous call site"
+            >
+              <Text style={styles.stepBtnText}>{'\u2039'}</Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.stepCount} testID="callsite-count">
+            {edgeSelection.count > 1
+              ? edgeSelection.index + 1 + '/' + edgeSelection.count
+              : '1/1'}
+          </Text>
+          {edgeSelection.count > 1 ? (
+            <Pressable
+              testID="callsite-next"
+              style={styles.stepBtn}
+              onPress={() => stepEdge(1)}
+              accessibilityLabel="next call site"
+            >
+              <Text style={styles.stepBtnText}>{'\u203a'}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            testID="callsite-clear"
+            style={styles.stepBtn}
+            onPress={() => clearEdgeSelection()}
+            accessibilityLabel="clear call site highlight"
+          >
+            <Text style={styles.stepBtnText}>{'\u2715'}</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.measurerWrap} onLayout={onMeasure}>
         <Text style={[styles.measurer, PRE_TEXT]}>{'0'.repeat(MEASURE_CHARS)}</Text>
       </View>
@@ -546,6 +726,43 @@ const styles = StyleSheet.create({
     userSelect: 'text',
   },
   clickable: { textDecorationLine: 'underline', textDecorationColor: colors.underline },
+  chipText: {
+    color: colors.bg,
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+  },
+  // 步进器是 ScrollView 的兄弟节点：放进滚动内容里会跟着滚走（copyToast 就是前车之鉴）
+  stepper: {
+    position: 'absolute',
+    right: spacing.md,
+    bottom: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.overlay,
+    borderWidth: 1,
+    borderColor: colors.selected,
+    borderRadius: 8,
+    padding: spacing.xs,
+  },
+  stepBtn: {
+    minWidth: 24,
+    height: 22,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.panelAlt,
+  },
+  stepBtnText: { color: colors.text, fontFamily: fonts.mono, fontSize: 13, lineHeight: 15 },
+  stepCount: {
+    color: colors.selected,
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    minWidth: 34,
+    textAlign: 'center',
+  },
   emptyText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 13, padding: spacing.lg },
   // pointerEvents 走 style：RN 0.78+ / RNW 0.21 已废弃 prop 形式
   measurerWrap: {

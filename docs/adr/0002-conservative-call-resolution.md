@@ -71,6 +71,8 @@ ADR-0001 选定了 tree-sitter 做语法层解析，代价是**没有类型推�
   默认关闭，因为逐个展开内置调用会让节点数爆炸、把真正的业务关系淹没掉。
 - 边是聚合的：同一对函数之间的多次调用合并成一条边，保留全部 `callSites`，
   `weight = callSites.length` 影响线宽。自环（递归）保留并标记 `selfLoop`。
+- 这份保留下来的 `callSites` 不是死数据：ADR-0005 把它变成了可点的线 —— 点图上的一根线，
+  按源码顺序逐处定位到每一次调用。
 
 ## 备选方案与为什么不选
 
@@ -102,12 +104,18 @@ ADR-0001 选定了 tree-sitter 做语法层解析，代价是**没有类型推�
 
 ## 回归基线
 
-`fixtures/` 三个文件（`main.py` / `shapes.py` / `utils.py`）的解析产物被写死为测试基线：
+`fixtures/` 三个文件（`main.py` / `shapes.py` / `utils.py`）的解析产物被写死为测试基线
+（`__tests__/parser.wasm.test.ts` 按文件名显式列举这三份；`fixtures/multi.py` 与 `fixtures/broken.py`
+不计入 —— 前者是 ADR-0005「点线定位调用点」的专用样例）：
 
 ```
-funcs = 45   edges = 47   unresolved = 28
-byReason = { ambiguous: 1, external: 14, dynamic: 13, unknown: 0 }
+funcs = 45   edges = 49   unresolved = 26
+byReason = { ambiguous: 1, external: 14, dynamic: 11, unknown: 0 }
 ```
 
 **改动解析规则时如果这组数字变了，必须解释变化的来源**（哪条规则放宽/收紧了、
 为什么这是对的），并同步更新基线，而不是顺手把测试改成新数字。
+
+> 2026-10-15 核对：上面这组数字与测试实际断言一致。此处原先写的 47 / 28 / dynamic 13 是解析规则
+> 调整之后没同步的旧值，README（三份语言）跟着抄了同一版，本轮一并改过 —— 这类「文档里的数字
+> 和测试里的数字各自漂移」正是这条基线想防的东西，只是防的是代码，没防住文档。

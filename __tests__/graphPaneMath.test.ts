@@ -4,26 +4,32 @@
  * 这里不渲染组件（组件行为在 appFlow.test.tsx 里覆盖），只锁住几件容易在
  * 重构时被无声改坏的事：滚轮灵敏度、以光标为锚点的缩放不变量、标签截断、
  * 以及"选中时非邻居只压暗不隐藏"的对比度下限。
+ *
+ * 边命中（hitTestEdge）也在这里：它是"点一条线定位到调用点"的地基，
+ * 容差用屏幕像素、取最近的一条、bbox 预筛不能漏 —— 三条都锁住。
  */
 import {
   DEFAULT_VIEWPORT,
   DIM_OPACITY,
   DRAG_SLOP,
   EDGE_DIM_OPACITY,
+  EDGE_HIT_TOL,
   NODE_RADIUS,
   WHEEL_LINE_FACTOR,
   WHEEL_PIXEL_FACTOR,
   ZOOM_IN,
   ZOOM_OUT,
   fitLabel,
+  distToSegment,
+  hitTestEdge,
   hitTestNode,
   wheelScaleFactor,
   zoomAround,
 } from '../src/components/GraphPane';
 import type { ViewBox } from '../src/components/GraphPane';
 import type { FuncId } from '../src/parser/types';
-import { CHAR_W, MAX_SCALE, MIN_SCALE } from '../src/graph/layout';
-import type { NodeBox } from '../src/graph/layout';
+import { bboxOf, CHAR_W, MAX_SCALE, MIN_SCALE } from '../src/graph/layout';
+import type { EdgePath, NodeBox, Pt } from '../src/graph/layout';
 
 describe('GraphPane 常量', () => {
   it('jsdom 不触发 onLayout，需要兜底视口', () => {
@@ -213,5 +219,117 @@ describe('fitLabel', () => {
 
   it('空串原样返回', () => {
     expect(fitLabel('', 200)).toBe('');
+  });
+});
+
+describe('distToSegment', () => {
+  it('垂足在线段内 -> 垂直距离', () => {
+    expect(distToSegment(5, 3, 0, 0, 10, 0)).toBeCloseTo(3, 9);
+  });
+
+  it('垂足落在线段外 -> 取端点距离（线不会无限延长）', () => {
+    expect(distToSegment(-4, 3, 0, 0, 10, 0)).toBeCloseTo(5, 9);
+    expect(distToSegment(14, 3, 0, 0, 10, 0)).toBeCloseTo(5, 9);
+  });
+
+  it('零长线段按点算', () => {
+    expect(distToSegment(3, 4, 0, 0, 0, 0)).toBeCloseTo(5, 9);
+  });
+});
+
+describe('hitTestEdge', () => {
+  const mk = (id: string, points: Pt[]): EdgePath => ({
+    id,
+    source: id,
+    target: id,
+    d: '',
+    weight: points.length,
+    strokeWidth: 1,
+    selfLoop: false,
+    mid: { x: 0, y: 0 },
+    arrow: { x: 0, y: 0, angle: 0 },
+    points,
+    bbox: bboxOf(points),
+  });
+  const ID_AB = 'a.py::x->b.py::y';
+  // 世界坐标里 y=100 的一条水平线，从 x=0 到 x=200
+  const line = mk(ID_AB, [
+    { x: 0, y: 100 },
+    { x: 100, y: 100 },
+    { x: 200, y: 100 },
+  ]);
+  const edges = [line];
+  const view: ViewBox = { tx: 0, ty: 0, scale: 1 };
+
+  it('容差内命中线上任意一点', () => {
+    expect(hitTestEdge(edges, view, { x: 80, y: 103 })).toBe(ID_AB);
+  });
+
+  it('超出容差不命中（上下都算）', () => {
+    expect(hitTestEdge(edges, view, { x: 80, y: 100 + EDGE_HIT_TOL + 1 })).toBeNull();
+    expect(hitTestEdge(edges, view, { x: 80, y: 100 - EDGE_HIT_TOL - 1 })).toBeNull();
+  });
+
+  it('端点外侧按端点距离判定', () => {
+    expect(hitTestEdge(edges, view, { x: -5, y: 100 })).toBe(ID_AB);
+    expect(hitTestEdge(edges, view, { x: -20, y: 100 })).toBeNull();
+  });
+
+  it('容差是屏幕像素：缩小后世界容差变大，手指要瞄的像素宽度不变', () => {
+    const zoomedOut: ViewBox = { tx: 0, ty: 0, scale: 0.5 };
+    // 世界 y=100 -> 屏幕 y=50。屏幕偏 6px 仍命中，偏 8px 就落空
+    expect(hitTestEdge(edges, zoomedOut, { x: 40, y: 56 })).toBe(ID_AB);
+    expect(hitTestEdge(edges, zoomedOut, { x: 40, y: 58 })).toBeNull();
+  });
+
+  it('多条边同时命中时取最近的一条，而不是先遍历到的那条', () => {
+    const lower = mk('c.py::p->d.py::q', [
+      { x: 0, y: 110 },
+      { x: 100, y: 110 },
+      { x: 200, y: 110 },
+    ]);
+    const both = [lower, line];
+    expect(hitTestEdge(both, view, { x: 80, y: 104 })).toBe(ID_AB);
+    expect(hitTestEdge(both, view, { x: 80, y: 107 })).toBe('c.py::p->d.py::q');
+  });
+
+  it('bbox 预筛外扩了一个容差：贴边的点不会被提前跳过', () => {
+    expect(hitTestEdge(edges, view, { x: 80, y: 100 + 3 })).toBe(ID_AB);
+    const far = mk('e.py::f->g.py::h', [
+      { x: 0, y: 900 },
+      { x: 100, y: 900 },
+    ]);
+    expect(hitTestEdge([...edges, far], view, { x: 80, y: 101 })).toBe(ID_AB);
+  });
+
+  it('没有边 / 只有一个点的退化路径 -> null', () => {
+    expect(hitTestEdge([], view, { x: 80, y: 100 })).toBeNull();
+    const dot = mk('i.py::j->k.py::l', [{ x: 50, y: 50 }]);
+    expect(hitTestEdge([dot], view, { x: 50, y: 50 })).toBeNull();
+  });
+
+  it('自环鼓包处命中自己的 id', () => {
+    const loop = mk('m.py::n->m.py::n', [
+      { x: 100, y: 40 },
+      { x: 140, y: 20 },
+      { x: 140, y: 60 },
+      { x: 100, y: 50 },
+    ]);
+    expect(hitTestEdge([loop], view, { x: 133, y: 40 })).toBe('m.py::n->m.py::n');
+  });
+
+  it('节点优先于边：GraphPane 抬起时先 hitTestNode，命中节点就不会走到这条边', () => {
+    const box = (x: number, y: number, w: number, h: number): NodeBox => ({
+      x,
+      y,
+      w,
+      h,
+      cx: x + w / 2,
+      cy: y + h / 2,
+    });
+    const nodes = new Map<FuncId, NodeBox>([['a.py::x', box(0, 90, 50, 30)]]);
+    const p = { x: 20, y: 100 };
+    expect(hitTestNode(nodes, view, p)).toBe('a.py::x');
+    expect(hitTestEdge(edges, view, p)).toBe(ID_AB);
   });
 });

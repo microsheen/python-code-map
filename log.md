@@ -759,3 +759,65 @@
 - 遗留两笔：① `%TEMP%` 下 `cm-pub-7` 一路到 `cm-pub-15` 以及本轮匿名 clone 的 `cm-anon-15` 都还在（含留证的
   `cm-pub-11`），递归删除被本机策略挡住，只能人工清；② 本轮**没有**顺手改 `docs/ops-deployment.md`：探针集的更正还没经
   过下一轮发布复用，文档照既定规矩只写已被再次验证的口径，要改就等第十轮落地时一起动 —— 这个决定记在这里，不靠口头。
+
+## 2026-10-15 可点击的边轮（点一根线逐处定位调用点 · 384 单测 · 68 项冒烟）
+
+- 开工前按 AGENTS.md 复验同步：`git pull` 回 `Already up to date`、`git push` 回 `Everything up-to-date`、
+  `origin/master...HEAD` = 0/0，工作树只剩本轮自己的改动；公开镜像按 ops §11 另起一轮，本轮不上线。
+- 需求是两问：① 能不能点调用关系图里的**线**，点下去定位到「A 调用 B」的那一处；② A 调 B 三次时该定位到哪一处。
+  结论：都能做，难点不在「线能不能点中」而在**一根线不是一个位置** —— 定为「同一条边再点依次往后」+「右下角
+  `‹ k/N ›` 步进器」+「N 处调用全部打点」三条入口共用同一个序号，完整口径写进 ADR-0005。
+- 交互（每条都被冒烟 I 组钉住）：点线第一次落第 1 处；同一条边第四次绕回 1/3；`Shift` + 点反向退；**换一条边或从没
+  选中的边（含 Shift）永远从第 1 处开始**，序号只在同一条边内累加；`✕` 与点图上空白都清除；hover 出提示并把光标变手型
+  （`caller → callee · 3 call sites · first at line 6`，N=1 时退化成 `A → B · line L`，步进器也只显示 `1/1` 不带 ‹›）；
+  代码区点某一处调用 → `origin:'code'`，线上标记跟着换但**不滚动不闪烁**（正在读代码的人不该被拽走）；任何真实选中
+  变化（点节点、点代码、切范围、前进后退、删文件、重传、Clear）都清空边选中 —— 一次只有一个焦点。
+- 这条「切范围也清除」差点只活在文档里：ADR-0005 §7 与三份 README 都写着切范围会清掉边选中，而 `setScope` 只回
+  `scope` / `fitNonce` / `selection` —— 单测只覆盖了「点节点 / 点代码 / 前进后退」，所以漏掉的那一支没人管。补上
+  `edgeSelection: null`，并把那条测试扩成四种触发；后面还断言 `scope` 真的换成了 `fileScope(M_PATH)`，防止哪天「边自己
+  被裁没了」冒充「清除逻辑生效」。改完重跑 `npm run verify`（20 suites / 384 tests 不变）与 `npm run export` →
+  `npm run smoke`：新 bundle `entry-ee3de2a3…` 上仍 **68/68**，I 组每个数值与旧 bundle 一字不差 —— 这条功能既不碰
+  网络也不碰布局，换 bundle 只换个哈希。
+- 四条硬不变量：点线零网络上行（I8 实测 `before=5 after=5`）；不动 `selection` / `scope` / `navHistory` / `view`，只高亮
+  这根线并换 `activeFile`；一条边的全部 callSites 必然在同一个文件（`collectCalls` 给的，代码区因此不需要跨文件分组）；
+  「第几处」的唯一比较器是 `compareCallSites`（行 → 列 → 原文兜底），`clickRanges.ts` 给的 `callIndex` 与它逐一对应，
+  专门有一条测试盯着这两套口径不许分家。序号另有一层防抖：`edgeNonce` 是**模块级**自增，不随 `reset` 回卷，否则重开
+  一次分析后再点同一处，代码区会因为 nonce 相同而不重放滚动与闪烁。
+- 真正难的是命中几何：线本体只有 2~3px。`EDGE_HIT_TOL = 7` 是**屏幕像素**，除以 `view.scale` 换成世界容差，所以缩小
+  之后手指要瞄的像素宽度不变；`hitTestNode` 先判（节点矩形面积大），边只吃剩下的空白；`layoutGraph` 给每条边补加密采样
+  折线 `points` 和外扩一个容差的 `bbox`，但**`d` 字符串逐字不变** —— 只加字段不改画法，有测试逐字比过；`DRAG_SLOP = 4`
+  之上起手拖动只平移视图、不会误选边（同样有测试）。
+- hover 的成本控制：原生 `pointermove` + `requestAnimationFrame` 节流，位移 `HOVER_MOVE_SLOP = 6` 以内不重算，光标走
+  `el.style.cursor` 命令式改而不是每帧 setState；边数超过 `MAX_HOVER_EDGES = 1500` 直接不算 hover（点击路径不受影响）；
+  提示框宽 `TIP_W = 260` 并夹在视口内。
+- 代码区的呈现：`ROW_H = 20` / `GUTTER_W = 58`，非当前调用点 = 1px 下划线，当前处 = 底色 + 2px 左边框 + 序号 chip；
+  chip 优先放调用名左边的缩进空白，缩进不够（`start < 3`）才挪到名字右面，**绝不压住行号**；闪烁 `FLASH_MS = 1200`。
+- testID 是契约，冒烟全靠它读状态：`graph-edge-<src>-><tgt>` / `graph-edge-tooltip` / `graph-edge-info`；
+  `callsite-stepper` / `-prev` / `-count` / `-next` / `-clear` / `callsite-mark-<i>` / `callsite-mark-active`。边的 key 全
+  项目只有一处拼法（新 `src/graph/edges.ts` 的 `edgeKey` / `splitEdgeKey`，按**第一个** `->` 切，函数 id 里不会出现它）。
+- 新 fixture `fixtures/multi.py`（8 行：`caller` 在 6/7/8 各调一次 `callee` → 2 函数、1 根聚合边、3 个 callSites）
+  **不进解析基线**：`parser.wasm.test.ts` 仍只读三文件（45 funcs / 49 edges / 26 unresolved / `byReason.dynamic 11`）。
+  它是真浏览器里 `nodes=47 edges=50`（4 个 fixture）的来源，也是三份 README 新口径「函数 47 / 边 50」的来源。
+- 门禁实测：`npx jest` **20 suites / 384 tests** 全绿（上一轮 19/320，本轮 +64，其中新 `__tests__/edges.test.ts` 13 项）；
+  `npm run verify` = typecheck 空输出 + lint **0 error / 12 warning**（既有基线）+ jest；`npm run export` →
+  `npm run smoke` **68/68 PASS**（分组 A11 / B5 / C4 / D3 / E8 / F2 / G6 / H6 / I15、S1–S3，加 5 条基础断言），截图多出
+  `11-edge-callsite.png`。
+- I 组现场数值（首轮 `%TEMP%\smoke-i2.log` 与补完 store 后重跑的 `smoke-i3.log` 数值逐字相同）：折线上的
+  屏幕坐标没法直接问 DOM —— 脚本 `edgeProbe()` 用
+  `getPointAtLength` + `getScreenCTM` 手算，再拿 `elementFromPoint` 自检命中的确实是这根 `<g>` 里的 `path`；实测
+  `len=132`、命中点 (796.2, 209.6)、`strokeWidth=3`（`edgeStrokeWidth(3)=3`）；三个打点 left = 143.8 / 150.95 / 193.85 px、
+  宽 42.9px，对应列 12 < 13 < 19 严格递增；活动 chip left=60px；flash top = 100 / 120 / 140 px 正好等于 `(line-1)*ROW_H`；
+  底栏 `caller → callee · 1/3 · multi.py:6`。
+- 本轮踩死两条：① `code-line-1` 的 `textContent` 带行号槽前缀（实测 `ƒ1# multi.py: one caller…`），只能 `indexOf` 断言，
+  anchored 正则必红 —— 这是本轮冒烟**唯一一次 FAIL**；② 又一次证明本仓不是 prettier-clean：
+  `npx prettier --write scripts/browser-verify.mjs` 把整个文件重排，已用 `git show HEAD:` 取回原文、重打本轮那几处
+  手改的补丁，最终 `git diff --numstat` = 3 hunks / 272 insertions / 1 deletion，没留格式噪音。
+- 文档同轮改齐：三份 README 各加一节「点一条线：一根聚合边背后的 N 处调用」、验收清单加「边 → 调用点」、测试表加
+  `edges`、目录树加 `src/graph/edges.ts`、上传口径改成四个文件、ADR 计数四→五。顺手把第九轮 ops §4 立着的那条前置
+  条件结掉：按「要改文档得先在浏览器里重测一遍」重跑冒烟之后，ADR-0002 与 README×3 的旧读数
+  `edges 47 / unresolved 28 / dynamic 13` 改成 `49 / 26 / 11`，冒烟基线写成 47/50；`docs/ops-deployment.md` 在原判断句后
+  追加 8 行「第十轮更正落地」，历史读数（47/28、47/47、9 个请求）**不改写**。grep 复查
+  `edges 47|unresolved 28|dynamic 13|53 assertions` 在三份 README 里零残留。
+- 遗留：① N 很大时（真实仓库里一个 `logger.info()` 被调两百次）循环点击不现实，本轮先靠「N 处全部打点」给出位置概览，
+  「调用点列表面板」留作后续；② 未解析调用没有边，不参与这套交互；③ `%TEMP%` 下的 `codemap-shots`、`cm-smoke*`、
+  `smoke-i2.log` / `smoke-i3.log`、`cdp-codemap-profile` 照旧只能人工清。

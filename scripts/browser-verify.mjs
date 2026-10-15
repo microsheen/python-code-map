@@ -218,9 +218,13 @@ async function probeAppUrl() {
   };
 }
 
-const FIXTURES = ['main.py', 'shapes.py', 'utils.py'];
+const FIXTURES = ['main.py', 'shapes.py', 'utils.py', 'multi.py'];
 const TARGET_A = { id: 'shapes.py::Shape.area', defLine: 14, label: 'Shape.area' };
 const TARGET_B = { id: 'utils.py::Registry.add', defLine: 95, label: 'Registry.add' };
+// I 组：fixtures/multi.py 里 caller 在 6/7/8 三行各调一次 callee，图上是一条 weight=3 的聚合边
+const EDGE_SRC = 'multi.py::caller';
+const EDGE_TGT = 'multi.py::callee';
+const EDGE_LINES = [6, 7, 8];
 const ROW_H = 20;
 
 /**
@@ -791,8 +795,65 @@ const HARNESS = `
       insidePanel: !!(hit && panel.contains(hit))
     };
   }
+  /**
+   * 取「graph-edge-<src>-><tgt>」这根 <g> 里最长的那条 <path>（线本体，箭头很短），
+   * 用 getPointAtLength + getScreenCTM 算出一个真正的屏幕坐标点 —— 折线的几何只有
+   * 真浏览器给得出来，jsdom 里全是 0。顺带用 elementFromPoint 证明这一点确实落在这条
+   * 边上（没被节点方块或浮层抢走），抢不到就换个 fraction 再试。
+   */
+  function edgeProbe(source, target, fraction) {
+    var id = 'graph-edge-' + source + '->' + target;
+    var g = byId(id);
+    if (!g) return { id: id, found: false };
+    var paths = g.querySelectorAll('path');
+    var line = null;
+    var len = -1;
+    for (var i = 0; i < paths.length; i++) {
+      var L = 0;
+      try { L = paths[i].getTotalLength(); } catch (e) { L = 0; }
+      if (L > len) { len = L; line = paths[i]; }
+    }
+    if (!line || len <= 0) return { id: id, found: true, usable: false, paths: paths.length };
+    var f = typeof fraction === 'number' ? fraction : 0.5;
+    var p = line.getPointAtLength(len * f);
+    var m = line.getScreenCTM();
+    if (!m) return { id: id, found: true, usable: false, reason: 'no-screen-ctm' };
+    var sx = m.a * p.x + m.c * p.y + m.e;
+    var sy = m.b * p.x + m.d * p.y + m.f;
+    var hit = document.elementFromPoint(sx, sy);
+    var host = hit && hit.closest ? hit.closest('g[data-testid]') : null;
+    return {
+      id: id, found: true, usable: true, x: sx, y: sy, fraction: f, len: Math.round(len),
+      stroke: line.getAttribute('stroke'), strokeWidth: line.getAttribute('stroke-width'),
+      hit: hit ? hit.tagName + '#' + tid(hit) : 'none',
+      host: host ? tid(host) : 'none',
+      onEdge: !!host && tid(host) === id
+    };
+  }
+  /** 边选中在页面上的全部可见痕迹：步进器 / 底栏 / 三处打点 / 闪烁行 / 当前文件首行 / hover */
+  function edgeState() {
+    var marks = allByPrefix('callsite-mark-').map(function (el) {
+      return { id: tid(el), left: el.style.left, top: el.style.top, width: el.style.width };
+    });
+    var sc = scrollEl();
+    var canvas = byId('graph-canvas');
+    return {
+      stepper: !!byId('callsite-stepper'),
+      count: txt(byId('callsite-count')),
+      info: txt(byId('graph-edge-info')),
+      hasPrev: !!byId('callsite-prev'),
+      hasNext: !!byId('callsite-next'),
+      tip: txt(byId('graph-edge-tooltip')),
+      cursor: canvas ? getComputedStyle(canvas).cursor : null,
+      marks: marks,
+      flash: flashInfo(),
+      line1: txt(byId('code-line-1')),
+      scrollTop: sc ? sc.scrollTop : null
+    };
+  }
   window.__t = {
     byId: byId, allByPrefix: allByPrefix, tid: tid, txt: txt, rect: rect,
+    edgeProbe: edgeProbe, edgeState: edgeState,
     findNode: findNode, sample: sample, renderedLines: renderedLines,
     lineVisible: lineVisible, centerOf: centerOf, ensureCenter: ensureCenter,
     tokenInfo: tokenInfo, drop: drop, probe: probe,
@@ -1100,6 +1161,216 @@ async function main() {
   note('body line click (utils.py:53)', { selInfo: afterD2.selInfo, band: afterD2.band });
   check('D2 clicking a body line selects the enclosing function', afterD2.selInfo.indexOf('load_config') >= 0, afterD2.selInfo);
   check('D3 body click moves the selection band to load_config', afterD2.band && parseInt(afterD2.band.top, 10) === (52 - 1) * ROW_H, JSON.stringify(afterD2.band));
+
+  // ================= I：点「调用关系图的线」→ 定位到 A 调用 B 的那一行 =================
+  // 图上的一条边是同一对函数之间全部调用的聚合（ADR-0002）：fixtures/multi.py 里
+  // caller 在 6/7/8 三行各调一次 callee，屏幕上仍然只有一根线。这一组验的就是
+  // 「一根线怎么承载 N 次调用」：点一次落到第 1 处、重复点向后绕回、N 处全部打点、
+  // 右下角步进器 ‹ › ✕、hover 提示，以及点线全程零网络上行（本地功能红线）。
+  await clickTestId(cdp, 'scope-all');
+  await sleep(250);
+  await clickTestId(cdp, 'graph-fit');
+  await sleep(450);
+  const reqsBeforeEdge = netRequests.size;
+
+  // 折线的几何只有真浏览器算得出来：取线上一个点，并要求 elementFromPoint 命中的
+  // 确实是这根边（没被节点方块抢走）；抢不到就沿路径换个位置再试。
+  let iPt = null;
+  for (const iFr of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+    const iCand = await evalJs(
+      cdp,
+      'window.__t.edgeProbe(' +
+        JSON.stringify(EDGE_SRC) +
+        ',' +
+        JSON.stringify(EDGE_TGT) +
+        ',' +
+        iFr +
+        ')'
+    );
+    note('edgeProbe f=' + iFr, iCand);
+    if (iCand && iCand.onEdge) {
+      iPt = iCand;
+      break;
+    }
+  }
+  check(
+    'I0 caller→callee 这条聚合边画出来了，而且线上取得到一个真能命中的屏幕点',
+    !!iPt,
+    iPt
+      ? 'x=' + iPt.x.toFixed(1) + ' y=' + iPt.y.toFixed(1) + ' len=' + iPt.len + ' hit=' + iPt.hit
+      : 'no'
+  );
+  if (!iPt) throw new Error('edge not hittable on screen: ' + EDGE_SRC + ' -> ' + EDGE_TGT);
+
+  const iEdgeProbe = async (fraction) => {
+    const c = await evalJs(
+      cdp,
+      'window.__t.edgeProbe(' +
+        JSON.stringify(EDGE_SRC) +
+        ',' +
+        JSON.stringify(EDGE_TGT) +
+        ',' +
+        fraction +
+        ')'
+    );
+    return c && c.onEdge ? c : null;
+  };
+  /** 真的把鼠标点在线本体上，走 GraphPane 的 hitTestEdge -> selectEdgeFromGraph */
+  const tapEdge = async () => {
+    let p = null;
+    for (const f of [iPt.fraction, 0.5, 0.4, 0.6, 0.3]) {
+      p = await iEdgeProbe(f);
+      if (p) break;
+    }
+    if (!p) throw new Error('edge lost before click: ' + EDGE_SRC + ' -> ' + EDGE_TGT);
+    await realClick(cdp, p.x, p.y);
+    await sleep(300);
+    return evalJs(cdp, 'window.__t.edgeState()');
+  };
+  const iMarkIds = (st) =>
+    (st.marks || [])
+      .map((m) => m.id)
+      .sort()
+      .join(' ');
+  const iMarkLefts = (st) =>
+    (st.marks || [])
+      .filter((m) => /^callsite-mark-\d$/.test(m.id))
+      .map((m) => parseInt(m.left, 10))
+      .filter((n) => Number.isFinite(n));
+
+  const i1 = await tapEdge();
+  note('edge state after 1st click', i1);
+  // 首行的 textContent 带着行号槽（'ƒ1' 之类），所以只能包含式判断，不能 anchored 正则
+  check(
+    'I1 点一次线就把代码区切到 multi.py（首行是它的文件说明）',
+    i1.line1.indexOf('# multi.py') >= 0,
+    i1.line1
+  );
+  check(
+    'I1 第一次点落在第 1 处调用：步进器 1/3 + 底栏 multi.py:' + EDGE_LINES[0],
+    i1.stepper === true && i1.count === '1/3' && i1.info.indexOf('multi.py:' + EDGE_LINES[0]) >= 0,
+    'count=' + i1.count + ' info=' + i1.info
+  );
+  check(
+    'I1 高亮闪烁正好压在第 ' + EDGE_LINES[0] + ' 行',
+    !!i1.flash && parseInt(i1.flash.top, 10) === (EDGE_LINES[0] - 1) * ROW_H,
+    'flash=' + JSON.stringify(i1.flash)
+  );
+  check(
+    'I1 三处调用全都打了点，不是只显示最新那一处',
+    iMarkIds(i1) === 'callsite-mark-0 callsite-mark-1 callsite-mark-2 callsite-mark-active',
+    iMarkIds(i1)
+  );
+  const i1Lefts = iMarkLefts(i1);
+  check(
+    'I1 三个打点各自落在自己的调用列上（列 12 < 13 < 19 的可见证据）',
+    i1Lefts.length === 3 && i1Lefts[0] < i1Lefts[1] && i1Lefts[1] < i1Lefts[2],
+    JSON.stringify(i1.marks)
+  );
+
+  const i2 = await tapEdge();
+  note('edge state after 2nd click', i2);
+  check(
+    'I2 再点同一根线跳到第 2 处：2/3 + multi.py:' +
+      EDGE_LINES[1] +
+      ' + 闪第 ' +
+      EDGE_LINES[1] +
+      ' 行',
+    i2.count === '2/3' &&
+      i2.info.indexOf('multi.py:' + EDGE_LINES[1]) >= 0 &&
+      !!i2.flash &&
+      parseInt(i2.flash.top, 10) === (EDGE_LINES[1] - 1) * ROW_H,
+    'count=' + i2.count + ' info=' + i2.info + ' flash=' + JSON.stringify(i2.flash)
+  );
+
+  const i3 = await tapEdge();
+  note('edge state after 3rd click', i3);
+  check(
+    'I3 第三次点到第 3 处（最后一处）：3/3 + multi.py:' + EDGE_LINES[2],
+    i3.count === '3/3' &&
+      i3.info.indexOf('multi.py:' + EDGE_LINES[2]) >= 0 &&
+      !!i3.flash &&
+      parseInt(i3.flash.top, 10) === (EDGE_LINES[2] - 1) * ROW_H,
+    'count=' + i3.count + ' info=' + i3.info + ' flash=' + JSON.stringify(i3.flash)
+  );
+
+  const i4 = await tapEdge();
+  note('edge state after 4th click', i4);
+  check(
+    'I4 第四次点绕回第 1 处（循环跳转，不会走到不存在的 4/3）',
+    i4.count === '1/3' && i4.info.indexOf('multi.py:' + EDGE_LINES[0]) >= 0,
+    'count=' + i4.count + ' info=' + i4.info
+  );
+
+  // ---- 右下角步进器：‹ › 手动前后走，位置与点线循环共用同一个口径 ----
+  const iNextBox = await focusElement(cdp, 'callsite-next');
+  note('stepper next box', iNextBox);
+  await realClick(cdp, iNextBox.x, iNextBox.y);
+  await sleep(300);
+  const i5a = await evalJs(cdp, 'window.__t.edgeState()');
+  check(
+    'I5 步进器 › 从第 1 处走到第 2 处',
+    i5a.count === '2/3' && i5a.info.indexOf('multi.py:' + EDGE_LINES[1]) >= 0,
+    'count=' + i5a.count + ' info=' + i5a.info
+  );
+  const iPrevBox = await focusElement(cdp, 'callsite-prev');
+  await realClick(cdp, iPrevBox.x, iPrevBox.y);
+  await sleep(300);
+  const i5b = await evalJs(cdp, 'window.__t.edgeState()');
+  check(
+    'I5 步进器 ‹ 从第 2 处回到第 1 处',
+    i5b.count === '1/3' && i5b.info.indexOf('multi.py:' + EDGE_LINES[0]) >= 0,
+    'count=' + i5b.count + ' info=' + i5b.info
+  );
+
+  // ---- hover：线上手型 + 提示「有几处调用、第一处在哪一行」 ----
+  const i6Probe = (await iEdgeProbe(0.5)) || iPt;
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: Math.round(i6Probe.x) + 2,
+    y: Math.round(i6Probe.y) + 1,
+    button: 'none',
+    buttons: 0,
+    clickCount: 0,
+  });
+  await sleep(250);
+  const i6 = await evalJs(cdp, 'window.__t.edgeState()');
+  note('edge state on hover', i6);
+  check(
+    'I6 鼠标移到线上出提示：说明这根线背后有几处调用、第一处落在哪一行',
+    i6.tip.indexOf(EDGE_LINES.length + ' call sites') >= 0 &&
+      i6.tip.indexOf('first at line ' + EDGE_LINES[0]) >= 0,
+    'tip=' + i6.tip
+  );
+  check(
+    'I6 线上是手型光标（在告诉你这根线可以点）',
+    i6.cursor === 'pointer',
+    'cursor=' + i6.cursor
+  );
+
+  // ---- ✕ 清空：整条链路上的痕迹一起消失 ----
+  const iClearBox = await focusElement(cdp, 'callsite-clear');
+  await realClick(cdp, iClearBox.x, iClearBox.y);
+  await sleep(300);
+  const i7 = await evalJs(cdp, 'window.__t.edgeState()');
+  note('edge state after clear', i7);
+  check(
+    'I7 ✕ 清掉之后步进器、底栏文本、三处打点全部消失',
+    !i7.stepper && i7.count === '' && i7.info === '' && (i7.marks || []).length === 0,
+    JSON.stringify({
+      stepper: i7.stepper,
+      count: i7.count,
+      info: i7.info,
+      marks: (i7.marks || []).length,
+    })
+  );
+
+  check(
+    'I8 点线/循环/步进/hover/清空全程零网络上行（这条功能只动本地状态）',
+    netRequests.size === reqsBeforeEdge,
+    'before=' + reqsBeforeEdge + ' after=' + netRequests.size
+  );
+  await shot(cdp, '11-edge-callsite.png');
 
   // ---- F：注入进 <head> 的图标必须在真浏览器 + 真 CSP 下真的能加载 ----
   // headless Chrome 不抓 <link rel="icon">（标签页图标属于浏览器 UI，不在无头渲染路径上），

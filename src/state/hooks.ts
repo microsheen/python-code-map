@@ -3,6 +3,7 @@
  */
 import { useMemo } from 'react';
 import { buildAdjacency } from '../graph/buildGraph';
+import { edgeKey } from '../graph/edges';
 import { layoutGraph, type LayoutResult } from '../graph/layout';
 import { applyScope } from '../graph/scope';
 import type { CallGraph, FuncId, FuncSymbol, LineTokens } from '../parser/types';
@@ -49,7 +50,7 @@ export function useNeighborEdgeIds(graph: CallGraph | null, funcId: FuncId | nul
     const out = new Set<string>();
     if (!graph || !funcId) return out;
     for (const e of graph.edges) {
-      if (e.source === funcId || e.target === funcId) out.add(`${e.source}->${e.target}`);
+      if (e.source === funcId || e.target === funcId) out.add(edgeKey(e.source, e.target));
     }
     return out;
   }, [graph, funcId]);

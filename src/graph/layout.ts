@@ -4,6 +4,7 @@
  */
 import { graphlib, layout as dagreLayout } from '@dagrejs/dagre';
 import type { CallGraph, FuncId, FuncSymbol } from '../parser/types';
+import { edgeKey } from './edges';
 
 export const NODE_H_SINGLE = 34;
 export const NODE_H_DOUBLE = 48;
@@ -96,6 +97,13 @@ export interface EdgePath {
   mid: { x: number; y: number };
   /** 箭头尖端与朝向 */
   arrow: ArrowTip;
+  /**
+   * 与 d 渲染形状一致的密采样折线（自环是采样后的三次贝塞尔）。
+   * 命中检测只用它，不去解析 d 字符串：这样「看到的线」和「点得中的线」同源。
+   */
+  points: Pt[];
+  /** points 的外接框，hover 预筛用 */
+  bbox: BBox;
 }
 
 export interface LayoutResult {
@@ -128,9 +136,17 @@ export function edgeStrokeWidth(weight: number): number {
   return Math.round(Math.min(4, 1 + Math.log2(1 + Math.max(0, weight))) * 10) / 10;
 }
 
-interface Pt {
+export interface Pt {
   x: number;
   y: number;
+}
+
+/** 采样点集的外接框，hover 命中时的廉价预筛用。 */
+export interface BBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
 }
 
 export function pointsToPath(points: Pt[]): string {
@@ -158,14 +174,103 @@ function r(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function selfLoopPath(box: NodeBox): string {
+/** 每段二次曲线的细分段数 */
+export const QUAD_SAMPLES = 8;
+/** 自环三次贝塞尔的细分段数 */
+export const CUBIC_SAMPLES = 16;
+
+/**
+ * 二次贝塞尔采样，返回**不含**起点的 steps 个点（含终点）。
+ * 与 pointsToPath 里一段 Q 的形状逐点一致，命中检测才不会和看到的线漂移。
+ */
+export function sampleQuadratic(p0: Pt, c: Pt, p1: Pt, steps = QUAD_SAMPLES): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const mt = 1 - t;
+    out.push({
+      x: mt * mt * p0.x + 2 * mt * t * c.x + t * t * p1.x,
+      y: mt * mt * p0.y + 2 * mt * t * c.y + t * t * p1.y,
+    });
+  }
+  return out;
+}
+
+/** 三次贝塞尔采样，返回**不含**起点的 steps 个点（含终点）。 */
+export function sampleCubic(p0: Pt, c1: Pt, c2: Pt, p1: Pt, steps = CUBIC_SAMPLES): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const mt = 1 - t;
+    out.push({
+      x: mt * mt * mt * p0.x + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * p1.x,
+      y: mt * mt * mt * p0.y + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * p1.y,
+    });
+  }
+  return out;
+}
+
+/**
+ * 把 dagre 折线按 pointsToPath 的同一套规则摊成密采样折线。
+ * 起点必须保留（它是命中区的一部分），所以从 points[0] 开始累积。
+ * 两个点时是直线：中间补一个点，让「点到线段距离」至少有一段可算。
+ */
+export function sampleSmoothedPolyline(points: Pt[]): Pt[] {
+  if (points.length === 0) return [];
+  const p0 = points[0] as Pt;
+  if (points.length === 1) return [{ ...p0 }, { ...p0 }];
+  if (points.length === 2) {
+    const p1 = points[1] as Pt;
+    return [{ ...p0 }, { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 }, { ...p1 }];
+  }
+  const out: Pt[] = [{ ...p0 }];
+  let cur = p0;
+  for (let i = 1; i < points.length - 1; i++) {
+    const ctrl = points[i] as Pt;
+    const end = points[i + 1] as Pt;
+    const mid = { x: (ctrl.x + end.x) / 2, y: (ctrl.y + end.y) / 2 };
+    out.push(...sampleQuadratic(cur, ctrl, mid));
+    cur = mid;
+  }
+  const last = points[points.length - 1] as Pt;
+  out.push({ x: (cur.x + last.x) / 2, y: (cur.y + last.y) / 2 }, { ...last });
+  return out;
+}
+
+export function bboxOf(points: Pt[]): BBox {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const pt of points) {
+    if (pt.x < minX) minX = pt.x;
+    if (pt.x > maxX) maxX = pt.x;
+    if (pt.y < minY) minY = pt.y;
+    if (pt.y > maxY) maxY = pt.y;
+  }
+  if (!Number.isFinite(minX)) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  return { minX, minY, maxX, maxY };
+}
+
+/** 自环的四个控制点：起于节点右边框上部，鼓出后回到下部。画 path 与采样共用同一份几何。 */
+export function selfLoopCurve(box: NodeBox): { p0: Pt; c1: Pt; c2: Pt; p1: Pt } {
   const x = box.x + box.w;
   const yTop = box.y + box.h * 0.32;
   const yBottom = box.y + box.h * 0.68;
   const b = SELF_LOOP_BULGE;
+  return {
+    p0: { x, y: yTop },
+    c1: { x: x + b, y: box.y - 6 },
+    c2: { x: x + b, y: box.y + box.h + 6 },
+    p1: { x, y: yBottom },
+  };
+}
+
+function selfLoopPath(box: NodeBox): string {
+  const { p0, c1, c2, p1 } = selfLoopCurve(box);
   return (
-    `M ${r(x)} ${r(yTop)} ` +
-    `C ${r(x + b)} ${r(box.y - 6)} ${r(x + b)} ${r(box.y + box.h + 6)} ${r(x)} ${r(yBottom)}`
+    `M ${r(p0.x)} ${r(p0.y)} ` +
+    `C ${r(c1.x)} ${r(c1.y)} ${r(c2.x)} ${r(c2.y)} ${r(p1.x)} ${r(p1.y)}`
   );
 }
 
@@ -210,8 +315,10 @@ export function layoutGraph(graph: CallGraph): LayoutResult {
     if (!src || !dst) continue;
     const weight = e.callSites.length;
     if (e.selfLoop || e.source === e.target) {
+      const loop = selfLoopCurve(src);
+      const loopPts = [loop.p0, ...sampleCubic(loop.p0, loop.c1, loop.c2, loop.p1)];
       edges.push({
-        id: `${e.source}->${e.target}`,
+        id: edgeKey(e.source, e.target),
         source: e.source,
         target: e.target,
         d: selfLoopPath(src),
@@ -220,6 +327,8 @@ export function layoutGraph(graph: CallGraph): LayoutResult {
         selfLoop: true,
         mid: { x: src.x + src.w + SELF_LOOP_BULGE * 0.75, y: src.cy },
         arrow: selfLoopTip(src),
+        points: loopPts,
+        bbox: bboxOf(loopPts),
       });
       continue;
     }
@@ -228,10 +337,11 @@ export function layoutGraph(graph: CallGraph): LayoutResult {
       { x: src.x + src.w, y: src.cy },
       { x: dst.x, y: dst.cy },
     ];
+    const sampled = sampleSmoothedPolyline(pts);
     const midIdx = Math.floor(pts.length / 2);
     const mid = pts[midIdx] ?? { x: (src.cx + dst.cx) / 2, y: (src.cy + dst.cy) / 2 };
     edges.push({
-      id: `${e.source}->${e.target}`,
+      id: edgeKey(e.source, e.target),
       source: e.source,
       target: e.target,
       d: pointsToPath(pts),
@@ -240,6 +350,8 @@ export function layoutGraph(graph: CallGraph): LayoutResult {
       selfLoop: false,
       mid: { x: mid.x, y: mid.y },
       arrow: tipFromPoints(pts),
+      points: sampled,
+      bbox: bboxOf(sampled),
     });
   }
 

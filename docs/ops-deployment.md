@@ -743,7 +743,7 @@ pack 108 个对象）。
   从 stdout 那行解析出来是 `https://8b5659f6.python-code-map.pages.dev`（没猜）。产物用
   `gh api repos/<owner>/<repo>/actions/artifacts/11905721746/zip` 取回（zip **579,788 B**、展开 **31 个文件**）。
   线上三个 host（不可变 / 生产别名 / apex）逐条比：`/` 三处都是 **1,455 B**、sha256 `9d6a1461…`，与 CI 产物的
-  `index.html` **同哈希**；`/` 引用的 `entry-6f4f45841c2c81b08cb65ffe2a08afe0.js` 三处都是 `200` /
+  `index.html` **同哈希**；`/` 引用的 `entry-6f4f4584…js` 三处都是 `200` /
   **1,392,424 B**、sha256 也与产物同哈希；另外 8 条路径（两个 wasm、`robots.txt`、5 个图标）逐个 `200` 且与
   产物同哈希。⇒ tested==shipped 这条链现在有线上字节支撑，不再只靠流水线内部自证。产物内部也对照了：
   CI 的 31 个文件与本机 `dist` 的 31 个逐文件比，**29 个同哈希**，只有 `index.html` 与 entry 那一个不同（见下）。

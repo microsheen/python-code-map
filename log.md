@@ -367,7 +367,7 @@
   `https://8b5659f6.python-code-map.pages.dev`（没猜）。第五轮 `9ad753e` 当时没入册，它的不可变 host 已无从考据，
   文档里按「没记下来」写，不补猜。
 - 出口这条路本轮换了两次：仓库里那条 `http.https://github.com.proxy=http://127.0.0.1:9000` 的本地隧道**已经死了**
-  （连接挂住不返回），改用用户授权的 `<internal-proxy>:8080`，而且**只用 `-c` 逐命令覆盖**、不动全局
+  （连接挂住不返回），改用用户授权的 `web-proxy…:8080`，而且**只用 `-c` 逐命令覆盖**、不动全局
   git 配置。顺带查到 `%TEMP%\codemap-secrets\cf.token` 那个 Cloudflare token **已失效**（直连与经代理都是
   `10000 Authentication error`）⇒ 本轮没法从 CF 侧读 `canonical_deployment`，「别名服务哪一份」这次只有
   wrangler stdout 与三 host 字节一致这两条证据。

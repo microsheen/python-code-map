@@ -1,376 +1,320 @@
-# Python Code Map — Python 函数调用关系图可视化
+# Python Code Map — Visualize Python function call graphs
 
-_仓库名、npm 包名、IndexedDB 库名都仍是 `code-map`：前两者只是标识符，后者改了会让已有用户的本地会话直接失联。_
+**English** | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-上传一个或多个 `.py` 文件，在浏览器里看到它们的函数调用关系图，左边代码、右边图，两边点击互相定位。
+## Demo
 
-- **纯前端、零上行**：没有后端服务，没有账号，没有数据库，没有第三方脚本或统计。源码只在浏览器里
-  解析，不作为任何请求的一部分离开这台机器 —— 这不是口号，是真浏览器门禁里的逐条断言
-  （每个请求都是同源、都是 GET、请求体为空、URL 里没有你的文件名或代码片段）。
-- **会话只存在你自己的机器上**：文件内容写入浏览器本地 IndexedDB（库 `code-map` /
-  store `session` / key `current`），刷新页面可恢复；点 Clear 或清除站点数据即彻底删除，
-  服务端永远看不到它。
-- **真语法解析**：用 tree-sitter（WASM）解析 Python，不是正则扫行 —— 嵌套 `def`、类方法、
-  `async def`、装饰器、相对导入都能正确识别。
-- **技术栈**：Expo SDK 57 + React Native Web + react-native-svg + dagre 布局 + zustand。
+**👉 Try it now: <https://python-code-map.com>** — open the page, drop a few `.py` files in, and their call graph is drawn right in your browser. Nothing to install, no sign-up, no upload: all parsing happens inside your own browser.
 
-两个关键设计决策记录在 ADR 里，改代码前建议先读：
+> If that domain is unreachable from your network, the very same build is also served at <https://python-code-map.pages.dev>.
 
-- [ADR-0001 纯前端 + tree-sitter WASM，不引后端/Pyodide](docs/adr/0001-expo-rn-web-no-backend.md)
-- [ADR-0002 保守的调用解析与 reason 分类](docs/adr/0002-conservative-call-resolution.md)
-- [ADR-0003 反馈渠道只长成两枚 href](docs/adr/0003-feedback-channel-href-only.md)
+_The repository name, the npm package name and the IndexedDB database name are all still `code-map`: the first two are only identifiers, and renaming the third would cut existing users off from their stored local sessions outright._
 
-## 快速开始
+Upload one or more `.py` files and see their function call graph in the browser — code on the left, graph on the right, and a click on either side locates the other.
 
-需要 Node.js 18+（建议 20+）。
+- **Pure front end, zero egress**: no backend service, no accounts, no database, no third-party scripts or analytics. Your source is parsed in the browser only and never leaves this machine as part of any request — that is not a slogan but a set of assertions in the real-browser gate (every request is same-origin, every request is a GET, every request body is empty, and no URL contains your file names or code fragments).
+- **Sessions live only on your own machine**: file contents are written to the browser's local IndexedDB (database `code-map` / store `session` / key `current`) and restored on reload; clicking Clear or wiping site data deletes them for good, and the server never sees them.
+- **Real syntax parsing**: Python is parsed with tree-sitter (WASM), not by scanning lines with regexes — nested `def`, class methods, `async def`, decorators and relative imports are all recognized correctly.
+- **Stack**: Expo SDK 57 + React Native Web + react-native-svg + dagre layout + zustand.
+
+Three key design decisions are recorded as ADRs; read them before changing code:
+
+- [ADR-0001 Pure front end + tree-sitter WASM, no backend / no Pyodide](docs/adr/0001-expo-rn-web-no-backend.md)
+- [ADR-0002 Conservative call resolution and the reason taxonomy](docs/adr/0002-conservative-call-resolution.md)
+- [ADR-0003 The feedback channel is allowed to be nothing but two hrefs](docs/adr/0003-feedback-channel-href-only.md)
+
+_The ADRs and everything else under `docs/` are written in Chinese._
+
+## Quick start
+
+Node.js 18+ required (20+ recommended).
 
 ```bash
-npm install          # 装依赖（需要网络）
-npm run web          # 启动 dev server 并打开浏览器（默认 http://localhost:8081）
+npm install          # install dependencies (needs network)
+npm run web          # start the dev server and open a browser (http://localhost:8081 by default)
 ```
 
-`npm install` 结束时会自动跑 `postinstall`（即 `npm run copy-wasm`）：把两个 `.wasm` 从 node_modules
-同步到 `public/wasm/`，并在 Node 里跑一次真机冒烟校验（`Parser.init` + `Language.load` + `parse`）。
-看到 `[copy-wasm] 冒烟校验通过` 就说明 wasm ABI 是配套的。这两个 `.wasm` 不入库（见 `.gitignore`），
-所以**新克隆的仓库必须先跑一次 `npm install`**；`npm run web` / `npm run export` 还会通过
-`preweb` / `preexport` 再同步一次。若安装时带了 `--ignore-scripts`，手动补 `npm run copy-wasm`。
+At the end of `npm install`, `postinstall` (that is, `npm run copy-wasm`) runs automatically: it syncs the two `.wasm` files from node_modules into `public/wasm/` and runs one real smoke check in Node (`Parser.init` + `Language.load` + `parse`). Seeing `[copy-wasm] 冒烟校验通过` ("smoke check passed") means the wasm ABIs do match. Those two `.wasm` files are not committed (see `.gitignore`), so **a freshly cloned repository must run `npm install` once**; `npm run web` / `npm run export` sync them again through `preweb` / `preexport`. If you installed with `--ignore-scripts`, run `npm run copy-wasm` by hand.
 
-然后：点「选择 .py 文件」上传，或者直接把文件拖进右侧区域。仓库里带了样例可以直接试：
-`fixtures/main.py`、`fixtures/shapes.py`、`fixtures/utils.py`。
+Then: click "Select .py Files" to upload, or drop files straight into the area on the right. The repository ships samples you can try immediately: `fixtures/main.py`, `fixtures/shapes.py`, `fixtures/utils.py`.
 
-## 界面
+## Interface
 
 ```
-┌─────────────────────────── 顶部工具栏 ───────────────────────────┐
-│ 上传  文件 chips（可单独移除）  范围: 邻域/本文件/全部  外部调用 反馈 │
-│ 统计: 函数数 / 边数 / 未解析数 + byReason    告警条（坏文件降级）     │
-├──────────────────────────┬───────────────────────────────────────┤
-│  左：代码                 │  右：调用关系图                        │
-│  文件标签页               │  dagre 分层布局（从左到右）             │
-│  语法高亮 + 行号          │  节点按所属文件着色，角标=未解析调用数    │
-│  函数名/ƒ 标记可点击       │  滚轮缩放、拖拽平移、+ / − / 适应窗口    │
-└──────────────────────────┴───────────────────────────────────────┘
+┌──────────────────────────────────────── Top bar ─────────────────────────────────────────┐
+│ Upload   file chips (each removable)   Scope: Neighborhood / This File / All   Feedback  │
+│ Stats: funcs / edges / unresolved + byReason     warning bar (bad-file degradation)      │
+├──────────────────────────────────────┬───────────────────────────────────────────────────┤
+│  Left: code                          │  Right: call graph                                │
+│  file tabs                           │  dagre layered layout (left to right)             │
+│  syntax highlighting + line numbers  │  nodes colored by file, badge = unresolved count  │
+│  clickable function name / ƒ marker  │  wheel zoom, drag to pan, + / − / fit view        │
+└──────────────────────────────────────┴───────────────────────────────────────────────────┘
 ```
 
-中间的分隔条可以拖拽（左右比例限制在 25%~75%）；窗口宽度小于 900px 时自动改成上下堆叠。
+The divider in the middle can be dragged (the left/right ratio is clamped to 25%–75%); below 900px of window width the layout automatically stacks vertically.
 
-## 双向定位（核心功能）
+## Two-way navigation (the core feature)
 
-**图 → 代码**：点击图中任意函数节点，左侧会
+**Graph → code**: clicking any function node in the graph makes the left side
 
-1. 自动切到该函数所在的文件标签页；
-2. 滚动到它的 `def` 行；
-3. 用一条高亮带覆盖整个函数体（`startLine..endLine`），并闪烁一次；
-4. 右侧图裁剪到该函数的邻域（它自己 + 直接 callers/callees）。
+1. switch to the tab of the file that owns that function;
+2. scroll to its `def` line;
+3. cover the whole function body (`startLine..endLine`) with a highlight band and flash it once;
+4. clip the graph on the right to that function's neighborhood (itself + direct callers/callees).
 
-**代码 → 图**：点击代码里的函数，右侧会
+**Code → graph**: clicking a function in the code makes the right side
 
-1. 重算范围子图与布局；
-2. 把该节点移到视口正中（保持当前缩放比例）；
-3. 高亮该节点及其直接调用边，其余节点/边降低透明度。
+1. recompute the scoped subgraph and its layout;
+2. move that node to the center of the viewport (keeping the current zoom level);
+3. highlight that node and its direct call edges, and dim every other node/edge.
 
-代码里的点击是**语义感知**的，不是简单的"点哪行选哪行"：
+Clicks in the code are **semantics-aware**, not a plain "select whichever line you clicked":
 
-- 点函数名（`def boot` 里的 `boot`）或行号旁的 `ƒ` 标记 → 选中该函数；
-- 点函数体内任意一行 → 选中**最内层**的那个函数（嵌套 `def` 场景下不会选错到外层）；
-- 点一个**调用点**（`utils.load_config(...)` 里的名字）→ 选中的是**被调方**，
-  也就是这条边的另一端 —— 跨文件时会直接跳到另一个文件的函数。
+- clicking a function name (`boot` in `def boot`) or the `ƒ` marker next to the line number → selects that function;
+- clicking any line inside a function body → selects the **innermost** function (with nested `def`s you will not accidentally select the outer one);
+- clicking a **call site** (the name in `utils.load_config(...)`) → selects the **callee**, that is, the other end of that edge — across files this jumps straight to the function in the other file.
 
-重复点击同一个函数也会重新触发定位动画（内部靠 `selection.nonce` 自增实现，
-否则 id 没变、React 认为什么都不用做）。
+Clicking the same function again re-triggers the locate animation (implemented by incrementing `selection.nonce`; otherwise the id does not change and React concludes there is nothing to do).
 
-## 反馈渠道
+## Feedback channel
 
-顶栏的 `Feedback` 打开一个只读面板。**页面对外只有两枚链接**：GitHub Issues 与邮件别名，
-两枚都是普通 `<a href>` —— 只有你点下去才会发生事。没有 `fetch`、没有 beacon、没有 `<form>`、
-没有 `window.open`、不写剪贴板。理由是：反馈是全站唯一一个天生要「往外搬信息」的功能，
-也就是「源码不上行」那条承诺唯一真正的反例风险，所以它被做成「页面上根本发不出东西」的形状。
+`Feedback` in the top bar opens a read-only panel. **The page exposes exactly two links**: GitHub Issues and an email alias, both of them plain `<a href>` — something happens only when you click. No `fetch`, no beacon, no `<form>`, no `window.open`, no clipboard writes. The reasoning: feedback is the one feature on the whole site that inherently wants to "carry information outward", which makes it the only real counterexample risk to the "your source never goes upstream" promise, so it is built in the shape of "this page physically cannot send anything".
 
-| 渠道 | 隐私 | 说明 |
-| --- | --- | --- |
-| GitHub Issues | **公开** | 主渠道：可讨论、可跟进，别人也能看到同一个问题的其它报告 |
-| 邮件别名 | 私密 | 纯转发规则，**回信来自一个个人邮箱、不是这个地址**；当前门控关闭，未开通前面板不渲染这一条 |
+| Channel       | Privacy    | Notes                                                                                                                                              |
+| ------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub Issues | **public** | The primary channel: discussable and trackable, and other people can see the other reports of the same problem                                     |
+| Email alias   | private    | A pure forwarding rule; **replies come from a personal mailbox, not from this address**. Currently gated off — until it is enabled the panel does not render this row |
 
-面板底部那块可编辑的诊断文本是**白名单 8 个字段、只有计数**，顺序固定：
+The editable diagnostics block at the bottom of the panel is a **whitelist of 8 fields, counts only**, in a fixed order:
 
 ```
 build / ua / files / funcs / edges / unresolved / warnings / persisted
 ```
 
-- 没有文件名、没有函数名、没有代码原文：收数组只吐长度，其它类型一律退化成 `0`，
-  所以那些东西**在结构上进不了**这段文本（`__tests__/feedback.test.tsx` 用一枚金丝雀钉住这件事）。
-- `build` 是正在执行的那枚入口脚本名里的哈希**前 8 位**（`npm run web` 的 dev bundle 不带哈希，
-  此时显示 `unknown` 是预期，不是故障）；刻意只取 8 位，见 ops 文档第 4 节那条「完整 32 位
-  十六进制不进文件」的戒。
-- `ua` 截到 160 字符、总长预算 600 字符，超预算只牺牲 `ua` 的尾巴，绝不整行丢弃字段。
-- 你可以随手改或删这段文本：一旦动过，**两枚链接都带上你改后的内容**；关掉再打开会丢弃草稿、
-  重新采样自动值。
+- No file names, no function names, no source text: arrays contribute only their length and every other type degrades to `0`, so those things **cannot structurally get into** this text (`__tests__/feedback.test.tsx` pins that down with a canary).
+- `build` is the **first 8 chars** of the hash in the name of the entry script that is currently executing (the dev bundle from `npm run web` carries no hash, so `unknown` there is expected, not a fault); 8 chars on purpose — see the "a full 32-hex id never goes into a file" rule in §4 of the ops doc.
+- `ua` is truncated to 160 chars and the total budget is 600 chars; over budget only the tail of `ua` is sacrificed, never a whole field.
+- You may edit or delete this text freely: once you do, **both links carry your edited version**; closing and reopening discards the draft and re-samples the automatic values.
 
-三道闸门把上面那句话变成事实，而不是靠 review 自觉：
+Three gates turn that paragraph into fact instead of relying on reviewer diligence:
 
-1. `npm run audit:egress`（CI `checks` 里的 blocking 步骤）逐字读 `src/feedback/contact.ts`、
-   `src/components/FeedbackDialog.tsx`、`src/platform/web/buildStamp.ts`：出现任何请求原语
-   （`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …）或任何未公开的邮箱字面量就红 ——
-   **注释里也算**，因为它是纯文本匹配。
-2. jest 金丝雀：把塞满显眼秘密的诊断来源喂进去，断言它们在文本、Issues href、mailto 三种输出里
-   一个都不出现。
-3. 冒烟 G1–G6：真 headless Chrome 里开→关整个来回，断言**请求数一个都没多**，并且面板真的
-   浮在最上面（关闭按钮中心的命中测试必须是它自己）。
+1. `npm run audit:egress` (a blocking step in the CI `checks` job) reads `src/feedback/contact.ts`, `src/components/FeedbackDialog.tsx` and `src/platform/web/buildStamp.ts` verbatim: any request primitive (`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …) or any unpublished email literal turns it red — **comments count too**, because it is plain-text matching.
+2. A jest canary: feed in a diagnostics source stuffed with conspicuous secrets and assert that none of them show up in any of the three outputs (the text, the Issues href, the mailto).
+3. Smoke G1–G6: a full open → close round trip in real headless Chrome asserting that **the request count did not grow by a single one**, and that the panel really floats on top (the hit test at the center of the close button must return the button itself).
 
-面板的 `data-testid` 锚点即契约，改名字等于改契约（冒烟脚本与这份文档要一起改）：
+The panel's `data-testid` anchors are the contract; renaming one means changing the contract (the smoke script and this document have to change together):
 `feedback-dialog` / `feedback-intro` / `feedback-lines` / `feedback-email-label` / `feedback-email` /
 `feedback-mail-link` / `feedback-issues-link` / `feedback-diag-label` / `feedback-diag` /
-`feedback-hint` / `feedback-close`，入口按钮是 `topbar-feedback`。
+`feedback-hint` / `feedback-close`, and the entry button is `topbar-feedback`.
 
-入口**故意不受 `busy` 门控**：解析中、以及从本机 IndexedDB 恢复出旧会话时都必须能点 ——
-盯着那份恢复出来的旧版本看的人，正是最需要报 bug 的人。
+The entry point is **deliberately not gated by `busy`**: it must stay clickable while parsing and while an old session is being restored from local IndexedDB — the person staring at that restored old version is exactly the one who most needs to report a bug.
 
-别名当前由 `CONTACT_EMAIL = null` 门控关闭（Email Routing 未开通）。启用八步 runbook（含
-「必须真发一封测试信确认到达，控制台显示 verified 不算证据」）见
-[docs/ops-deployment.md](docs/ops-deployment.md) 第 9 节；为什么长成两枚 href 见
-[ADR-0003](docs/adr/0003-feedback-channel-href-only.md)。
-## 手动验收清单
+The alias is currently gated off by `CONTACT_EMAIL = null` (Email Routing is not enabled). The eight-step enablement runbook (including "you must really send a test mail and confirm delivery — the console showing verified is not evidence") is in §9 of [docs/ops-deployment.md](docs/ops-deployment.md); for why it is shaped as two hrefs see [ADR-0003](docs/adr/0003-feedback-channel-href-only.md).
+
+## Manual acceptance checklist
 
 ```bash
 npm run web
 ```
 
-上传 `fixtures/` 里的 `main.py`、`shapes.py`、`utils.py`（三个一起选），逐项确认：
+Upload `main.py`, `shapes.py` and `utils.py` from `fixtures/` (select all three at once) and confirm each item:
 
-- [ ] 顶部状态显示解析完成，统计约为 **函数 45 / 边 47 / 未解析 28**
-      （`ambiguous 1 / external 14 / dynamic 13 / unknown 0`）—— 与 ADR-0002 的基线一致
-- [ ] 右侧出现调用图，节点按文件着色，底部有文件色图例
-- [ ] 能看到跨文件的边：`main.py::boot → utils.py::load_config`
-- [ ] 能看到递归自环：`main.py::factorial` 指向自己
-- [ ] **图 → 代码**：点 `utils.py::load_config` 节点 → 左侧切到 utils.py、滚到第 52 行、
-      函数体有高亮带
-- [ ] **代码 → 图**：点 main.py 第 22 行 `def boot():` 的函数名 → 右侧把 `boot` 居中并高亮
-- [ ] **调用点跳转**：点 main.py 第 24 行 `cfg = utils.load_config(...)` 里的名字 →
-      选中的是 `utils.py::load_config`（被调方），不是 `boot`
-- [ ] 缩放平移：滚轮以光标为锚点缩放、拖拽空白处平移、`+` / `−` / 适应窗口按钮都正常
-- [ ] 范围切换：邻域 / 本文件 / 全部 三档都能切，「全部」下节点多时顶部出现大图提示
-- [ ] 「外部调用」开关打开后出现一个灰色的 `builtins / 3rd-party` 聚合节点，关掉后消失
-- [ ] 移除单个文件：点 `utils.py` chip 上的 × → 该文件相关的节点与跨文件边一起消失，
-      左侧文件标签页同步移除，当前选中若指向被删文件则被清空
-- [ ] 错误隔离：再上传 `fixtures/broken.py`（故意语法错误）→ 顶部出现黄色告警条并点名
-      broken.py，其余三个文件照常出图，整个流程不崩
-- [ ] 大文件滚动流畅：上传一个几千行的文件，快速滚动代码区不掉帧
-      （代码区是窗口化渲染，只画可视区间 ± 24 行）
-- [ ] 顶栏 `Feedback`：**解析进行中也能点**（它是只读入口，故意不受 busy 门控）；面板里的诊断块
-      只有 8 行计数（`build` 在 dev 下是 `unknown`，因为 Metro 的 bundle 名不带入口哈希 —— 这是预期）；
-      改一下诊断文本 → 面板里那枚链接的 `href` 立刻跟着变；关掉再打开 → 草稿丢弃、回到自动值
-- [ ] 刷新页面 → 文件与图还在（从本机 IndexedDB 恢复）；点 Clear 后再刷新 → 干净无残留
+- [ ] The status at the top shows parsing finished, with roughly **funcs 45 / edges 47 / unresolved 28**
+      (`ambiguous 1 / external 14 / dynamic 13 / unknown 0`) — matching the ADR-0002 baseline
+- [ ] The call graph appears on the right, nodes colored per file, with a file-color legend at the bottom
+- [ ] A cross-file edge is visible: `main.py::boot → utils.py::load_config`
+- [ ] A recursive self-loop is visible: `main.py::factorial` points at itself
+- [ ] **Graph → code**: click the `utils.py::load_config` node → the left switches to utils.py, scrolls to line 52,
+      and the function body carries a highlight band
+- [ ] **Code → graph**: click the function name on line 22 of main.py (`def boot():`) → the right centers and highlights `boot`
+- [ ] **Call-site jump**: click the name inside `cfg = utils.load_config(...)` on line 24 of main.py →
+      what gets selected is `utils.py::load_config` (the callee), not `boot`
+- [ ] Zoom & pan: the wheel zooms anchored at the cursor, dragging empty space pans, and `+` / `−` / Fit View all work
+- [ ] Scope switching: Neighborhood / This File / All all switch, and under "All" a large-graph hint appears at the top when there are many nodes
+- [ ] Removing a single file: click the × on the `utils.py` chip → its nodes and cross-file edges disappear together,
+      the file tab on the left is removed in sync, and the current selection is cleared if it pointed into the removed file
+- [ ] Error isolation: also upload `fixtures/broken.py` (a deliberate syntax error) → a yellow warning bar names
+      broken.py at the top, the other three files still render, and the whole flow does not crash
+- [ ] Smooth scrolling on big files: upload a several-thousand-line file and scroll the code area fast without dropping frames
+      (the code area is windowed and paints only the visible range ± 24 lines)
+- [ ] `Feedback` in the top bar: **clickable even while parsing is in progress** (it is a read-only entry point and deliberately not gated by busy);
+      the diagnostics block in the panel is exactly 8 lines of counts (`build` reads `unknown` under dev, because Metro's bundle name carries no entry hash — that is expected);
+      edit the diagnostics text → the `href` of the link in the panel changes immediately; close and reopen → the draft is discarded and the automatic values are back
+- [ ] Reload the page → files and graph are still there (restored from local IndexedDB); click Clear and reload again → clean, nothing left
 
-上面**加粗的三组核心项**（图 → 代码、代码 → 图、调用点跳转）已经自动化了，
-改交互逻辑时优先跑 `node scripts/browser-verify.mjs`，见下一节。
+The **three bolded core groups** above (graph → code, code → graph, call-site jump) are already automated.
+When changing interaction logic, run `node scripts/browser-verify.mjs` first — see the next section.
 
-## 浏览器自动化验收（真 Chrome + CDP）
+## Browser automation acceptance (real Chrome + CDP)
 
-jest + jsdom 测不出「闪烁高亮在真实 rAF 下淡出」「SVG 节点能不能被真实鼠标点中」这类问题
-（提交 `d0f0832` 修的正是这种只在真浏览器里复现的 bug），所以另配了一个真浏览器脚本：
-headless Chrome + 原生 CDP 协议，**不依赖 playwright / puppeteer**，本机装了 Chrome 或
-Chromium 就能跑。
+jest + jsdom cannot catch problems like "the flashing highlight fades out under real rAF" or "can an SVG node actually be hit by a real mouse" (commit `d0f0832` fixed exactly such a browser-only bug), so there is a second, real-browser script: headless Chrome + the native CDP protocol, with **no dependency on playwright / puppeteer** — anything with Chrome or Chromium installed locally can run it.
 
 ```bash
-npm run export                  # 先产出 dist/
-node scripts/browser-verify.mjs # 47 项断言（含 16 项承诺面 E/F/G），全绿退出码 0
+npm run export                  # produce dist/ first
+node scripts/browser-verify.mjs # 47 assertions (16 of them promise-surface E/F/G); all green => exit code 0
 ```
 
-脚本自己起一个静态服务器托管 `dist/`，并把 `dist/_headers` 里的规则原样套到每个响应上
-（冒烟跑的正是线上那一套 CSP）。端口被占用时会复用已有服务，但先校验两件事：那个端口上跑的
-确实是本应用（判据是 HTML 里带着本项目 Metro 的入口脚本标签，**不用 `<title>`**，标题一改
-就会误判），且服务端字节与 `dist/index.html` 完全一致。然后拉起 headless Chrome，把
-`fixtures/` 三个文件喂进去，**用真实鼠标事件**点击 SVG 节点与代码 token，逐项断言：
+The script starts its own static server for `dist/` and applies the rules in `dist/_headers` verbatim to every response (so the smoke test runs exactly the production CSP). When the port is taken it reuses the existing service, but only after verifying two things: what runs on that port really is this application (the criterion is this project's Metro entry script tag in the HTML — **not `<title>`**, which would misfire as soon as the title changes), and the bytes served match `dist/index.html` exactly. It then launches headless Chrome, feeds in the three `fixtures/` files and clicks SVG nodes and code tokens **with real mouse events**, asserting item by item:
 
-| 组           | 覆盖                                                                                                    |
-| ------------ | ------------------------------------------------------------------------------------------------------- |
-| 上传         | 没有红色致命错误条；图渲染出来（基线 45 节点 / 47 边）                                                  |
-| A 图 → 代码  | 切文件、滚到 `def` 行且完整可见、高亮带落在 `def` 行；闪烁出现 → 峰值 → 淡出 → 卸载；重复点击能重新触发 |
-| B 代码 → 图  | 目标节点居中（偏差 < 40px）、描边加粗；代码 → 图方向**不**闪烁                                          |
-| C 深层跨文件 | 从 `shapes.py` 跳到 `utils.py:95`，滚动量、高亮带位置、闪烁都对                                         |
-| D 语义点击   | 点调用点选中的是被调方；点函数体中间行选中的是所在函数                                                  |
-| 稳定性       | 控制台无 error、页面无未捕获异常                                                                        |
-| S 产物一致性 | 服务端返回的字节 == `dist/index.html` 的字节（sha256 相同）；响应头里真的带着 `_headers` 的 CSP；产物 HTML 里零绝对 URL |
-| E 承诺面     | 全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件 / 跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
-| F 图标链路   | `<head>` 里真有注入的四个图标 link；每个 href 都能当 `<img>` 解码（同源 + CSP `img-src` + MIME 全对） |
-| G 反馈面板   | 顶栏入口开得出面板、且面板**真浮在最上面**（关闭按钮中心的命中测试就是它自己）；开→关整个来回**请求数一个都没多**；诊断块恰好 8 行、第 i 行是第 i 个白名单字段、`build` == 被测入口哈希前 8 位；计数与页面上真实渲染的数字自洽；`<a>` 数 == 门控期望且 Issues 锚点 `target`/`rel` 正确 |
+| Group             | Covers                                                                                                                                                                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Upload            | no red fatal error bar; the graph renders (baseline 45 nodes / 47 edges)                                                                                                                                                                                             |
+| A graph → code    | switches file, scrolls to the `def` line fully visible, the highlight band lands on the `def` line; the flash appears → peaks → fades → unmounts; repeated clicks re-trigger it                                                                                        |
+| B code → graph    | the target node is centered (deviation < 40px) and its stroke is thickened; the code → graph direction does **not** flash                                                                                                                                            |
+| C deep cross-file | jumps from `shapes.py` to `utils.py:95`; scroll amount, highlight band position and flash are all correct                                                                                                                                                            |
+| D semantic clicks | clicking a call site selects the callee; clicking a middle line of a body selects the enclosing function                                                                                                                                                             |
+| Stability         | no console errors, no uncaught page exceptions                                                                                                                                                                                                                       |
+| S artifact identity | the bytes served == the bytes of `dist/index.html` (same sha256); the response headers really carry the CSP from `_headers`; zero absolute URLs in the artifact HTML                                                                                                 |
+| E promise surface | every request same-origin / every request a GET / zero request bodies / no 4xx·5xx / every 200 maps to a file that really exists in `dist/` / what runs is that entry JS from `dist` / no user content in any URL / zero `securitypolicyviolation` under the production CSP |
+| F icon chain      | `<head>` really contains the four injected icon links; every href decodes as an `<img>` (same origin + CSP `img-src` + MIME all correct)                                                                                                                              |
+| G feedback panel  | the top-bar entry opens the panel and the panel **really floats on top** (the hit test at the center of the close button is the button itself); a full open → close round trip adds **not a single request**; the diagnostics block has exactly 8 lines, line i is whitelist field i, and `build` == the first 8 chars of the entry hash under test; the counts are consistent with the numbers really rendered on the page; the `<a>` count == what the gate expects and the Issues anchor's `target`/`rel` are correct |
 
-可选环境变量：
+Optional environment variables:
 
-| 变量               | 默认     | 作用                                                               |
-| ------------------ | -------- | ------------------------------------------------------------------ |
-| `CODEMAP_PORT`     | `8099`   | 静态服务端口；被占用时复用已有服务（会校验字节与 `dist` 一致且确为本应用） |
-| `CODEMAP_CDP_PORT` | `9333`   | Chrome 远程调试端口                                                |
-| `CHROME_PATH`      | 自动探测 | 浏览器可执行文件路径（Windows / macOS / Linux 常见位置都会试一遍） |
+| Variable           | Default        | Purpose                                                                                                                                          |
+| ------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CODEMAP_PORT`     | `8099`         | static server port; when taken, the existing service is reused (its bytes are verified to match `dist` and to really be this application)         |
+| `CODEMAP_CDP_PORT` | `9333`         | Chrome remote debugging port                                                                                                                     |
+| `CHROME_PATH`      | auto-detected  | path to the browser executable (common Windows / macOS / Linux locations are all tried)                                                          |
 
-截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`、`07-feedback-panel.png`）与 JSON 报告
-（`codemap-verify-report.json`）都写在系统临时目录，不入库。跑完脚本会关掉自己起的服务器。
+Screenshots (`codemap-shots/01-initial.png` … `06-deep-crossfile.png`, `07-feedback-panel.png`) and the JSON report (`codemap-verify-report.json`) are written to the system temp directory and are not committed. When it finishes, the script shuts down the server it started.
 
-## 站点图标
+## Site icon
 
-`public/icon.svg` 是唯一真源：浅纸面 + 抽象代码图 —— 四色实心圆角节点（蓝/黄/绿/紫，即主题的文件色），
-由三条主题强调色的圆头粗笔画相连（保留旧版「节点 + 连线」骨架，去掉网格、光晕、箭头与内线）；
-`npm run icons` 用真 Chrome 把它栅格化成 `favicon.ico`（16/32/48，PNG-in-ICO）、
-`apple-touch-icon.png`（180）、`icon-192.png`、`icon-512.png`，**全部入库** —— 导出与 CI 的
-checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 postexport 先跑
-`scripts/inject-html-head.mjs`，把四个 `<link>` 与两个 `<meta>` 写进产物 HTML 的 `<head>`
-（同源相对路径；幂等哨兵 `data-codemap="icon"`，重复运行不叠标签），再跑 `polish-dist.mjs`
-自检 —— 注入进来的 href 也在「零绝对 URL」门禁的覆盖范围内，不是门禁之外的飞地。
-图标配色只允许来自 `src/theme.ts`（`__tests__/icons.test.ts` 锁死这条不变量），
-换主题色时图标跟着换；headless Chrome 不抓 `<link rel="icon">`，所以冒烟里用 `<img>`
-主动把每个注入 href 拉一遍（F 组），请求同样进 E 组承诺面。
+`public/icon.svg` is the single source of truth: a light paper background + an abstract code graph — four solid rounded nodes in blue/yellow/green/purple (the theme's file colors) joined by three thick round-capped strokes in the theme accent color (keeping the old "nodes + links" skeleton, dropping the grid, the glow, the arrows and the inner lines). `npm run icons` rasterizes it with real Chrome into `favicon.ico` (16/32/48, PNG-in-ICO), `apple-touch-icon.png` (180), `icon-192.png` and `icon-512.png`, **all committed** — so export and the CI checks job can produce a complete `dist/` without a browser. The postexport step of `npm run export` first runs `scripts/inject-html-head.mjs`, which writes four `<link>`s and two `<meta>`s into the `<head>` of the artifact HTML (same-origin relative paths; idempotency sentinel `data-codemap="icon"`, so repeated runs do not stack tags), then runs `polish-dist.mjs` for self-checks — the injected hrefs are covered by the "zero absolute URL" gate too, not an enclave outside it. Icon colors may only come from `src/theme.ts` (`__tests__/icons.test.ts` locks this invariant), so the icon follows the theme when its colors change. Headless Chrome does not fetch `<link rel="icon">`, so the smoke test actively pulls every injected href through an `<img>` (group F), and those requests go through the group E promise surface as well.
 
-## 命令
+## Commands
 
-| 命令                              | 作用                                                    |
-| --------------------------------- | ------------------------------------------------------- |
-| `npm run web`                     | 启动 dev server（自动同步 wasm）                        |
-| `npm run export`                  | 生产导出到 `dist/`：preexport 同步 wasm，postexport 注入图标 `<head>` 再剥注释自检 |
-| `npm run copy-wasm`               | 只同步 + 冒烟校验 wasm；加 `-- --no-verify` 跳过校验    |
-| `npm test`                        | jest 全量测试                                           |
-| `npm run typecheck`               | `tsc --noEmit`（strict）                                |
-| `npm run lint`                    | eslint                                                  |
-| `npm run format`                  | prettier 写入                                           |
-| `npm run verify`                  | typecheck + lint + test，提交前跑这个                   |
-| `npm run icons`                   | 从 `public/icon.svg` 重生成 ico / 180 / 192 / 512 栅格档  |
-| `npm run audit:egress`            | 静态扫描联系路径那三个文件：出现请求原语或未公开邮箱字面量就红（CI blocking） |
-| `npm run smoke`                   | 真 Chrome + CDP 自动化验收（先 `npm run export`）        |
-| `node scripts/browser-verify.mjs` | 同上，直接跑脚本                                        |
+| Command                           | Purpose                                                                                                          |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `npm run web`                     | start the dev server (syncs wasm automatically)                                                                  |
+| `npm run export`                  | production export into `dist/`: preexport syncs wasm, postexport injects the icon `<head>` then strips comments and self-checks |
+| `npm run copy-wasm`               | only sync + smoke-check wasm; add `-- --no-verify` to skip the check                                             |
+| `npm test`                        | the full jest suite                                                                                              |
+| `npm run typecheck`               | `tsc --noEmit` (strict)                                                                                          |
+| `npm run lint`                    | eslint                                                                                                           |
+| `npm run format`                  | prettier write                                                                                                   |
+| `npm run verify`                  | typecheck + lint + test — run this before committing                                                             |
+| `npm run icons`                   | regenerate the ico / 180 / 192 / 512 rasters from `public/icon.svg`                                              |
+| `npm run audit:egress`            | statically scan the three contact-path files: any request primitive or unpublished email literal turns it red (CI blocking) |
+| `npm run smoke`                   | real Chrome + CDP automation acceptance (run `npm run export` first)                                             |
+| `node scripts/browser-verify.mjs` | same thing, running the script directly                                                                          |
 
-## 目录结构
+## Directory layout
 
 ```
-app/                      expo-router 入口（单页）
+app/                      expo-router entry (single page)
 public/
-  _headers                线上响应头（CSP / 缓存 / HSTS），`expo export` 会整目录拷进 dist/
-  robots.txt              允许被检索（改成 Disallow: / 即全站禁抓）
-  icon.svg                站点图标唯一真源（矢量）；改完必须 npm run icons 重生成下面四个
-  favicon.ico             16/32/48 三档 PNG-in-ICO（派生物，入库）
-  apple-touch-icon.png    iOS 主屏 180x180（派生物，入库）
-  icon-192.png            通用 192x192（派生物，入库）
-  icon-512.png            512x512（派生物，入库）
-  wasm/                   两个 .wasm（由 copy-wasm 生成，不入库）
+  _headers                production response headers (CSP / cache / HSTS); `expo export` copies the whole directory into dist/
+  robots.txt              crawling allowed (change it to Disallow: / to ban the whole site)
+  icon.svg                single source of truth for the site icon (vector); after editing you must run npm run icons to regenerate the four below
+  favicon.ico             16/32/48 PNG-in-ICO (derived, committed)
+  apple-touch-icon.png    iOS home screen 180x180 (derived, committed)
+  icon-192.png            generic 192x192 (derived, committed)
+  icon-512.png            512x512 (derived, committed)
+  wasm/                   the two .wasm files (generated by copy-wasm, not committed)
 scripts/
-  copy-wasm.mjs           同步 wasm + Node 冒烟校验
-  build-icons.mjs         真 Chrome 栅格化 icon.svg -> ico/180/192/512 + 自检
-  inject-html-head.mjs    postexport 第一步：把图标 link 与 meta 注入 dist 的 <head>
-  polish-dist.mjs         导出后处理：剥 HTML 注释 + 结构自检 + 零绝对 URL 自检
-  browser-verify.mjs      真浏览器（headless Chrome + CDP）验收脚本
-  audit-egress.mjs        静态扫描联系路径：请求原语 / 未公开邮箱字面量（CI blocking 闸门）
+  copy-wasm.mjs           sync wasm + Node smoke check
+  build-icons.mjs         rasterize icon.svg with real Chrome -> ico/180/192/512 + self-check
+  inject-html-head.mjs    postexport step 1: inject the icon links and meta into dist's <head>
+  polish-dist.mjs         post-export processing: strip HTML comments + structural self-check + zero-absolute-URL self-check
+  browser-verify.mjs      real-browser (headless Chrome + CDP) acceptance script
+  audit-egress.mjs        static scan of the contact path: request primitives / unpublished email literals (CI blocking gate)
 .github/workflows/
-  ci-and-deploy.yml       门禁 -> 浏览器冒烟 -> 部署，三个 job 共用同一次构建的产物
-fixtures/                 测试样例（main/shapes/utils/broken）
+  ci-and-deploy.yml       gate -> browser smoke -> deploy; the three jobs share the artifact of one single build
+fixtures/                 test samples (main/shapes/utils/broken)
 src/
   parser/
-    treeSitter.ts         wasm 生命周期：init / Language.load / 单例 / 冒烟校验
-    treeLike.ts           语法树的最小接口（让解析规则可以脱离 wasm 单测）
-    modules.ts            文件路径 -> 模块名索引（包根推断、__init__.py、尾段模糊匹配）
-    imports.ts            import 绑定表（5 种形式 + as 别名 + 通配 + 相对导入）
-    symbols.ts            带作用域栈遍历，产出 FuncSymbol / ClassSymbol
-    locals.ts             局部变量帧（用于识别遮蔽）
-    resolveCalls.ts       调用点解析（保守策略，见 ADR-0002）
-    builtins.ts           Python 内置名单
-    highlight.ts          按叶子节点类型着色的 token span（按行缓存）
-    analyze.ts            单文件管线编排；makePyFile
-    types.ts              对外数据模型
+    treeSitter.ts         wasm lifecycle: init / Language.load / singleton / smoke check
+    treeLike.ts           minimal syntax-tree interface (lets the parsing rules be unit-tested without wasm)
+    modules.ts            file path -> module name index (package root inference, __init__.py, fuzzy last-segment match)
+    imports.ts            import binding table (5 forms + as aliases + wildcards + relative imports)
+    symbols.ts            traversal with a scope stack; produces FuncSymbol / ClassSymbol
+    locals.ts             local variable frames (used to detect shadowing)
+    resolveCalls.ts       call-site resolution (conservative strategy, see ADR-0002)
+    builtins.ts           the Python builtin name list
+    highlight.ts          token spans colored by leaf node type (cached per line)
+    analyze.ts            single-file pipeline orchestration; makePyFile
+    types.ts              the public data model
   graph/
-    buildGraph.ts         符号 + 调用点 -> 节点/聚合边/统计
-    scope.ts              邻域 / 本文件 / 全部 三种裁剪 + external 聚合
-    layout.ts             dagre 包装（纯函数，LR 分层，输出坐标与边路径）
-  state/store.ts          zustand：files / graph / selection(+nonce) / scope / view / split
+    buildGraph.ts         symbols + call sites -> nodes / aggregated edges / stats
+    scope.ts              neighborhood / this-file / all clipping
+    layout.ts             dagre wrapper (pure function, LR layering, outputs coordinates and edge paths)
+  state/store.ts          zustand: files / graph / selection(+nonce) / scope / view / split
   components/
-    AppRoot.tsx           装配 + wasm 加载失败的红色错误条
-    TopBar.tsx            上传、文件 chips、范围切换、反馈入口、统计、告警条
-    FeedbackDialog.tsx    反馈面板：原生 div/a/textarea 的只读遮罩，对外只有两枚 href
-    SplitLayout.tsx       左右分栏 + 可拖拽分隔条 + 窄屏堆叠
-    CodePane/             文件标签页 + 窗口化代码视图 + 可点击范围计算
-    GraphPane/            SVG 图：平移缩放、节点/边渲染、高亮与降透明
-    UploadPanel/          空态：选择文件 + 拖放区
-  feedback/contact.ts     反馈规则层：白名单 8 字段 + 计数收口 + 两枚 href（零框架 import）
-  platform/web/           唯一的 DOM 触点：文件选择/拖放、非被动 wheel 与指针监听
-    buildStamp.ts         从正在执行的 <script src> 取入口哈希前 8 位，取不到返回 unknown
-  theme.ts                深色主题色板、字体、间距
-docs/adr/                 架构决策记录
-__tests__/                jest（纯函数 + 组件 + 真 wasm 全链路）
+    AppRoot.tsx           assembly + the red error bar for wasm load failure
+    TopBar.tsx            upload, file chips, scope switch, feedback entry, stats, warning bar
+    FeedbackDialog.tsx    feedback panel: a read-only overlay of native div/a/textarea whose only outward surface is two hrefs
+    SplitLayout.tsx       left/right split + draggable divider + narrow-screen stacking
+    CodePane/             file tabs + windowed code view + clickable range computation
+    GraphPane/            the SVG graph: pan/zoom, node/edge rendering, highlight and dimming
+    UploadPanel/          empty state: file picker + drop zone
+  feedback/contact.ts     feedback rule layer: 8-field whitelist + count-only reduction + two hrefs (zero framework imports)
+  platform/web/           the only DOM touchpoints: file picking/dropping, non-passive wheel and pointer listeners
+    buildStamp.ts         takes the first 8 chars of the entry hash from the executing <script src>; returns unknown if unavailable
+  theme.ts                dark theme palette, fonts, spacing
+docs/adr/                 architecture decision records
+__tests__/                jest (pure functions + components + the real-wasm full chain)
 ```
 
-## 解析能力与限制
+## Parsing capability and limits
 
-**能连的边**：同文件直接调用、`mod.func()` 跨文件调用、`from m import f` 后裸调 `f()`、
-带 `as` 别名的 import、相对 import、`self.method()` / `cls.method()`、`Cls.staticmethod()`、
-实例化 `Cls(...)` → `__init__`、嵌套函数调用外层函数、递归自环。
+**Edges that do get drawn**: direct calls within a file, cross-file `mod.func()` calls, a bare `f()` after `from m import f`, imports with `as` aliases, relative imports, `self.method()` / `cls.method()`, `Cls.staticmethod()`, instantiation `Cls(...)` → `__init__`, a nested function calling its enclosing function, recursive self-loops.
 
-**不连的调用点**会带一个 reason 被记录下来（`ambiguous` / `external` / `dynamic` / `unknown`），
-并在 UI 上以节点角标 + 顶部统计的形式暴露。完整规则、理由和被否掉的备选方案见
-[ADR-0002](docs/adr/0002-conservative-call-resolution.md)。
+**Call sites that do not get an edge** are recorded with a reason (`ambiguous` / `external` / `dynamic` / `unknown`) and surfaced in the UI as a node badge plus the stats at the top. The complete rules, the rationale and the rejected alternatives are in [ADR-0002](docs/adr/0002-conservative-call-resolution.md).
 
-其他限制：
+Other limits:
 
-- 只接受 `.py` / `.pyi` 文本文件；单文件按 1MB 上限处理，超出会提示跳过。
-- 持久化只发生在你自己的浏览器里：会话（含全部文件内容）写入本机 IndexedDB，刷新可恢复；
-  没有服务端存储，清除站点数据等于彻底删除。
-- 解析在浏览器主线程分批执行（每批 3 个文件），几十个文件无感；上千文件的大仓会卡，
-  Web Worker 是已预留但未启用的优化位。
-- 只做静态语法分析，不执行任何被上传的代码。
+- Only `.py` / `.pyi` text files are accepted; each file is capped at 1MB and anything over that is reported as skipped.
+- Persistence happens only inside your own browser: the session (including all file contents) is written to local IndexedDB and restored on reload; there is no server-side storage, and clearing site data is a complete deletion.
+- Parsing runs in batches on the browser main thread (3 files per batch) — dozens of files feel instant; a repository with thousands of files will stall. A Web Worker is a reserved but not yet enabled optimization slot.
+- Static syntax analysis only; none of the uploaded code is ever executed.
 
-## 测试
+## Tests
 
-三层，`npm test` 全跑：
+Three layers, all run by `npm test`:
 
-| 层                 | 文件                                                                                                                         | 依赖 wasm？                        |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| **纯函数单测**     | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke` | 否（用 `treeLike` 接口喂假语法树） |
-| **组件与交互**     | `appFlow.test.tsx` / `topBar.test.ts` / `feedback.test.tsx`（金丝雀 + 白名单形状 + 面板渲染）              | 否（预置 store）                   |
-| **真 wasm 全链路** | `parser.wasm.test.ts` / `imports.wasm.test.ts` / `e2e.wasm.test.tsx`                                                         | 是                                 |
+| Layer                        | Files                                                                                                                                       | Needs wasm?                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| **Pure-function unit tests** | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke`                  | No (fake syntax trees through the `treeLike` interface) |
+| **Components & interaction**  | `appFlow.test.tsx` / `topBar.test.ts` / `feedback.test.tsx` (canary + whitelist shape + panel rendering)                                     | No (store pre-seeded)                           |
+| **Real-wasm full chain**     | `parser.wasm.test.ts` / `imports.wasm.test.ts` / `e2e.wasm.test.tsx`                                                                         | Yes                                             |
 
-`public/wasm/*.wasm` 不存在时，第三层会**整体跳过**而不是失败（`describeWasm` 助手），
-这样即便安装时带了 `--ignore-scripts` 也能先把前两层跑完。想跑全量：先 `npm run copy-wasm`
-（正常 `npm install` 已由 `postinstall` 自动完成）。
+When `public/wasm/*.wasm` does not exist, the third layer **skips entirely** instead of failing (the `describeWasm` helper), so even an install done with `--ignore-scripts` can run the first two layers. To run everything: `npm run copy-wasm` first (a normal `npm install` already did it through `postinstall`).
 
-`e2e.wasm.test.tsx` 是最接近真实使用的一份：真 wasm 解析 fixtures → `store.loadFiles` →
-渲染 `AppRoot` → 真点击，覆盖上面验收清单里的两条核心定位路径、坏文件降级、移除文件同步。
+`e2e.wasm.test.tsx` is the one closest to real usage: real wasm parses the fixtures → `store.loadFiles` → render `AppRoot` → real clicks, covering the two core navigation paths from the acceptance checklist above, bad-file degradation, and file-removal sync.
 
-改解析规则时注意 `fixtures/` 的统计基线（函数 45 / 边 47 / 未解析 28），
-数字变了要能解释原因，别顺手改测试。
+When changing parsing rules, mind the `fixtures/` statistics baseline (funcs 45 / edges 47 / unresolved 28). If the numbers move you must be able to explain why — do not just edit the test.
 
-`npm test` 之外还有第四层：真浏览器验收（`node scripts/browser-verify.mjs`，不在 `npm test` 里）。
-它跑在真实 Chrome + rAF + 原生鼠标事件上，覆盖 jsdom 测不到的闪烁淡出与 SVG 命中，
-见「浏览器自动化验收」一节。
+Beyond `npm test` there is a fourth layer: real-browser acceptance (`node scripts/browser-verify.mjs`, not part of `npm test`). It runs on real Chrome + rAF + native mouse events and covers the flash fade-out and the SVG hit-testing that jsdom cannot; see the "Browser automation acceptance" section.
 
-## 故障排查
+## Troubleshooting
 
-**`[copy-wasm] 冒烟校验失败` / 页面顶部出现红色错误条**
+**`[copy-wasm] 冒烟校验失败` (smoke check failed) / a red error bar at the top of the page**
 
-多半是 `web-tree-sitter` 与语言 wasm 的 ABI 不配套。这两个包在 `package.json` 里是精确锁版本的
-（`web-tree-sitter` `0.27.0` + `@vscode/tree-sitter-wasm` `0.3.1`），不要单独升级其中一个。
-升级后必须重跑 `npm run copy-wasm` 并确认冒烟通过。红色错误条会原样显示 `Language.load`
-抛出的错误，不静默降级。
+Most likely the `web-tree-sitter` and language wasm ABIs do not match. Both packages are pinned exactly in `package.json` (`web-tree-sitter` `0.27.0` + `@vscode/tree-sitter-wasm` `0.3.1`); do not upgrade one of them alone. After an upgrade you must re-run `npm run copy-wasm` and confirm the smoke check passes. The red error bar shows the error thrown by `Language.load` verbatim — no silent degradation.
 
-**页面能开但图是空的 / 报 `LinkError`**
+**The page opens but the graph is empty / `LinkError`**
 
-检查 `public/wasm/` 下是否真的有两个 `.wasm`。dev server 与 `expo export` 都会带上 `public/`，
-所以路径是 `/wasm/tree-sitter.wasm`。
+Check whether there really are two `.wasm` files under `public/wasm/`. Both the dev server and `expo export` ship `public/`, so the path is `/wasm/tree-sitter.wasm`.
 
-**滚轮缩放时整个页面跟着滚**
+**The whole page scrolls when zooming with the wheel**
 
-wheel 监听必须是**非被动**的（`passive: false`）才能 `preventDefault`。react-native-web 的
-`onWheel` 做不到这点，所以我们在 `src/platform/web/domEvents.ts` 里自己订阅原生事件。
-改这块时别退回到 RN 的 `onWheel`。
+The wheel listener must be **non-passive** (`passive: false`) to be able to `preventDefault`. react-native-web's `onWheel` cannot do that, which is why we subscribe to the native event ourselves in `src/platform/web/domEvents.ts`. Do not regress this back to RN's `onWheel`.
 
-**`npm run export` 在某些受限环境里报 EPERM**
+**`npm run export` reports EPERM in some restricted environments**
 
-Expo 会往用户目录写状态文件（`~/.expo/state.json`）。在写入被沙箱限制的环境里，把
-`EXPO_HOME` 指到仓库内即可：
+Expo writes a state file into the user directory (`~/.expo/state.json`). In an environment where that write is sandboxed, point `EXPO_HOME` inside the repository:
 
 ```powershell
 $env:EXPO_NO_TELEMETRY = "1"; $env:CI = "1"; $env:EXPO_HOME = "$PWD\.expo-home"
 npx expo export --platform web --output-dir dist
 ```
 
-## 发布与运维
+## Release and operations
 
-完整过程、平台坑与回滚步骤记录在 [docs/ops-deployment.md](docs/ops-deployment.md)。两条最常做的操作：
+The full process, the platform pitfalls and the rollback steps are recorded in [docs/ops-deployment.md](docs/ops-deployment.md). The two most common operations:
 
-- **停发布**：把仓库变量 `DEPLOY_ENABLED` 改成 `false`。这是唯一开关，不删代码、不删 job、不删凭据。
-- **确认线上就是我测过的那份**：`npm run export` 末尾会打印 `dist/index.html` 的 sha256；
-  冒烟的 `S1` 断言比对服务端字节；`check-deploy.mjs --dist=dist` 比对线上与本地产物。
+- **Stop publishing**: set the repository variable `DEPLOY_ENABLED` to `false`. That is the only switch — no code deleted, no job deleted, no credential deleted.
+- **Confirm production is the very build you tested**: `npm run export` prints the sha256 of `dist/index.html` at the end; the smoke test's `S1` assertion compares server bytes; `check-deploy.mjs --dist=dist` compares production against the local artifact.

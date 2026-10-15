@@ -552,3 +552,36 @@
 - 遗留：`%TEMP%` 下 `cm-pub-7`、`cm-pub-8`、`cm-pub-recon`、`cm-pub-9`、`cm-pub-10-verify`、
   `cm-pub-10-artifact`、`cm-pub-10-live` 这些临时目录还在 —— 递归删除被本机策略挡住，只能人工清理。公开侧
   此刻服务 `ff0697e`，回滚方式按 §11：下一次 scrub 轮覆盖推 `main`，不可变 host 各自留在历史里。
+
+## 2026-10-15 README 三语化轮（默认英文；顶部新增 Demo 段；顺手清掉两处文档漂移）
+
+- 用户两条要求：① README 出英/中/日三语、**默认英文**；② 开头加一个 Demo 段指向 `python-code-map.com`。落地成
+  三个文件：`README.md` 由中文**重写为英文**（27,129 B / 377 行 → 33,454 B / 321 行），原中文内容迁到新增的
+  `README.zh-CN.md`（27,444 B / 385 行），`README.ja.md` 为全新翻译（40,765 B / 321 行）。三份第 3 行是同一条
+  语言切换条，当前语言加粗且不带链接。英/日两份都显式写明「`docs/` 下（含 ADR）仍是中文」—— 不假装全仓已翻译。
+- Demo 段是三份里**第一个 h2**（原来第一个 h2 是「快速开始」）：主链 `python-code-map.com`，紧跟一句兜底
+  「若这个域名在你的网络里打不开，同一份构建也服务在 `python-code-map.pages.dev`」。
+- 可达性**本轮重新量过**（上一轮立下的纪律：「apex 此刻可达」这种话不能继承）：apex 第一次 25 s 超时、0 字节；
+  第二次 `307` 跳到企业网关自己的校验 URL（主机名按 `4debd1f` 那条省略写法**不写**；`audit-public-repo` 的
+  `internal-git-host` 只匹配 `.corp.` / `intranet.` 那类形状，抓不到这种，只能手工按类别过），响应里没有 `cf-ray`；
+  而 DNS 本身正常解析到 Cloudflare 的地址 ⇒ 挡在 HTTP 层、不是 DNS 层，按 §8「先问谁答的」判成中间设备，
+  **不是站点故障**。兜底那条实测 `200` / `1,455 B`，sha256 前缀 `8e05b22f` 与上一轮记下的 CI 产物 `index.html`
+  **逐字节一致** ⇒ 兜底链接确实服务已发布的那份构建。所以 README 里只写「打不开就用兜底」，**没有**写「apex 可达」。
+- 顺手清掉两处文档漂移（都是代码早改了、README 没跟上）：①「显示外部调用」开关 —— `7f574ad` 已把 `showExternal` /
+  `EXTERNAL_NODE_ID` / `withExternalNode` 从代码里删掉，`git grep showExternal -- src __tests__` 现在是空的，
+  三份 README 里这段一并删除；② ADR 计数「两个」→「三个」—— `8720972` 加了 `docs/adr/0003-…-href-only.md`
+  却没动计数句，已核对该句在 `8720972^`、`8720972`、`HEAD` 三处**逐字相同**，确实是那次漏改。
+- 三份的结构对齐是**脚本量出来的**，不是眼看：均为 14 个 h2 / 34 条 bullet / 14 个 checkbox / 40 行表格 /
+  7 对代码围栏 / 9 条相对链接，且 9 条链接的目标文件全部存在；三份都是纯 LF、无 BOM、以换行结尾。行数不同是因为
+  中文版沿用了原来的硬折行、英日两份重新折行 ⇒ **不变量是结构，不是行数**。
+- 自查时抓到一个我自己写出来的回归：英/日两份的 ASCII 图**最初落在代码围栏外面**，渲染会把框线字符打散。已修，
+  现在三份的围栏数都是 7 对（偶数、闭合）。另外把日文里的「邊」改成正确的「辺」。
+- 两处**故意不改**：① 测试数字（`funcs 45 / edges 47 / unresolved 28`、`47` 项断言含 16 项承诺面 E/F/G）原样搬进
+  三份 —— 按既有规矩，基线数字不许顺手重写，动了就得能解释；② `src/components/TopBar.tsx:5` 的文件头注释里仍写着
+  「显示外部调用」开关（同一处漂移的第三个实例），本轮**没碰 `src/`**：这个工作树里另有并发会话，本轮提交刻意收成纯 docs。
+- 并发基线取证：`git log f2f3267..HEAD -- README.md` 为空，`git show HEAD:README.md` = 27,129 B / 377 行 / 纯 LF、
+  第一个 h2 仍是「快速开始」⇒ 镜像那一轮（`0a21886`）之后没人动过 README；它记的「工作树里另一个会话在改国际化、
+  且没进那次发布」与此一致。开工前按 AGENTS.md 同步过：`git -c maintenance.auto=false pull --ff-only origin master`
+  = Already up to date，`origin/master...HEAD` = 0/0。
+- 写法纪律：本轮 `git add` 一律**点名**四个文件（`README.md`、`README.zh-CN.md`、`README.ja.md`、`log.md`），
+  没有用过 `-A`；探测用的临时文件都写在 `%TEMP%`，没有落进仓库。

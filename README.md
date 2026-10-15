@@ -13,15 +13,16 @@ _The repository name, the npm package name and the IndexedDB database name are a
 Upload one or more `.py` files and see their function call graph in the browser — code on the left, graph on the right, and a click on either side locates the other.
 
 - **Pure front end, zero egress**: no backend service, no accounts, no database, no third-party scripts or analytics. Your source is parsed in the browser only and never leaves this machine as part of any request — that is not a slogan but a set of assertions in the real-browser gate (every request is same-origin, every request is a GET, every request body is empty, and no URL contains your file names or code fragments).
-- **Sessions live only on your own machine**: file contents are written to the browser's local IndexedDB (database `code-map` / store `session` / key `current`) and restored on reload; clicking Clear or wiping site data deletes them for good, and the server never sees them.
+- **Sessions live only on your own machine**: file contents are written to the browser's local IndexedDB (database `code-map` / store `session` / key `current`) and restored on reload; clicking Clear or wiping site data deletes them for good, and the server never sees them. The theme choice lives in localStorage under `code-map:theme` (that is the only key in the whole app) and never leaves this machine either.
 - **Real syntax parsing**: Python is parsed with tree-sitter (WASM), not by scanning lines with regexes — nested `def`, class methods, `async def`, decorators and relative imports are all recognized correctly.
 - **Stack**: Expo SDK 57 + React Native Web + react-native-svg + dagre layout + zustand.
 
-Three key design decisions are recorded as ADRs; read them before changing code:
+Four key design decisions are recorded as ADRs; read them before changing code:
 
 - [ADR-0001 Pure front end + tree-sitter WASM, no backend / no Pyodide](docs/adr/0001-expo-rn-web-no-backend.md)
 - [ADR-0002 Conservative call resolution and the reason taxonomy](docs/adr/0002-conservative-call-resolution.md)
 - [ADR-0003 The feedback channel is allowed to be nothing but two hrefs](docs/adr/0003-feedback-channel-href-only.md)
+- [ADR-0004 Interface themes are implemented with CSS custom properties (six switchable)](docs/adr/0004-css-variable-theming.md)
 
 _The ADRs and everything else under `docs/` are written in Chinese._
 
@@ -42,7 +43,7 @@ Then: click "Select .py Files" to upload, or drop files straight into the area o
 
 ```
 ┌──────────────────────────────────────── Top bar ─────────────────────────────────────────┐
-│ Upload   file chips (each removable)   Scope: Neighborhood / This File / All   Feedback  │
+│ Upload  file chips (removable)   Scope: Neighborhood / This File / All   Theme  Feedback │
 │ Stats: funcs / edges / unresolved + byReason     warning bar (bad-file degradation)      │
 ├──────────────────────────────────────┬───────────────────────────────────────────────────┤
 │  Left: code                          │  Right: call graph                                │
@@ -53,6 +54,18 @@ Then: click "Select .py Files" to upload, or drop files straight into the area o
 ```
 
 The divider in the middle can be dragged (the left/right ratio is clamped to 25%–75%); below 900px of window width the layout automatically stacks vertically.
+
+### Interface themes (6 switchable)
+
+The `Theme` button in the top bar opens a six-row panel: `GitHub Dark` (default) / `GitHub Light` / `Dracula` / `Nord` / `Solarized Dark` / `Solarized Light`. Each row is "three preview swatches + the official palette name + a tick on the current one", and clicking a row takes effect **immediately** — no reload, no re-upload.
+
+- The mechanism is CSS custom properties: the shape of `colors` / `tokenColors` / `FILE_COLORS` exported by `src/theme.ts` is unchanged, only their values became `var(--cm-*)` references, so switching a theme just rewrites those 54 variables on `<html>`. That means **no React re-render, no re-parsing of your files, and the syntax-highlighting shards do not get invalidated** — and the browser issues not one extra request.
+- The choice is stored in localStorage under `code-map:theme`, so it survives reloads and future visits; the first visit is always the default dark theme (we deliberately do not follow the OS). Clicking Clear does **not** reset the theme — a preference and the code being analyzed are not the same thing.
+- What themes change is color and `color-scheme` (the light/dark variant of native browser chrome: scrollbars, form controls, caret). Fonts, sizes, spacing, radii, layout dimensions and the site icon do not follow.
+- Every palette uses its official published hexes and then has to pass a WCAG contrast gate (text ≥ 4.5, graphics and accents ≥ 3.0, enforced in `__tests__/theme.test.ts`). If a value fails, that palette's value gets adjusted — the threshold does not.
+- The entry point is **deliberately not gated by `busy`**, for the same reason as `Feedback`: while parsing and while an old session is being restored from local storage is exactly when you are staring at the UI.
+- The panel's `data-testid` anchors are the contract: `topbar-theme` / `theme-panel` / `theme-option-<id>`.
+- For why this route (including the inline boot script that CSP blocks, and the one frame of default background that limitation leaves behind) see [ADR-0004](docs/adr/0004-css-variable-theming.md).
 
 ## Two-way navigation (the core feature)
 
@@ -141,7 +154,8 @@ Upload `main.py`, `shapes.py` and `utils.py` from `fixtures/` (select all three 
 - [ ] `Feedback` in the top bar: **clickable even while parsing is in progress** (it is a read-only entry point and deliberately not gated by busy);
       the diagnostics block in the panel is exactly 8 lines of counts (`build` reads `unknown` under dev, because Metro's bundle name carries no entry hash — that is expected);
       edit the diagnostics text → the `href` of the link in the panel changes immediately; close and reopen → the draft is discarded and the automatic values are back
-- [ ] Reload the page → files and graph are still there (restored from local IndexedDB); click Clear and reload again → clean, nothing left
+- [ ] Themes: click `Theme` in the top bar → the six-row panel appears and floats on top; click `Nord` → **the whole UI changes without a reload** (code area, graph, syntax highlighting, scrollbars, address-bar tint), the panel closes itself; reopen it and the tick sits on Nord
+- [ ] Theme persistence: reload → still Nord, and the very first frame is already Nord (no flash back to dark); switch back to GitHub Dark → everything is restored; clicking Clear does **not** reset the theme
 
 The **three bolded core groups** above (graph → code, code → graph, call-site jump) are already automated.
 When changing interaction logic, run `node scripts/browser-verify.mjs` first — see the next section.
@@ -152,7 +166,7 @@ jest + jsdom cannot catch problems like "the flashing highlight fades out under 
 
 ```bash
 npm run export                  # produce dist/ first
-node scripts/browser-verify.mjs # 47 assertions (16 of them promise-surface E/F/G); all green => exit code 0
+node scripts/browser-verify.mjs # 53 assertions (16 of them promise-surface E/F/G); all green => exit code 0
 ```
 
 The script starts its own static server for `dist/` and applies the rules in `dist/_headers` verbatim to every response (so the smoke test runs exactly the production CSP). When the port is taken it reuses the existing service, but only after verifying two things: what runs on that port really is this application (the criterion is this project's Metro entry script tag in the HTML — **not `<title>`**, which would misfire as soon as the title changes), and the bytes served match `dist/index.html` exactly. It then launches headless Chrome, feeds in the three `fixtures/` files and clicks SVG nodes and code tokens **with real mouse events**, asserting item by item:
@@ -169,6 +183,7 @@ The script starts its own static server for `dist/` and applies the rules in `di
 | E promise surface | every request same-origin / every request a GET / zero request bodies / no 4xx·5xx / every 200 maps to a file that really exists in `dist/` / what runs is that entry JS from `dist` / no user content in any URL / zero `securitypolicyviolation` under the production CSP |
 | F icon chain      | `<head>` really contains the four injected icon links; every href decodes as an `<img>` (same origin + CSP `img-src` + MIME all correct)                                                                                                                              |
 | G feedback panel  | the top-bar entry opens the panel and the panel **really floats on top** (the hit test at the center of the close button is the button itself); a full open → close round trip adds **not a single request**; the diagnostics block has exactly 8 lines, line i is whitelist field i, and `build` == the first 8 chars of the entry hash under test; the counts are consistent with the numbers really rendered on the page; the `<a>` count == what the gate expects and the Issues anchor's `target`/`rel` are correct |
+| H themes        | first visit == the default theme (all 54 variables match the source palette line by line, `theme-color` and the shell `<style>` carry the same literal hex, no preference key in localStorage); the `Theme` panel opens and **really floats on top**, its six rows follow `THEME_ORDER`, the preview swatches are each theme's literal rgb (zero `var(`); after switching to GitHub Light the `<html>` variables / the computed `app-root` background / `theme-color` / `color-scheme` / localStorage all change together and **the request count does not grow by a single one**; `fill="var(--cm-node-fill)"` on an SVG presentation attribute computes to rgb in a real browser; after a reload nothing has to be clicked and it is still light, with zero CSP violations in the new document; switching back to the default restores everything |
 
 Optional environment variables:
 
@@ -178,11 +193,11 @@ Optional environment variables:
 | `CODEMAP_CDP_PORT` | `9333`         | Chrome remote debugging port                                                                                                                     |
 | `CHROME_PATH`      | auto-detected  | path to the browser executable (common Windows / macOS / Linux locations are all tried)                                                          |
 
-Screenshots (`codemap-shots/01-initial.png` … `06-deep-crossfile.png`, `07-feedback-panel.png`) and the JSON report (`codemap-verify-report.json`) are written to the system temp directory and are not committed. When it finishes, the script shuts down the server it started.
+Screenshots (`codemap-shots/01-initial.png` … `06-deep-crossfile.png`, `07-feedback-panel.png`, `08-theme-panel.png`, `09-theme-light.png`, `10-theme-default-restored.png`) and the JSON report (`codemap-verify-report.json`) are written to the system temp directory and are not committed. When it finishes, the script shuts down the server it started.
 
 ## Site icon
 
-`public/icon.svg` is the single source of truth: a light paper background + an abstract code graph — four solid rounded nodes in blue/yellow/green/purple (the theme's file colors) joined by three thick round-capped strokes in the theme accent color (keeping the old "nodes + links" skeleton, dropping the grid, the glow, the arrows and the inner lines). `npm run icons` rasterizes it with real Chrome into `favicon.ico` (16/32/48, PNG-in-ICO), `apple-touch-icon.png` (180), `icon-192.png` and `icon-512.png`, **all committed** — so export and the CI checks job can produce a complete `dist/` without a browser. The postexport step of `npm run export` first runs `scripts/inject-html-head.mjs`, which writes four `<link>`s and two `<meta>`s into the `<head>` of the artifact HTML (same-origin relative paths; idempotency sentinel `data-codemap="icon"`, so repeated runs do not stack tags), then runs `polish-dist.mjs` for self-checks — the injected hrefs are covered by the "zero absolute URL" gate too, not an enclave outside it. Icon colors may only come from `src/theme.ts` (`__tests__/icons.test.ts` locks this invariant), so the icon follows the theme when its colors change. Headless Chrome does not fetch `<link rel="icon">`, so the smoke test actively pulls every injected href through an `<img>` (group F), and those requests go through the group E promise surface as well.
+`public/icon.svg` is the single source of truth: a light paper background + an abstract code graph — four solid rounded nodes in blue/yellow/green/purple (the theme's file colors) joined by three thick round-capped strokes in the theme accent color (keeping the old "nodes + links" skeleton, dropping the grid, the glow, the arrows and the inner lines). `npm run icons` rasterizes it with real Chrome into `favicon.ico` (16/32/48, PNG-in-ICO), `apple-touch-icon.png` (180), `icon-192.png` and `icon-512.png`, **all committed** — so export and the CI checks job can produce a complete `dist/` without a browser. The postexport step of `npm run export` first runs `scripts/inject-html-head.mjs`, which writes four `<link>`s and two `<meta>`s into the `<head>` of the artifact HTML (same-origin relative paths; idempotency sentinel `data-codemap="icon"`, so repeated runs do not stack tags), then runs `polish-dist.mjs` for self-checks — the injected hrefs are covered by the "zero absolute URL" gate too, not an enclave outside it. Icon colors may only come from `src/theme.ts`, specifically from the **default** theme (`__tests__/icons.test.ts` locks this invariant). The UI has six themes; the icon and the brand colors do not: switching themes leaves the icon alone (the brand is fixed), while the address-bar `theme-color` follows the current theme. Headless Chrome does not fetch `<link rel="icon">`, so the smoke test actively pulls every injected href through an `<img>` (group F), and those requests go through the group E promise surface as well.
 
 ## Commands
 
@@ -217,7 +232,7 @@ public/
 scripts/
   copy-wasm.mjs           sync wasm + Node smoke check
   build-icons.mjs         rasterize icon.svg with real Chrome -> ico/180/192/512 + self-check
-  inject-html-head.mjs    postexport step 1: inject the icon links and meta into dist's <head>
+  inject-html-head.mjs    postexport step 1: inject the icon links, meta and the shell background <style> into dist's <head>
   polish-dist.mjs         post-export processing: strip HTML comments + structural self-check + zero-absolute-URL self-check
   browser-verify.mjs      real-browser (headless Chrome + CDP) acceptance script
   audit-egress.mjs        static scan of the contact path: request primitives / unpublished email literals (CI blocking gate)
@@ -242,9 +257,10 @@ src/
     scope.ts              neighborhood / this-file / all clipping
     layout.ts             dagre wrapper (pure function, LR layering, outputs coordinates and edge paths)
   state/store.ts          zustand: files / graph / selection(+nonce) / scope / view / split
+  state/themeStore.ts     zustand: current theme id + setTheme (separate from store, so Clear cannot reset it)
   components/
     AppRoot.tsx           assembly + the red error bar for wasm load failure
-    TopBar.tsx            upload, file chips, scope switch, feedback entry, stats, warning bar
+    TopBar.tsx            upload, file chips, scope switch, theme picker, feedback entry, stats, warning bar
     FeedbackDialog.tsx    feedback panel: a read-only overlay of native div/a/textarea whose only outward surface is two hrefs
     SplitLayout.tsx       left/right split + draggable divider + narrow-screen stacking
     CodePane/             file tabs + windowed code view + clickable range computation
@@ -253,7 +269,8 @@ src/
   feedback/contact.ts     feedback rule layer: 8-field whitelist + count-only reduction + two hrefs (zero framework imports)
   platform/web/           the only DOM touchpoints: file picking/dropping, non-passive wheel and pointer listeners
     buildStamp.ts         takes the first 8 chars of the entry hash from the executing <script src>; returns unknown if unavailable
-  theme.ts                dark theme palette, fonts, spacing
+    themeVars.ts          theme runtime: writes the 54 --cm-* vars onto <html>, color-scheme, theme-color, preference read/write
+  theme.ts                six palettes (literal hex) + cssVarsFor; UI colors are var(--cm-*) references; fonts, spacing
 docs/adr/                 architecture decision records
 __tests__/                jest (pure functions + components + the real-wasm full chain)
 ```
@@ -277,8 +294,8 @@ Three layers, all run by `npm test`:
 
 | Layer                        | Files                                                                                                                                       | Needs wasm?                                     |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| **Pure-function unit tests** | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke`                  | No (fake syntax trees through the `treeLike` interface) |
-| **Components & interaction**  | `appFlow.test.tsx` / `topBar.test.ts` / `feedback.test.tsx` (canary + whitelist shape + panel rendering)                                     | No (store pre-seeded)                           |
+| **Pure-function unit tests** | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke` / `theme` (palette structure + variable closure + WCAG gates) | No (fake syntax trees through the `treeLike` interface) |
+| **Components & interaction**  | `appFlow.test.tsx` / `topBar.test.ts` / `feedback.test.tsx` (canary + whitelist shape + panel rendering) / `themePicker.test.tsx` (theme panel and switching) | No (store pre-seeded)                           |
 | **Real-wasm full chain**     | `parser.wasm.test.ts` / `imports.wasm.test.ts` / `e2e.wasm.test.tsx`                                                                         | Yes                                             |
 
 When `public/wasm/*.wasm` does not exist, the third layer **skips entirely** instead of failing (the `describeWasm` helper), so even an install done with `--ignore-scripts` can run the first two layers. To run everything: `npm run copy-wasm` first (a normal `npm install` already did it through `postinstall`).

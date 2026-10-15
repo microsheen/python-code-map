@@ -2,11 +2,11 @@
  * 站点图标链路的结构不变量。
  *
  * 全部读仓库真源（public/ 与 scripts/），不依赖 dist/，覆盖四件事：
- *  1. public/icon.svg 是唯一真源：512 画布、零绝对 URL、配色只能来自 src/theme.ts；
+ *  1. public/icon.svg 是唯一真源：512 画布、零绝对 URL、配色只能是默认主题里的字面色值；
  *  2. 派生物自报家门：favicon.ico 的三档 payload 是尺寸匹配的 PNG，三个 PNG 是 8-bit RGBA
  *     且"圆角外透明、中心不透明"（Chrome 栅格化时背景色没漏进来）；
  *  3. scripts/inject-html-head.mjs 的注入清单：href 全部同源相对、文件真在 public/ 里，
- *     theme-color 与 theme.ts 的 bg 同源；
+ *     theme-color 与壳层样式的 --cm-bg 都等于默认主题的 bg（界面有 6 套主题，图标和品牌色没有）；
  *  4. public/_headers 的缓存档位：图标走"无 hash"一档（max-age=0），且不会被任何
  *     immutable 通配命中（否则换了图标用户还看旧的）。
  *
@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { DEFAULT_THEME, THEMES } from '../src/theme';
 
 const ROOT = path.resolve(__dirname, '..');
 const PUB = path.join(ROOT, 'public');
@@ -167,18 +168,25 @@ describe('public/icon.svg（唯一真源）', () => {
     expect(svg).not.toContain('xlink');
   });
 
-  it('配色全部来自 src/theme.ts：图标与界面同源', () => {
-    const theme = fs.readFileSync(path.join(ROOT, 'src', 'theme.ts'), 'utf8');
-    const themeHex = new Set((theme.match(/#[0-9a-f]{6}/gi) ?? []).map((h) => h.toLowerCase()));
+  it('配色全部来自默认主题的字面色值：图标与界面同源', () => {
+    // 界面现在从 theme.ts 里拿到的是 var(--cm-*)，字面色值住在 THEMES 里 ——
+    // 契约跟着搬家：图标必须能在**默认主题**的调色板里逐色找到出处。
+    // 主题切换不动图标：站点图标是品牌，不是配色方案的一部分（见 docs/adr/0004）。
+    const palette = THEMES[DEFAULT_THEME];
+    const literals = [
+      ...Object.values(palette.colors),
+      ...Object.values(palette.tokenColors),
+      ...palette.fileColors,
+    ];
+    const themeHex = new Set(
+      literals.flatMap((v) => (v.match(/#[0-9a-f]{6}/gi) ?? []).map((h: string) => h.toLowerCase()))
+    );
     const iconHex = [...new Set((svg.match(/#[0-9a-f]{6}/gi) ?? []).map((h) => h.toLowerCase()))];
+    expect(iconHex.length).toBeGreaterThan(0);
     expect(iconHex.filter((h) => !themeHex.has(h))).toEqual([]);
-    // 笔画 = 主题强调色、底板 = 主题纸面色：图标与界面同源，换主题色时图标跟着换
-    const accentDim = theme.match(/accentDim: '(#[0-9a-f]{6})'/i)?.[1];
-    const paper = theme.match(/paper: '(#[0-9a-f]{6})'/i)?.[1];
-    expect(accentDim).toBeDefined();
-    expect(paper).toBeDefined();
-    expect(iconHex).toContain(accentDim);
-    expect(iconHex).toContain(paper);
+    // 笔画 = 默认主题的强调色、底板 = 默认主题的纸面色
+    expect(iconHex).toContain(palette.colors.accentDim);
+    expect(iconHex).toContain(palette.colors.paper);
   });
 });
 
@@ -245,12 +253,16 @@ describe('scripts/inject-html-head.mjs 的注入清单', () => {
     }
   });
 
-  it('theme-color 与 theme.ts 的 bg 同源', () => {
-    const theme = fs.readFileSync(path.join(ROOT, 'src', 'theme.ts'), 'utf8');
-    const bg = theme.match(/bg: '(#[0-9a-f]{6})'/i)?.[1];
+  it('theme-color 与壳层样式的 --cm-bg 都等于默认主题的 bg', () => {
+    const bg = THEMES[DEFAULT_THEME].colors.bg;
     const meta = src.match(/name: 'theme-color', content: '([^']+)'/)?.[1];
-    expect(bg).toBeDefined();
     expect(meta).toBe(bg);
+    const shell = src.match(/export const SHELL_STYLE = '([^']+)'/)?.[1];
+    expect(shell).toBeDefined();
+    // bundle 执行前给外壳上的底色就是这一条变量：写错一个像素，首屏会闪一下别的颜色
+    expect(shell).toContain(':root{--cm-bg:' + bg + '}');
+    expect(shell).toContain('background-color:var(--cm-bg)');
+    expect(shell).not.toMatch(/https?:\/\//);
   });
 
   it('幂等哨兵在场：同一份 dist 重复注入不会叠标签', () => {

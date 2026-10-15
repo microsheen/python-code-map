@@ -17,7 +17,8 @@ import { pickFiles } from '../platform/web/filePick';
 import type { GraphStats } from '../parser/types';
 import { useAppStore, MAX_FILES } from '../state/store';
 import { FeedbackDialog } from './FeedbackDialog';
-import { colors, fileColor, fonts, spacing } from '../theme';
+import { colors, fileColor, fonts, spacing, THEMES, THEME_ORDER } from '../theme';
+import { useThemeStore } from '../state/themeStore';
 
 /** RN 样式类型里没有横向滚动开关，RNW 支持，用 cast 绕过。 */
 const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewStyle;
@@ -270,6 +271,9 @@ export function TopBar(): ReactNode {
             都必须能点。盯着那份恢复出来的旧版本看的人，正是最需要报 bug 的人。
             下一次重构请别顺手把它「修好」成 disabled={busy} —— 那样最该用的时候它就没了。
           */}
+          {/* Theme 选择器：见下方 ThemeMenu，同样故意不受 busy 门控 */}
+          <ThemeMenu />
+
           <Pressable
             testID="topbar-feedback"
             onPress={() => setShowFeedback(true)}
@@ -456,6 +460,108 @@ export function TopBar(): ReactNode {
   );
 }
 
+/**
+ * 主题选择器：顶栏 Theme 按钮 + 下拉面板。
+ *
+ * 切换本身不重渲染界面 —— 颜色是 <html> 上的 CSS 变量（见 src/platform/web/themeVars.ts），
+ * 这里只多一个 store 订阅，为的是在当前主题那一行画勾。
+ *
+ * 面板的预览色块用的是各主题的**字面 hex**（THEMES[id].colors）：变量只描述「当前」主题，
+ * 用它画不出别的主题长什么样。
+ *
+ * 故意不读 busy、不 disabled：和 Feedback 入口同一个理由 —— 解析中、从 IndexedDB 恢复旧会话时
+ * 正是盯着界面看的时候，那时最该能换配色。
+ */
+function ThemeMenu(): ReactNode {
+  const themeId = useThemeStore((s) => s.themeId);
+  const setTheme = useThemeStore((s) => s.setTheme);
+  const [open, setOpen] = useState(false);
+
+  // 点面板外部关闭：沿用本文件 chip 右键菜单的 window click 写法，只多了一个包含判断 ——
+  // ctxMenu 由 contextmenu 事件打开，与 click 不同源，所以它不需要；这个面板恰恰是被
+  // 「点 Theme」这枚 click 打开的：React 把 effect 排在被动阶段，同一枚 click 继续冒泡到
+  // window 时监听器可能已经装好，不加判断就会「点开又立刻关上」。（FileTabs 的下拉菜单
+  // 用的是同一个包含判断；这里按 data-testid 认，不再多要一个 ref —— RN 的 View 类型
+  // 上没有 DOM 的 contains，写成 ref 就得为它做一次类型欺骗。）
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        typeof t.closest === 'function' &&
+        t.closest('[data-testid="topbar-theme"],[data-testid="theme-panel"]')
+      ) {
+        return;
+      }
+      setOpen(false);
+    };
+    window.addEventListener('click', h);
+    return () => window.removeEventListener('click', h);
+  }, [open]);
+
+  // Escape 关闭
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  return (
+    <View style={styles.themeWrap}>
+      <Pressable
+        testID="topbar-theme"
+        onPress={() => setOpen((v) => !v)}
+        accessibilityRole="button"
+        accessibilityLabel="Theme"
+        style={styles.btnGhost}
+      >
+        <Text style={styles.btnGhostText}>Theme</Text>
+      </Pressable>
+
+      {open ? (
+        <View style={styles.themePanel} testID="theme-panel">
+          {THEME_ORDER.map((id) => {
+            const palette = THEMES[id];
+            const current = id === themeId;
+            return (
+              <Pressable
+                key={id}
+                testID={'theme-option-' + id}
+                onPress={() => {
+                  setTheme(id);
+                  setOpen(false);
+                }}
+                accessibilityRole="button"
+                // RNW 0.21 把 accessibilityState 当未知 prop 丢掉了（createDOMProps 里没有这一项），
+                // 所以当前项还得写进可访问名：读屏用户听到 "Nord (current)"，而不是只看见一个勾。
+                accessibilityLabel={current ? palette.label + ' (current)' : palette.label}
+                accessibilityState={{ selected: current }}
+                style={styles.themeRow}
+              >
+                <View style={styles.themeSwatches}>
+                  {[palette.colors.bg, palette.colors.accent, palette.colors.selected].map(
+                    (hex) => (
+                      <View key={hex} style={[styles.themeSwatch, { backgroundColor: hex }]} />
+                    )
+                  )}
+                </View>
+                <Text style={[styles.themeRowText, current && styles.themeRowTextActive]}>
+                  {palette.label}
+                </Text>
+                {current ? <Text style={styles.themeCheck}>{'✓'}</Text> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   wrap: {
     // 见 Z_INDEX_AUTO 的注释：不写这行，顶栏自己就是个层叠上下文，反馈遮罩会被埋掉
@@ -468,11 +574,19 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
     gap: spacing.sm,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  row: {
+    // 见 Z_INDEX_AUTO 的注释：这一层不放开的话，主题面板就被关在顶栏第二行的层叠上下文里
+    zIndex: Z_INDEX_AUTO,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
   brand: { flexShrink: 1, gap: 2 },
   title: { color: colors.text, fontFamily: fonts.ui, fontSize: 15, fontWeight: '700' },
   subtitle: { color: colors.faint, fontFamily: fonts.ui, fontSize: 11 },
   actions: {
+    // 同上：Theme 面板的绝对定位锚点链上的每一层都得是 auto
+    zIndex: Z_INDEX_AUTO,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -489,7 +603,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  btnPrimaryText: { color: '#ffffff', fontFamily: fonts.ui, fontSize: 12, fontWeight: '600' },
+  btnPrimaryText: { color: colors.onAccent, fontFamily: fonts.ui, fontSize: 12, fontWeight: '600' },
   btnDisabled: { opacity: 0.55 },
   btnGhost: {
     borderRadius: 7,
@@ -516,6 +630,43 @@ const styles = StyleSheet.create({
   navBtnTextDisabled: { color: colors.faint },
   btnGhostText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
 
+  themeWrap: { zIndex: Z_INDEX_AUTO },
+  themePanel: {
+    position: 'absolute',
+    top: 36,
+    right: 0,
+    zIndex: 1000,
+    minWidth: 190,
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: 6,
+    paddingTop: 4,
+    paddingBottom: 4,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  themeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  themeSwatches: { flexDirection: 'row', gap: 2 },
+  themeSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  themeRowText: { color: colors.text, fontFamily: fonts.ui, fontSize: 12, flex: 1 },
+  themeRowTextActive: { fontWeight: '600' },
+  themeCheck: { color: colors.accent, fontFamily: fonts.ui, fontSize: 12 },
+
   segment: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -533,7 +684,7 @@ const styles = StyleSheet.create({
   segBtnActive: { backgroundColor: colors.accentDim },
   segBtnDisabled: { opacity: 0.4 },
   segText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
-  segTextActive: { color: '#ffffff', fontWeight: '600' },
+  segTextActive: { color: colors.onAccent, fontWeight: '600' },
 
   chips: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 2 },
   chipScrollBtnInline: {
@@ -556,13 +707,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingTop: 4,
     paddingBottom: 4,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: colors.tooltipBg,
     borderRadius: 4,
     zIndex: 1000,
     maxWidth: 400,
   },
   chipTooltipText: {
-    color: '#cccccc',
+    color: colors.tooltipText,
     fontSize: 12,
   },
   chip: {
@@ -598,7 +749,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     minWidth: 120,
     zIndex: 1000,
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -616,7 +767,7 @@ const styles = StyleSheet.create({
   progressText: { color: colors.neighbor, fontFamily: fonts.ui, fontSize: 11 },
 
   errorBar: {
-    backgroundColor: 'rgba(248, 81, 73, 0.12)',
+    backgroundColor: colors.dangerSoft,
     borderWidth: 1,
     borderColor: colors.danger,
     borderRadius: 7,
@@ -625,7 +776,7 @@ const styles = StyleSheet.create({
   },
   errorText: { color: colors.danger, fontFamily: fonts.mono, fontSize: 11 },
   warnBar: {
-    backgroundColor: 'rgba(210, 153, 34, 0.1)',
+    backgroundColor: colors.warnSoft,
     borderWidth: 1,
     borderColor: colors.warn,
     borderRadius: 7,

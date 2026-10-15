@@ -17,16 +17,17 @@ _仓库名、npm 包名、IndexedDB 库名都仍是 `code-map`：前两者只是
   （每个请求都是同源、都是 GET、请求体为空、URL 里没有你的文件名或代码片段）。
 - **会话只存在你自己的机器上**：文件内容写入浏览器本地 IndexedDB（库 `code-map` /
   store `session` / key `current`），刷新页面可恢复；点 Clear 或清除站点数据即彻底删除，
-  服务端永远看不到它。
+  服务端永远看不到它。主题选择存在 localStorage 的 `code-map:theme`（全站只有这一个键），同样不出本机。
 - **真语法解析**：用 tree-sitter（WASM）解析 Python，不是正则扫行 —— 嵌套 `def`、类方法、
   `async def`、装饰器、相对导入都能正确识别。
 - **技术栈**：Expo SDK 57 + React Native Web + react-native-svg + dagre 布局 + zustand。
 
-三个关键设计决策记录在 ADR 里，改代码前建议先读：
+四个关键设计决策记录在 ADR 里，改代码前建议先读：
 
 - [ADR-0001 纯前端 + tree-sitter WASM，不引后端/Pyodide](docs/adr/0001-expo-rn-web-no-backend.md)
 - [ADR-0002 保守的调用解析与 reason 分类](docs/adr/0002-conservative-call-resolution.md)
 - [ADR-0003 反馈渠道只长成两枚 href](docs/adr/0003-feedback-channel-href-only.md)
+- [ADR-0004 界面主题用 CSS 自定义属性落地（六套可切换）](docs/adr/0004-css-variable-theming.md)
 
 ## 快速开始
 
@@ -50,7 +51,7 @@ npm run web          # 启动 dev server 并打开浏览器（默认 http://loca
 
 ```
 ┌─────────────────────────── 顶部工具栏 ───────────────────────────┐
-│ 上传  文件 chips（可单独移除）  范围: 邻域/本文件/全部  反馈          │
+│ 上传  文件 chips（可单独移除）  范围: 邻域/本文件/全部  Theme  反馈  │
 │ 统计: 函数数 / 边数 / 未解析数 + byReason    告警条（坏文件降级）     │
 ├──────────────────────────┬───────────────────────────────────────┤
 │  左：代码                 │  右：调用关系图                        │
@@ -61,6 +62,26 @@ npm run web          # 启动 dev server 并打开浏览器（默认 http://loca
 ```
 
 中间的分隔条可以拖拽（左右比例限制在 25%~75%）；窗口宽度小于 900px 时自动改成上下堆叠。
+
+### 界面主题（6 套可切换）
+
+顶栏 `Theme` 打开一个六行面板：`GitHub Dark`（默认）/ `GitHub Light` / `Dracula` / `Nord` /
+`Solarized Dark` / `Solarized Light`。每行是「三个预览色块 + 官方配色名 + 当前项打勾」，
+点一行**当场生效**，不用刷新、不用重新上传。
+
+- 机制是 CSS 自定义属性：`src/theme.ts` 导出的 `colors` / `tokenColors` / `FILE_COLORS` 形状不变、
+  值变成 `var(--cm-*)`，切主题只是重写 `<html>` 上那 54 条变量。所以**不触发 React 重渲染、
+  不重新解析文件、语法高亮的分片不失效**，浏览器也不多发一个请求。
+- 选择记在 localStorage `code-map:theme`，刷新与下次打开都保持；首次访问固定默认深色
+  （不跟随系统）。点 Clear 不会把主题打回默认 —— 偏好和被分析的代码不是一回事。
+- 随主题变的只有配色和 `color-scheme`（浏览器原生件的明暗）。字体、字号、间距、圆角、
+  布局尺寸、站点图标都不变。
+- 每套色值取自该配色的官方公开色表，再过 WCAG 对比度门禁（正文 ≥ 4.5、图形与强调 ≥ 3.0，
+  门禁在 `__tests__/theme.test.ts`）；过不了就按同色相调该套的色值，不放宽阈值。
+- 入口故意不受 `busy` 门控，理由和 `Feedback` 一样：解析中、从本机恢复旧会话时最该能换配色。
+- 面板的 `data-testid` 锚点即契约：`topbar-theme` / `theme-panel` / `theme-option-<id>`。
+- 为什么走这条路（含被 CSP 挡掉的内联 boot script、以及因此残留的那一帧底色）见
+  [ADR-0004](docs/adr/0004-css-variable-theming.md)。
 
 ## 双向定位（核心功能）
 
@@ -167,7 +188,10 @@ npm run web
 - [ ] 顶栏 `Feedback`：**解析进行中也能点**（它是只读入口，故意不受 busy 门控）；面板里的诊断块
       只有 8 行计数（`build` 在 dev 下是 `unknown`，因为 Metro 的 bundle 名不带入口哈希 —— 这是预期）；
       改一下诊断文本 → 面板里那枚链接的 `href` 立刻跟着变；关掉再打开 → 草稿丢弃、回到自动值
-- [ ] 刷新页面 → 文件与图还在（从本机 IndexedDB 恢复）；点 Clear 后再刷新 → 干净无残留
+- [ ] 主题：点顶栏 `Theme` → 六行面板出现且浮在最上面；点 `Nord` → **不刷新就整个界面跟着变**
+      （代码区、图、语法高亮、滚动条、地址栏底色一起换），面板自动关；再开面板勾在 Nord 那行
+- [ ] 主题持久化：刷新页面 → 还是 Nord，且首帧就是 Nord（不闪回默认深色）；切回 GitHub Dark →
+      全部复原；点 Clear 后主题**不**跟着回到默认
 
 上面**加粗的三组核心项**（图 → 代码、代码 → 图、调用点跳转）已经自动化了，
 改交互逻辑时优先跑 `node scripts/browser-verify.mjs`，见下一节。
@@ -181,7 +205,7 @@ Chromium 就能跑。
 
 ```bash
 npm run export                  # 先产出 dist/
-node scripts/browser-verify.mjs # 47 项断言（含 16 项承诺面 E/F/G），全绿退出码 0
+node scripts/browser-verify.mjs # 53 项断言（含 16 项承诺面 E/F/G），全绿退出码 0
 ```
 
 脚本自己起一个静态服务器托管 `dist/`，并把 `dist/_headers` 里的规则原样套到每个响应上
@@ -202,6 +226,7 @@ node scripts/browser-verify.mjs # 47 项断言（含 16 项承诺面 E/F/G），
 | E 承诺面     | 全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件 / 跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
 | F 图标链路   | `<head>` 里真有注入的四个图标 link；每个 href 都能当 `<img>` 解码（同源 + CSP `img-src` + MIME 全对） |
 | G 反馈面板   | 顶栏入口开得出面板、且面板**真浮在最上面**（关闭按钮中心的命中测试就是它自己）；开→关整个来回**请求数一个都没多**；诊断块恰好 8 行、第 i 行是第 i 个白名单字段、`build` == 被测入口哈希前 8 位；计数与页面上真实渲染的数字自洽；`<a>` 数 == 门控期望且 Issues 锚点 `target`/`rel` 正确 |
+| H 主题       | 首访 = 默认主题（54 条变量逐条 == 源码调色板、`theme-color` 与壳层 `<style>` 同字面 hex、localStorage 无偏好键）；`Theme` 面板开得出且**真浮在最上面**、六行按 `THEME_ORDER`、预览块是各主题的字面 rgb（零 `var(`）；切到 GitHub Light 后 `<html>` 变量 / `app-root` 计算背景 / `theme-color` / `color-scheme` / localStorage 五处同时变，**请求总数一个都没多**；写在 SVG 表现属性上的 `fill="var(--cm-node-fill)"` 真浏览器算得出 rgb；刷新后不点任何东西仍是亮色且新文档零 CSP 违规；切回默认全部复原 |
 
 可选环境变量：
 
@@ -211,7 +236,8 @@ node scripts/browser-verify.mjs # 47 项断言（含 16 项承诺面 E/F/G），
 | `CODEMAP_CDP_PORT` | `9333`   | Chrome 远程调试端口                                                |
 | `CHROME_PATH`      | 自动探测 | 浏览器可执行文件路径（Windows / macOS / Linux 常见位置都会试一遍） |
 
-截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`、`07-feedback-panel.png`）与 JSON 报告
+截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`、`07-feedback-panel.png`、
+`08-theme-panel.png`、`09-theme-light.png`、`10-theme-default-restored.png`）与 JSON 报告
 （`codemap-verify-report.json`）都写在系统临时目录，不入库。跑完脚本会关掉自己起的服务器。
 
 ## 站点图标
@@ -224,8 +250,9 @@ checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 p
 `scripts/inject-html-head.mjs`，把四个 `<link>` 与两个 `<meta>` 写进产物 HTML 的 `<head>`
 （同源相对路径；幂等哨兵 `data-codemap="icon"`，重复运行不叠标签），再跑 `polish-dist.mjs`
 自检 —— 注入进来的 href 也在「零绝对 URL」门禁的覆盖范围内，不是门禁之外的飞地。
-图标配色只允许来自 `src/theme.ts`（`__tests__/icons.test.ts` 锁死这条不变量），
-换主题色时图标跟着换；headless Chrome 不抓 `<link rel="icon">`，所以冒烟里用 `<img>`
+图标配色只允许来自 `src/theme.ts` 的**默认主题**（`__tests__/icons.test.ts` 锁死这条不变量）。
+界面有 6 套主题，图标和品牌色没有：切主题时图标**不动**（品牌固定），只有地址栏的
+`theme-color` 跟随当前主题；headless Chrome 不抓 `<link rel="icon">`，所以冒烟里用 `<img>`
 主动把每个注入 href 拉一遍（F 组），请求同样进 E 组承诺面。
 
 ## 命令
@@ -261,7 +288,7 @@ public/
 scripts/
   copy-wasm.mjs           同步 wasm + Node 冒烟校验
   build-icons.mjs         真 Chrome 栅格化 icon.svg -> ico/180/192/512 + 自检
-  inject-html-head.mjs    postexport 第一步：把图标 link 与 meta 注入 dist 的 <head>
+  inject-html-head.mjs    postexport 第一步：把图标 link、meta 与壳层底色 <style> 注入 dist 的 <head>
   polish-dist.mjs         导出后处理：剥 HTML 注释 + 结构自检 + 零绝对 URL 自检
   browser-verify.mjs      真浏览器（headless Chrome + CDP）验收脚本
   audit-egress.mjs        静态扫描联系路径：请求原语 / 未公开邮箱字面量（CI blocking 闸门）
@@ -286,9 +313,10 @@ src/
     scope.ts              邻域 / 本文件 / 全部 三种裁剪
     layout.ts             dagre 包装（纯函数，LR 分层，输出坐标与边路径）
   state/store.ts          zustand：files / graph / selection(+nonce) / scope / view / split
+  state/themeStore.ts     zustand：当前主题 id + setTheme（独立于 store，Clear 不会清掉偏好）
   components/
     AppRoot.tsx           装配 + wasm 加载失败的红色错误条
-    TopBar.tsx            上传、文件 chips、范围切换、反馈入口、统计、告警条
+    TopBar.tsx            上传、文件 chips、范围切换、主题选择器、反馈入口、统计、告警条
     FeedbackDialog.tsx    反馈面板：原生 div/a/textarea 的只读遮罩，对外只有两枚 href
     SplitLayout.tsx       左右分栏 + 可拖拽分隔条 + 窄屏堆叠
     CodePane/             文件标签页 + 窗口化代码视图 + 可点击范围计算
@@ -297,7 +325,8 @@ src/
   feedback/contact.ts     反馈规则层：白名单 8 字段 + 计数收口 + 两枚 href（零框架 import）
   platform/web/           唯一的 DOM 触点：文件选择/拖放、非被动 wheel 与指针监听
     buildStamp.ts         从正在执行的 <script src> 取入口哈希前 8 位，取不到返回 unknown
-  theme.ts                深色主题色板、字体、间距
+    themeVars.ts          主题运行时装载：54 条 --cm-* 写进 <html>、color-scheme、theme-color、偏好读写
+  theme.ts                6 套调色板（字面 hex）+ cssVarsFor；界面色以 var(--cm-*) 引用；字体、间距
 docs/adr/                 架构决策记录
 __tests__/                jest（纯函数 + 组件 + 真 wasm 全链路）
 ```
@@ -327,8 +356,8 @@ __tests__/                jest（纯函数 + 组件 + 真 wasm 全链路）
 
 | 层                 | 文件                                                                                                                         | 依赖 wasm？                        |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| **纯函数单测**     | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke` | 否（用 `treeLike` 接口喂假语法树） |
-| **组件与交互**     | `appFlow.test.tsx` / `topBar.test.ts` / `feedback.test.tsx`（金丝雀 + 白名单形状 + 面板渲染）              | 否（预置 store）                   |
+| **纯函数单测**     | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke` / `theme`（调色板结构 + 变量闭合 + WCAG 门禁） | 否（用 `treeLike` 接口喂假语法树） |
+| **组件与交互**     | `appFlow.test.tsx` / `topBar.test.ts` / `feedback.test.tsx`（金丝雀 + 白名单形状 + 面板渲染） / `themePicker.test.tsx`（主题面板与切换） | 否（预置 store）                   |
 | **真 wasm 全链路** | `parser.wasm.test.ts` / `imports.wasm.test.ts` / `e2e.wasm.test.tsx`                                                         | 是                                 |
 
 `public/wasm/*.wasm` 不存在时，第三层会**整体跳过**而不是失败（`describeWasm` 助手），

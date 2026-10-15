@@ -77,6 +77,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   btnDisabled: { opacity: 0.6 },
-  btnText: { color: '#ffffff', fontFamily: fonts.ui, fontSize: 14, fontWeight: '600' },
+  btnText: { color: colors.onAccent, fontFamily: fonts.ui, fontSize: 14, fontWeight: '600' },
   footnote: { color: colors.faint, fontFamily: fonts.ui, fontSize: 11, marginTop: spacing.lg, textAlign: 'center' },
 });

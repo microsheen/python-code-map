@@ -136,7 +136,7 @@ const linkStyle: CSSProperties = {
   padding: '6px 12px',
   borderRadius: 16,
   background: colors.accentDim,
-  color: '#ffffff',
+  color: colors.onAccent,
   border: '1px solid ' + colors.accent,
 };
 

@@ -443,6 +443,84 @@ async function launch(flag) {
 }
 
 // ---------------------------------------------------------------------------
+// 主题契约：色值、变量条数、localStorage 键名、注入的 meta 与壳层底色全部从源码读，
+// 不在冒烟脚本里再抄一份 —— 理由同 contactContract()：抄一份的话改源码的人不会被拦。
+// 读不到就抛 —— 静默跳过的守卫比红灯更糟。
+// ---------------------------------------------------------------------------
+function themeContract() {
+  // 统一换行再匹配：块边界按 LF 找，Windows 上 git 检出成 CRLF 也不能让契约读不到
+  const lf = (s) => s.replace(/\r\n/g, '\n');
+  const themeSrc = lf(fs.readFileSync(path.join(ROOT, 'src/theme.ts'), 'utf8'));
+  const varsSrc = lf(fs.readFileSync(path.join(ROOT, 'src/platform/web/themeVars.ts'), 'utf8'));
+  const headSrc = lf(fs.readFileSync(path.join(ROOT, 'scripts/inject-html-head.mjs'), 'utf8'));
+  const die = (m) => {
+    throw new Error('主题契约读不到（被改掉了？）: ' + m);
+  };
+  const prefKey = /^export const THEME_PREF_KEY = '([^']+)';/m.exec(varsSrc);
+  if (!prefKey) die('THEME_PREF_KEY');
+  const order = /export const THEME_ORDER[^=]*=\s*\[([\s\S]*?)\]/.exec(themeSrc);
+  if (!order) die('THEME_ORDER');
+  const ids = (order[1].match(/'[^']+'/g) || []).map((s) => s.slice(1, -1));
+  const dflt = /export const DEFAULT_THEME[^=]*=\s*'([^']+)'/.exec(themeSrc);
+  if (!dflt) die('DEFAULT_THEME');
+  if (!ids.includes(dflt[1])) die('DEFAULT_THEME 不在 THEME_ORDER 里: ' + dflt[1]);
+  const isHex = (v) => typeof v === 'string' && v.charAt(0) === '#' && v.length === 7 && /^[0-9a-fA-F]{6}$/.test(v.slice(1));
+  const kebab = (k) => k.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
+  const palettes = {};
+  for (const id of ids) {
+    const start = themeSrc.indexOf("  '" + id + "': {");
+    if (start < 0) die('主题块 ' + id);
+    const end = themeSrc.indexOf('\n  },\n', start);
+    if (end < 0) die('主题块收尾 ' + id);
+    const body = themeSrc.slice(start, end);
+    const label = /label: '([^']+)',/.exec(body);
+    const scheme = /scheme: '(dark|light)',/.exec(body);
+    const colorBlock = /\n    colors: \{([\s\S]*?)\n    \},/.exec(body);
+    const tokenBlock = /\n    tokenColors: \{([\s\S]*?)\n    \},/.exec(body);
+    const fileBlock = /\n    fileColors: \[([\s\S]*?)\]/.exec(body);
+    if (!label || !scheme || !colorBlock || !tokenBlock || !fileBlock) die('主题块字段 ' + id);
+    const vars = {};
+    for (const m of colorBlock[1].matchAll(/([A-Za-z]+):\s*'([^']+)'/g)) {
+      vars['--cm-' + kebab(m[1])] = m[2];
+    }
+    for (const m of tokenBlock[1].matchAll(/([A-Za-z]+):\s*'([^']+)'/g)) {
+      vars['--cm-tok-' + kebab(m[1])] = m[2];
+    }
+    (fileBlock[1].match(/'[^']+'/g) || []).forEach((s, i) => {
+      vars['--cm-file-' + i] = s.slice(1, -1);
+    });
+    if (!isHex(vars['--cm-bg'])) die('主题 ' + id + ' 的 bg 不是 6 位 hex: ' + vars['--cm-bg']);
+    palettes[id] = { id: id, label: label[1], scheme: scheme[1], bg: vars['--cm-bg'], vars: vars };
+  }
+  const sizes = {};
+  ids.forEach((id) => {
+    sizes[Object.keys(palettes[id].vars).length] = true;
+  });
+  const counts = Object.keys(sizes);
+  if (counts.length !== 1) die('各主题变量条数不一致: ' + counts.join('/'));
+  const varCount = Number(counts[0]);
+  const shell = /export const SHELL_STYLE = '([^']+)';/.exec(headSrc);
+  if (!shell) die('SHELL_STYLE');
+  const meta = /\{ name: 'theme-color', content: '([^']+)' \}/.exec(headSrc);
+  if (!meta) die('theme-color meta');
+  const defaultBg = palettes[dflt[1]].bg;
+  if (shell[1].indexOf('--cm-bg:' + defaultBg) < 0) die('壳层底色的 --cm-bg != 默认主题 bg: ' + shell[1]);
+  if (meta[1] !== defaultBg) die('theme-color != 默认主题 bg: ' + meta[1]);
+  return {
+    prefKey: prefKey[1],
+    ids: ids,
+    defaultId: dflt[1],
+    palettes: palettes,
+    varCount: varCount,
+    shellStyle: shell[1],
+    metaColor: meta[1],
+  };
+}
+
+// 在模块作用域就算：契约错了要立刻炸，别等三分钟的真浏览器跑完才说
+const THEME = themeContract();
+
+// ---------------------------------------------------------------------------
 // page-side harness: installed once, then called with tiny expressions so we
 // never have to fight nested quoting.
 // ---------------------------------------------------------------------------
@@ -627,12 +705,99 @@ const HARNESS = `
       empty: !!byId('upload-panel')
     };
   }
+  function themeState(prefKey) {
+    var inline = document.documentElement.style;
+    var vars = {};
+    var n = 0;
+    for (var i = 0; i < inline.length; i++) {
+      var name = inline.item(i);
+      if (name.indexOf('--cm-') === 0) {
+        vars[name] = inline.getPropertyValue(name).trim();
+        n++;
+      }
+    }
+    var metas = Array.prototype.slice.call(document.getElementsByTagName('meta'));
+    var metaContent = null;
+    var metaCount = 0;
+    for (var j = 0; j < metas.length; j++) {
+      if (metas[j].getAttribute('name') === 'theme-color') {
+        metaCount++;
+        metaContent = metas[j].getAttribute('content');
+      }
+    }
+    var shell = document.querySelector('style[data-codemap="shell"]');
+    var root = byId('app-root');
+    var node = allByPrefix('graph-node-')[0] || null;
+    var fillEl = node ? (node.querySelector('rect') || node) : null;
+    var pref = null;
+    var prefErr = null;
+    try {
+      pref = window.localStorage.getItem(prefKey);
+    } catch (e) {
+      prefErr = String(e && e.name);
+    }
+    var cs = getComputedStyle(document.documentElement);
+    return {
+      varCount: n,
+      vars: vars,
+      colorSchemeInline: inline.colorScheme || null,
+      colorSchemeComputed: cs.colorScheme || null,
+      metaContent: metaContent,
+      metaCount: metaCount,
+      shellStyle: shell ? (shell.textContent || '').trim() : null,
+      rootBg: root ? getComputedStyle(root).backgroundColor : null,
+      nodeFillComputed: fillEl ? getComputedStyle(fillEl).fill : null,
+      nodeFillAttr: fillEl ? fillEl.getAttribute('fill') : null,
+      pref: pref,
+      prefErr: prefErr
+    };
+  }
+  // 面板的结构证据一次取齐：行顺序 / 标签 / 可访问名 / 哪一行有勾 / 预览块的内联样式
+  function themePanel() {
+    var p = byId('theme-panel');
+    if (!p) return null;
+    var TICK = String.fromCharCode(0x2713);
+    var rows = Array.prototype.slice.call(allByPrefix('theme-option-'));
+    var labels = [];
+    var aria = [];
+    var checked = [];
+    var swatchCss = '';
+    rows.forEach(function (r) {
+      var text = (r.textContent || '').trim();
+      labels.push(text);
+      aria.push(r.getAttribute('aria-label'));
+      if (text.indexOf(TICK) >= 0) checked.push(tid(r));
+      var box = r.firstElementChild;
+      var kids = box ? Array.prototype.slice.call(box.children) : [];
+      kids.forEach(function (k) {
+        swatchCss = swatchCss + ' ' + (k.getAttribute('style') || '');
+      });
+    });
+    return { rows: rows.map(tid), labels: labels, aria: aria, checked: checked, swatchCss: swatchCss };
+  }
+  // 「浮在最上面」的判据和 G6 同一个：这一点上 elementFromPoint 命中的必须是被测元素自己
+  function topmostInPanel(id) {
+    var el = byId(id);
+    var panel = byId('theme-panel');
+    if (!el || !panel) return null;
+    var r = el.getBoundingClientRect();
+    var x = r.left + r.width / 2;
+    var y = r.top + r.height / 2;
+    var hit = document.elementFromPoint(x, y);
+    return {
+      x: Math.round(x),
+      y: Math.round(y),
+      hit: hit ? hit.tagName + '#' + (hit.getAttribute('data-testid') || hit.id || '') : 'none',
+      insidePanel: !!(hit && panel.contains(hit))
+    };
+  }
   window.__t = {
     byId: byId, allByPrefix: allByPrefix, tid: tid, txt: txt, rect: rect,
     findNode: findNode, sample: sample, renderedLines: renderedLines,
     lineVisible: lineVisible, centerOf: centerOf, ensureCenter: ensureCenter,
     tokenInfo: tokenInfo, drop: drop, probe: probe,
-    stats: stats, activeTab: activeTab, scrollEl: scrollEl
+    stats: stats, activeTab: activeTab, scrollEl: scrollEl,
+    themeState: themeState, themePanel: themePanel, topmostInPanel: topmostInPanel
   };
   return 'harness-ok';
 })()
@@ -1164,6 +1329,180 @@ async function main() {
     'hit=' + (closeHit ? closeHit.hit + '@' + closeHit.x + ',' + closeHit.y : 'null') + ' closed=' + closedG6,
   );
 
+  // ================= H：6 套可切换主题 —— CSS 变量在真浏览器里切得动、也留得住 =================
+  // 切主题 = 重写 <html> 上的 --cm-* 变量（外加 style.colorScheme 与 theme-color meta）。
+  // React 不重渲染、浏览器不发请求，所以这里断言的是「计算后的色值真的变了」和
+  // 「请求总数一个都没多」，而不是「某个组件重新画过」。H4 盯的是整套方案的命门：
+  // 图节点的 fill 是 var(--cm-node-fill) 这种写在 SVG 表现属性上的引用，真浏览器认不认。
+  const dfltTheme = THEME.palettes[THEME.defaultId];
+  const lightTheme = THEME.palettes['github-light'];
+  const hexToRgb = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    return 'rgb(' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(', ') + ')';
+  };
+  const squeeze = (s) => String(s == null ? '' : s).replace(/\s+/g, '');
+  const varsEqual = (state, palette) =>
+    !!state &&
+    Object.keys(palette.vars).length === state.varCount &&
+    Object.keys(palette.vars).every((k) => state.vars[k] === palette.vars[k]);
+  const THEME_STATE_EXPR = 'window.__t.themeState(' + JSON.stringify(THEME.prefKey) + ')';
+  const readThemeState = () => evalJs(cdp, THEME_STATE_EXPR);
+  const themeDump = (s) =>
+    s === null || s === undefined
+      ? 'null'
+      : 'vars=' + s.varCount + ' bg=' + s.vars['--cm-bg'] + ' rootBg=' + s.rootBg +
+        ' meta=' + s.metaContent + 'x' + s.metaCount + ' scheme=' + s.colorSchemeComputed +
+        ' pref=' + JSON.stringify(s.pref) + (s.prefErr ? ' prefErr=' + s.prefErr : '') +
+        ' shell=' + JSON.stringify(s.shellStyle);
+  const openThemePanel = async () => {
+    if (await evalJs(cdp, 'window.__t.byId("theme-panel") ? 1 : 0')) return true;
+    await clickTestId(cdp, 'topbar-theme');
+    return poll(cdp, 'window.__t.byId("theme-panel") ? 1 : 0', (v) => v === 1, 4000, 'theme panel open')
+      .then(() => true)
+      .catch(() => false);
+  };
+  const pickTheme = async (id) => {
+    const opened = await openThemePanel();
+    if (!opened) return null;
+    return clickTestId(cdp, 'theme-option-' + id)
+      .then(() =>
+        poll(cdp, THEME_STATE_EXPR, (s) => s.vars['--cm-bg'] === THEME.palettes[id].bg, 6000, 'theme ' + id + ' applied')
+          .then((r) => r.value)
+          .catch(() => null),
+      )
+      .catch(() => null);
+  };
+
+  // ---- H1 首访：profile 每次都是新建的，所以「此刻没有这个键」== 「第一次访问」 ----
+  // 壳层 <style> 是 bundle 执行之前唯一还能动底色的东西（CSP 的 script-src 'self' 禁内联脚本），
+  // 它必须与默认主题同字面值，否则首帧是一帧白屏而不是默认深色。
+  const h1 = await readThemeState();
+  check(
+    'H1 首访 = 默认主题：' + THEME.varCount + ' 条变量逐条 == 源码调色板，meta 与壳层底色同字面 hex，localStorage 无偏好键',
+    varsEqual(h1, dfltTheme) &&
+      h1.metaContent === dfltTheme.bg &&
+      h1.metaCount === 1 &&
+      h1.colorSchemeComputed === dfltTheme.scheme &&
+      h1.shellStyle === THEME.shellStyle &&
+      h1.rootBg === hexToRgb(dfltTheme.bg) &&
+      h1.pref === null &&
+      h1.prefErr === null,
+    themeDump(h1),
+  );
+
+  // ---- H2 面板：开得到、在最上面、六行齐、预览块是「别的主题」的字面色 ----
+  const panelOpenH2 = await openThemePanel();
+  const h2 = panelOpenH2 ? await evalJs(cdp, 'window.__t.themePanel()') : null;
+  const h2hit = panelOpenH2 ? await evalJs(cdp, 'window.__t.topmostInPanel("theme-option-' + THEME.ids[1] + '")') : null;
+  await shot(cdp, '08-theme-panel.png');
+  const swatchBlob = h2 ? squeeze(h2.swatchCss) : '';
+  const lightBgRgbSq = squeeze(hexToRgb(lightTheme.bg));
+  const h2Cond = {
+    open: !!panelOpenH2,
+    panel: !!h2,
+    // 页面上拿到的是 data-testid（带 theme-option- 前缀），契约里的 ids 是裸 id，比之前要补前缀
+    rows: !!h2 && JSON.stringify(h2.rows) === JSON.stringify(THEME.ids.map((id) => 'theme-option-' + id)) &&
+      h2.rows.length === THEME.ids.length,
+    labels: !!h2 && THEME.ids.every((id, i) => String(h2.labels[i]).indexOf(THEME.palettes[id].label) >= 0),
+    tick: !!h2 && h2.checked.length === 1 && h2.checked[0] === 'theme-option-' + THEME.defaultId,
+    aria: !!h2 && h2.aria.filter((a) => String(a).endsWith('(current)')).length === 1,
+    noVar: swatchBlob.indexOf('var(') < 0,
+    // 六行里必须出现「别的主题」的字面色，否则预览块其实是从 --cm-* 取的（六行会长得一模一样）
+    otherTheme: swatchBlob.indexOf(lightBgRgbSq) >= 0,
+    topmost: !!h2hit && h2hit.insidePanel === true,
+  };
+  check(
+    'H2 Theme 面板点得开、浮在最上面、六行按 THEME_ORDER：预览块是各主题字面 rgb（零 var(），只有当前项打勾',
+    Object.keys(h2Cond).every((k) => h2Cond[k] === true),
+    'failed=[' + Object.keys(h2Cond).filter((k) => h2Cond[k] !== true).join(',') + ']' +
+      ' rows=' + JSON.stringify(h2 && h2.rows) +
+      ' checked=' + JSON.stringify(h2 && h2.checked) +
+      ' labels=' + JSON.stringify(h2 && h2.labels) +
+      ' aria=' + JSON.stringify(h2 && h2.aria) +
+      ' swatchLen=' + swatchBlob.length +
+      ' wantRgb=' + lightBgRgbSq +
+      ' swatchHead=' + swatchBlob.slice(0, 120) +
+      ' hit=' + (h2hit ? h2hit.hit + '@' + h2hit.x + ',' + h2hit.y : 'null'),
+  );
+
+  // ---- H3 切到 GitHub Light：五处同时变亮，而且一个请求都没多 ----
+  const reqsBeforeSwitch = netRequests.size;
+  const h3 = await pickTheme('github-light');
+  const panelClosedH3 = await evalJs(cdp, 'window.__t.byId("theme-panel") ? 1 : 0');
+  check(
+    'H3 切到 GitHub Light：<html> 变量 / app-root 计算背景 / theme-color / color-scheme / localStorage 五处同时变亮，面板自动关，请求总数一个都没多',
+    varsEqual(h3, lightTheme) &&
+      h3.rootBg === hexToRgb(lightTheme.bg) &&
+      h3.metaContent === lightTheme.bg &&
+      h3.metaCount === 1 &&
+      h3.colorSchemeInline === lightTheme.scheme &&
+      h3.colorSchemeComputed === 'light' &&
+      h3.pref === lightTheme.id &&
+      panelClosedH3 === 0 &&
+      netRequests.size === reqsBeforeSwitch,
+    themeDump(h3) + ' reqs=' + reqsBeforeSwitch + '->' + netRequests.size + ' panelClosed=' + (panelClosedH3 === 0),
+  );
+
+  // ---- H4 命门：fill="var(--cm-node-fill)" 写在 SVG 表现属性上，真浏览器解得出 rgb ----
+  // 亮色主题的 nodeFill 与深色主题的 nodeFill 是两个不同的 rgb，所以「命中当前调色板」
+  // 同时证明了 var() 被解析、而且跟着刚切的主题走。
+  const lightRgbSet = new Set(
+    Object.keys(lightTheme.vars)
+      .filter((k) => lightTheme.vars[k].charAt(0) === '#')
+      .map((k) => hexToRgb(lightTheme.vars[k])),
+  );
+  const nodeCountH4 = await evalJs(cdp, 'window.__t.allByPrefix("graph-node-").length');
+  check(
+    'H4 图节点的 fill 计算值是真 rgb（var() 没漏进 computed style），且等于刚切过去的亮色调色板里的某个色',
+    nodeCountH4 > 0 &&
+      !!h3 &&
+      /^rgb/.test(String(h3.nodeFillComputed)) &&
+      String(h3.nodeFillComputed).indexOf('var(') < 0 &&
+      lightRgbSet.has(h3.nodeFillComputed),
+    'nodes=' + nodeCountH4 + ' attr=' + (h3 ? h3.nodeFillAttr : 'null') + ' computed=' + (h3 ? h3.nodeFillComputed : 'null'),
+  );
+  // 留一张亮色截图：计算值对不代表人眼看着也对（对比度靠 theme.test.ts 的门禁，观感靠这张图）
+  await shot(cdp, '09-theme-light.png');
+
+  // ---- H5 刷新后不点任何东西仍是亮色：initTheme() 在入口模块作用域就把主题装好 ----
+  const cspBeforeReload = ((await evalJs(cdp, 'window.__cspViolations || []')) || []).length;
+  await evalJs(cdp, 'window.__beforeReload = 1');
+  await cdp.send('Page.reload', {});
+  await poll(
+    cdp,
+    '(window.__beforeReload ? 0 : (document.querySelector(\'[data-testid="app-root"]\') || document.querySelector(\'[testid="app-root"]\') ? 1 : 0))',
+    (v) => v === 1,
+    45000,
+    'H5 fresh document + app-root',
+  );
+  await evalJs(cdp, HARNESS);
+  const h5 = await readThemeState();
+  const h5viol = (await evalJs(cdp, 'window.__cspViolations || []')) || [];
+  check(
+    'H5 刷新后什么都没点就还是 GitHub Light（偏好读得到、首帧就装载），新文档零 CSP 违规',
+    varsEqual(h5, lightTheme) &&
+      h5.rootBg === hexToRgb(lightTheme.bg) &&
+      h5.metaContent === lightTheme.bg &&
+      h5.colorSchemeComputed === lightTheme.scheme &&
+      h5.pref === lightTheme.id &&
+      h5viol.length === 0,
+    themeDump(h5) + ' violations=' + JSON.stringify(h5viol).slice(0, 240),
+  );
+
+  // ---- H6 切回默认：颜色/meta/color-scheme 复原，偏好写回默认值 ----
+  const h6 = await pickTheme(THEME.defaultId);
+  await shot(cdp, '10-theme-default-restored.png');
+  check(
+    'H6 切回 ' + THEME.defaultId + '：变量 / 计算背景 / meta / color-scheme 全部复原成源码默认值，偏好也写回默认',
+    varsEqual(h6, dfltTheme) &&
+      h6.rootBg === hexToRgb(dfltTheme.bg) &&
+      h6.metaContent === dfltTheme.bg &&
+      h6.colorSchemeInline === dfltTheme.scheme &&
+      h6.colorSchemeComputed === dfltTheme.scheme &&
+      h6.pref === dfltTheme.id,
+    themeDump(h6),
+  );
+
   // ================= ACCEPTANCE 4: 承诺面 —— 浏览器里真实发生的一切 =================
   const httpReqs = [...netRequests.values()].filter((r) => /^https?:/i.test(r.url));
   const selfOrigin = new URL(APP_URL).origin;
@@ -1218,8 +1557,14 @@ async function main() {
     leaks.length === 0,
     leaks.slice(0, 5).join(' | ') || tokens.length + ' 个标记 x ' + httpReqs.length + ' 个请求，零命中',
   );
+  // H5 会刷新页面，而计数器是 addScriptToEvaluateOnNewDocument 装的 —— 新文档从 0 开始，
+  // 所以刷新前那份必须单独取一次，两个文档都为零才算「生产 CSP 下零违规」。
   const cspViolations = (await evalJs(cdp, 'window.__cspViolations || []')) || [];
-  check('E8 生产 CSP 下零违规', cspViolations.length === 0, JSON.stringify(cspViolations).slice(0, 600));
+  check(
+    'E8 生产 CSP 下零违规（刷新前 + 刷新后两个文档都算）',
+    cspViolations.length === 0 && cspBeforeReload === 0,
+    JSON.stringify(cspViolations).slice(0, 600) + ' preReload=' + cspBeforeReload,
+  );
 
   // note() 只是打印；真正的错误要变成一条断言，否则 CI 里没人会去看日志
   const consoleErrors = console_.filter((c) => c.indexOf('error:') === 0 || c.indexOf('log:') === 0);

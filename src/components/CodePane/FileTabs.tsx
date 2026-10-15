@@ -195,7 +195,7 @@ export function FileTabs(): ReactNode {
             border: `1px solid ${colors.borderStrong}`,
             borderRadius: 6,
             padding: '4px 0',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            boxShadow: '0 4px 16px ' + colors.shadow,
           }}
         >
           {buildItems(menu.path).map((item) => (

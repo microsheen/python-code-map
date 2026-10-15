@@ -911,3 +911,39 @@
 - 遗留：① 前两轮记的两条仍然欠着（N 很大时的「调用点列表面板」；未解析调用没有边、不参与这套交互）；② 闪烁
   那一瞬角标与行底色同为琥珀、方框轮廓短暂看不清 —— 这条已接受代价**没有**因为撤回 ① 而消失，它属于 ②；
   ③ `%TEMP%` 下 `cm-pub-7`…`cm-pub-15`、`codemap-shots`、`smoke-*.log` 照旧只能人工清。
+
+## 2026-10-16 第十二轮发布（撤回轮上线；github.com 直连整晚抖动、第三次尝试才挤进推送；显式 11 路径探针第一次复用，--proxy 观测点补完 11/11）
+
+- 发布事实：公开 `main` 从 `14a57c6` **覆盖推**到 `9b20a79` —— 无父孤儿单提交、110 个在册文件、author 与 committer 同为
+  公开侧 noreply 身份。推送动作在 10-15 晚 22:44 完成（判据 `ls-remote` 的 `HEAD` 与 `refs/heads/main` 都是 `9b20a79` 且只有
+  `main`），线上逐文件比对拿到全绿已经是 10-16 凌晨 —— 所以这条记录落在 16 号，动作与结论各按各的时刻写。
+- scrub 照 §11 只动 `AGENTS.md` 一处；这次第一遍改写成「保留原句式、括注换成本仓 Issues」，落定 blob 对不上上一轮公开树的
+  `be5e07fb`（该轮落定文本是**整句重写** `Issues live in this repository's GitHub Issues.`）。改回整句重写后 blob 逐字节复现
+  `be5e07fb` —— 判据别拿「语义对」代替「字节对」；同源性再钉一遍：内网 `e23b682` 树与公开落地树 `ls-tree -r` 全量对比，
+  只差 `AGENTS.md` 这一颗（`aa542d57` → `be5e07fb`），其余 109 个 blob 逐字节相同。
+- 匿名 `git clone` 一次成功（真公开），落地树 `audit-public-repo --history` 第二遍：**findings 0 / exit 0**（106 扫 + 4 媒体跳过）。
+- 本轮新公开正文 = 25 个文件、+2,875/−105 行（可点击的边轮、精简轮、撤回轮三轮的代码与文档，外加第九轮发布记录本身 —— 滞后的
+  那一轮这回收到了）。逐类别手工扫：内网主机名 / 内网仓 owner / 绝对路径 / 邮箱 / 32 位十六进制 / token 形状 / 代理值 / 内网
+  12 位 run 号形状，**全部零命中**；两条 64 位 sha256（ops §4 第十一、十二轮块的 `index.html` 摘要）与公开树既有多条基线块同形
+  —— 内容摘要不是标识符，照旧点出而不改写；一个公开仓自身的 run 号（`38709464607`，GitHub 公开资源，与内网 12 位形状不同）。
+- 本机出口实况（10-15 晚起）：github.com 直连 `git ls-remote`/push 间歇性 `Recv failure: Connection was reset`，读 `info/refs`
+  的 curl 能 200 —— 抖动而非死路。发布循环按「先探 ls-remote、通了立刻推」写，第 3 次探测挤进去，`+ 14a57c6...9b20a79 (forced
+  update)`；推送照 §13 包在 `Start-Job` + `Wait-Job -Timeout 55` 里。
+- CI run `38750142007` 三个 job 全绿：`checks`（386 单测、lint 0 error / 12 warning 既有基线）、`browser-smoke` **`"passed": 75,
+  "failed": []`** —— 撤回轮的 I8 六条在 CI 里全过；`deploy` 成功，不可变 URL 照旧只从 stdout 取：
+  `https://c37953c6.python-code-map.pages.dev`（`code: 8000002` 那条仍是「故意先试建项目」的既有噪音）。
+- 线上 == 产物（逐文件）：`gh run download` 取本轮 CI 的 `dist`（31 个文件），入口 `entry-e6c02812…` **1,425,027 B**、
+  `index.html` **1,562 B** / sha256 前缀 `5d16e56b` —— 本机构建 `entry-24180a4b…` 1,431,374 B 与 CI 差约 6 KB，**第四次复现**，
+  `--dist` 只能指 CI 产物的判据不变。
+- 本轮最大的坑换了形状：**不再是 TLS 信任，而是传输层**。第一遍直连 11 路径 × 2 host 有 3 条路径拿到双方 200 + MATCH，其余
+  间歇 `UND_ERR_CONNECT_TIMEOUT`（10 s connect 超时，`--timeout` 调不动它）与 `This operation was aborted`；curl 另有一路挂在
+  `CRYPT_E_REVOCATION_OFFLINE`（吊销服务器够不着）；`python-code-map.pages.dev` 的证书链根这次是**公网 `ISRG Root X1`**、
+  Node 默认信任直接通 —— 第十一轮那套「导出根 CA 到 NODE_EXTRA_CA_CERTS」本轮**没有用上**（PEM 未导出：Windows 根库里查不到
+  那张根，而 Node 也不需要它）。观测点修好后（凌晨 4 点）改走 `check-deploy` 自带的 `--proxy` CONNECT 通道，**11 条路径 × 2 host
+  全部应答、11/11 `vs --dist MATCH`**、`clean: identical bytes on every host, no third-party URLs in HTML, no local-build diff`、
+  `CHECK_EXIT=0`，只剩 11 处 `x-robots-tag` 显式不计入。`--proxy` 这个观测点是本轮第一次用，按规矩先记在这份日志，ops 等下一轮复用再落。
+- 第九轮欠的那笔结掉：ops §8 的发布核对模板**换成显式 11 路径** + `--ignore-header=x-robots-tag`，并把「默认探针
+  `/sw.js`、`/manifest.webmanifest` 在本仓是空断言」写进正文 —— 这套口径本轮（第十二轮）是第九轮之后的第二次实测，够格进文档。
+- 公开侧元数据：`visibility=PUBLIC`、默认分支 `main`、`has_issues=true`、描述未变。
+- 这条记录本身按既定写法**第十三轮**才进公开树。遗留：① 出口抖动没有解释、也没法在本机修，下一轮发布先探再推的循环照用；② 后台
+  重试循环自己跑完了 12 轮（探测到全绿后多余几轮的请求，无害）；③ `%TEMP%` 又添 `cm-pub-16`（含 push/check/CI 日志留证），照旧只能人工清。

@@ -418,10 +418,16 @@ SPA history fallback：未知路径返回 **200 + index.html**，`/api/*` 也一
 
 ```bash
 node <skill>/scripts/check-deploy.mjs \
-  --hosts=https://<apex>,https://www.<apex>,https://<project>.pages.dev \
-  --paths=/,/wasm/tree-sitter.wasm,/wasm/tree-sitter-python.wasm,/robots.txt \
-  --dist=dist --mode=browser
+  --hosts=https://<hash>.<project>.pages.dev,https://<project>.pages.dev \
+  --paths=/,/wasm/tree-sitter.wasm,/wasm/tree-sitter-python.wasm,/robots.txt,/icon.svg,/favicon.ico,/icon-192.png,/icon-512.png,/apple-touch-icon.png,/_expo/static/js/web/entry-<buildhash>.js,/_expo/static/js/web/empty-module-<buildhash>.js \
+  --dist=<本轮 CI 产物目录> --mode=browser --ignore-header=x-robots-tag
 ```
+
+**默认探针集必须换成本仓真实存在的路径。**[实测] 脚本默认的 `--paths` 里有 `/sw.js` 与 `/manifest.webmanifest` —— 本仓
+**根本不存在**这两条：Pages 的 SPA 回退把它们答成与 `index.html` 相同的字节 ⇒ 「全部 200」是**空断言**，探针根本没命中
+任何真实资源。发布核对因此一律显式列上面那 11 条（产物里真实存在：入口与 empty-module 的名字带构建哈希，每轮要按
+本轮 CI 产物重取）。`--ignore-header=x-robots-tag` 是已判的平台差异（`<hash>` 主机带 `noindex`、生产别名不带），
+不是拿它压字节差。这一套在第九轮与第十二轮发布各实测一遍：`11 路径 × 2 host` 全部 `vs --dist MATCH`、exit 0。
 
 **别把 `/index.html` 放进 `--paths`。** [实测] Pages 对 `/index.html` 返回 **308** canonical 到 `/`，
 而脚本取响应时用 `redirect: 'manual'`（不跟随跳转），于是那个 308 的跳转体被拿去和 `dist/index.html`

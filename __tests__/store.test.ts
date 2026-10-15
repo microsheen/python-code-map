@@ -29,8 +29,14 @@ import {
   B_PATH,
   ID_ALPHA,
   ID_BETA,
+  ID_CALLEE,
+  ID_CALLER,
   ID_GAMMA,
+  ID_INDIRECT,
   ID_USE_GAMMA,
+  M_PATH,
+  N_PATH,
+  multiCallProject,
   sampleProject,
 } from './helpers/sampleProject';
 import type { SampleProject } from './helpers/sampleProject';
@@ -405,5 +411,173 @@ describe('reset', () => {
     expect(after.fitNonce).toBe(9);
     // 偏好不属于"数据"，reset 不动它们
     expect(after.splitRatio).toBe(0.6);
+  });
+});
+
+
+describe('边选中：点一条线 -> 定位调用点', () => {
+  const cur = (): AppStore => useAppStore.getState();
+  const edgeOf = (): AppStore['edgeSelection'] => cur().edgeSelection;
+
+  it('首次点边落在第 1 处调用，并把 activeFile 切到调用点所在文件', () => {
+    preset(multiCallProject(), { activeFile: N_PATH });
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    expect(edgeOf()).toMatchObject({
+      source: ID_CALLER,
+      target: ID_CALLEE,
+      index: 0,
+      count: 3,
+      origin: 'graph',
+    });
+    expect(cur().activeFile).toBe(M_PATH);
+  });
+
+  it('同一条边再点一次依次往后，第四次绕回第 1 处', () => {
+    preset(multiCallProject());
+    const seen: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+      seen.push(edgeOf()?.index ?? -1);
+    }
+    expect(seen).toEqual([0, 1, 2, 0]);
+  });
+
+  it('Shift 反向：第一次仍从第 1 处开始，之后每次往后退一处并绕回', () => {
+    preset(multiCallProject());
+    const seen: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE, true);
+      seen.push(edgeOf()?.index ?? -1);
+    }
+    expect(seen).toEqual([0, 2, 1, 0, 2]);
+  });
+
+  it('换一条边从第一处开始：序号只在同一条边内累加', () => {
+    preset(multiCallProject());
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    expect(edgeOf()?.index).toBe(1);
+    cur().selectEdgeFromGraph(ID_INDIRECT, ID_CALLEE);
+    expect(edgeOf()).toMatchObject({ source: ID_INDIRECT, target: ID_CALLEE, index: 0, count: 1 });
+  });
+
+  it('步进器：+1 到头绕回，-1 到底绕到末尾，来源标成 graph（代码区要跟着滚）', () => {
+    preset(multiCallProject());
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    cur().stepEdge(1);
+    expect(edgeOf()?.index).toBe(1);
+    cur().stepEdge(1);
+    expect(edgeOf()?.index).toBe(2);
+    cur().stepEdge(1);
+    expect(edgeOf()?.index).toBe(0);
+    cur().stepEdge(-1);
+    expect(edgeOf()?.index).toBe(2);
+    expect(edgeOf()?.origin).toBe('graph');
+  });
+
+  it('没有选中边时 stepEdge 原样返回（不产生新 state、不报空）', () => {
+    preset(multiCallProject());
+    const before = cur();
+    before.stepEdge(1);
+    expect(cur()).toBe(before);
+    expect(cur().edgeSelection).toBeNull();
+  });
+
+  it('点边不动 selection / scope / navHistory / view：只高亮这条线并换文件', () => {
+    preset(multiCallProject());
+    cur().selectFromGraph(ID_CALLEE);
+    cur().selectFromGraph(ID_CALLER);
+    const before = cur();
+    const snap = {
+      selection: before.selection,
+      scope: before.scope,
+      navHistory: before.navHistory,
+      navIndex: before.navIndex,
+      view: before.view,
+    };
+    before.selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    const after = cur();
+    expect(after.selection).toEqual(snap.selection);
+    expect(after.scope).toEqual(snap.scope);
+    expect(after.navHistory).toEqual(snap.navHistory);
+    expect(after.navIndex).toBe(snap.navIndex);
+    expect(after.view).toEqual(snap.view);
+    expect(after.edgeSelection).not.toBeNull();
+  });
+
+  it('代码区点调用点：origin=code 且保留点中的那一处序号', () => {
+    preset(multiCallProject());
+    cur().selectEdgeFromCode(ID_CALLER, ID_CALLEE, 2);
+    expect(edgeOf()).toMatchObject({ index: 2, count: 3, origin: 'code' });
+  });
+
+  it('序号越界（图刚变过、调用点少了一个）归到第一处，而不是崩掉', () => {
+    preset(multiCallProject());
+    cur().selectEdgeFromCode(ID_CALLER, ID_CALLEE, 99);
+    expect(edgeOf()?.index).toBe(0);
+  });
+
+  it('边不存在时整块状态原样返回（点到了空气）', () => {
+    preset(multiCallProject());
+    const before = cur();
+    before.selectEdgeFromGraph(ID_CALLEE, ID_CALLER);
+    expect(cur()).toBe(before);
+    expect(cur().edgeSelection).toBeNull();
+  });
+
+  it('清空后重新点同一处也换新 nonce：否则代码区不会重放滚动与闪烁', () => {
+    preset(multiCallProject());
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    const first = edgeOf()?.nonce ?? -1;
+    cur().clearEdgeSelection();
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    expect(edgeOf()?.index).toBe(0);
+    expect((edgeOf()?.nonce ?? -1) as number).toBeGreaterThan(first);
+  });
+
+  it('点节点 / 点代码 / 切范围 / 前进后退都清掉边选中（一次只有一个焦点）', () => {
+    preset(multiCallProject());
+    cur().selectFromGraph(ID_CALLEE);
+    cur().selectFromGraph(ID_CALLER);
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    cur().selectFromGraph(ID_CALLEE);
+    expect(cur().edgeSelection).toBeNull();
+
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    cur().selectFromCode(ID_CALLEE);
+    expect(cur().edgeSelection).toBeNull();
+
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    cur().setScope(fileScope(M_PATH));
+    expect(cur().edgeSelection).toBeNull();
+    expect(cur().scope).toEqual(fileScope(M_PATH));
+
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    cur().navBack();
+    expect(cur().edgeSelection).toBeNull();
+  });
+
+  it('clearEdgeSelection 在本来就没有选中时返回同一个 state 引用', () => {
+    preset(multiCallProject());
+    const before = cur();
+    before.clearEdgeSelection();
+    expect(cur()).toBe(before);
+  });
+
+  it('边序号不随 reset 回卷：重开一次分析后再次点边，nonce 仍比上次大', () => {
+    preset(multiCallProject());
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    const before = edgeOf()?.nonce ?? -1;
+    useAppStore.getState().reset();
+    preset(multiCallProject());
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    expect((edgeOf()?.nonce ?? -1) as number).toBeGreaterThan(before);
+  });
+
+  it('reset 清空边选中', async () => {
+    preset(multiCallProject());
+    cur().selectEdgeFromGraph(ID_CALLER, ID_CALLEE);
+    await cur().reset();
+    expect(cur().edgeSelection).toBeNull();
   });
 });

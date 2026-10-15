@@ -5,6 +5,7 @@ import {
   ARROW_HALF_W,
   ARROW_SIZE,
   CHAR_W,
+  CUBIC_SAMPLES,
   MAX_NODE_W,
   MAX_SCALE,
   MIN_NODE_W,
@@ -12,6 +13,7 @@ import {
   NODE_H_DOUBLE,
   NODE_H_SINGLE,
   arrowHeadPath,
+  bboxOf,
   centerTransform,
   clampScale,
   edgeStrokeWidth,
@@ -21,12 +23,17 @@ import {
   nodeLabel,
   nodeSize,
   pointsToPath,
+  QUAD_SAMPLES,
+  sampleCubic,
+  sampleQuadratic,
+  sampleSmoothedPolyline,
+  selfLoopCurve,
   selfLoopTip,
   tipFromPoints,
 } from '../src/graph/layout';
 import type { NodeBox } from '../src/graph/layout';
 import { makeFuncId } from '../src/parser/symbols';
-import { edge, func, graphOf } from './helpers/synth';
+import { callSite, edge, func, graphOf } from './helpers/synth';
 
 const F = 'pkg/mod.py';
 const id = (q: string): string => makeFuncId(F, q);
@@ -213,5 +220,108 @@ describe('视口变换', () => {
     expect(clampScale(1)).toBe(1);
     expect(MIN_SCALE).toBe(0.3);
     expect(MAX_SCALE).toBe(2.5);
+  });
+});
+
+describe('边上的密采样折线 points / bbox（点中一条线靠它）', () => {
+  const ab = callSite({ file: F, line: 3, column: 4, text: 'b', caller: id('A.a'), target: id('B.b') });
+  const bb = callSite({ file: F, line: 10, column: 4, text: 'b', caller: id('B.b'), target: id('B.b') });
+  const laid = layoutGraph(
+    graphOf([func(F, 'A.a', { defLine: 1 }), func(F, 'B.b', { defLine: 9 })], [
+      edge(id('A.a'), id('B.b'), [ab]),
+      edge(id('B.b'), id('B.b'), [bb]),
+    ]),
+  );
+  const plain = laid.edges.find((e) => !e.selfLoop);
+  const loop = laid.edges.find((e) => e.selfLoop);
+
+  it('d 字符串逐字不变：这次重构只加字段，没有改画法', () => {
+    expect(plain?.d).toBe('M 132 45 Q 180 45 204 45 L 228 45');
+    expect(loop?.d).toBe('M 332 38.88 C 378 22 378 68 332 51.12');
+  });
+
+  it('普通边：采样首点 = M 起点，末点 = L 终点', () => {
+    const pts = plain?.points ?? [];
+    expect(pts[0]).toEqual({ x: 132, y: 45 });
+    const last = pts[pts.length - 1];
+    expect(last?.x).toBeCloseTo(228, 6);
+    expect(last?.y).toBeCloseTo(45, 6);
+  });
+
+  it('自环：采样首末点与 path 的两端一致（画的是同一条曲线）', () => {
+    const curve = selfLoopCurve(laid.nodes.get(id('B.b')) ?? { x: 0, y: 0, w: 0, h: 0, cx: 0, cy: 0 });
+    const pts = loop?.points ?? [];
+    expect(pts[0]).toEqual(curve.p0);
+    const last = pts[pts.length - 1];
+    expect(last?.x).toBeCloseTo(curve.p1.x, 6);
+    expect(last?.y).toBeCloseTo(curve.p1.y, 6);
+  });
+
+  it('bbox 包住全部采样点，且鼓包在节点右侧', () => {
+    for (const e of laid.edges) {
+      const b = e.bbox;
+      for (const pt of e.points) {
+        expect(pt.x).toBeGreaterThanOrEqual(b.minX);
+        expect(pt.x).toBeLessThanOrEqual(b.maxX);
+        expect(pt.y).toBeGreaterThanOrEqual(b.minY);
+        expect(pt.y).toBeLessThanOrEqual(b.maxY);
+      }
+    }
+    const lb = loop?.bbox;
+    expect(lb?.maxX).toBeGreaterThan((laid.nodes.get(id('B.b'))?.x ?? 0) + (laid.nodes.get(id('B.b'))?.w ?? 0));
+  });
+
+  it('每段曲线的细分密度足够：命中容差 7px 时不会漏掉鼓包', () => {
+    expect((loop?.points ?? []).length).toBe(CUBIC_SAMPLES + 1);
+    expect((plain?.points ?? []).length).toBe(QUAD_SAMPLES + 3);
+  });
+});
+
+describe('sampleSmoothedPolyline / sampleQuadratic / sampleCubic / bboxOf', () => {
+  it('空数组 -> 空；单点 -> 两个重合点（零长线段也算得出距离）', () => {
+    expect(sampleSmoothedPolyline([])).toEqual([]);
+    expect(sampleSmoothedPolyline([{ x: 1, y: 2 }])).toEqual([
+      { x: 1, y: 2 },
+      { x: 1, y: 2 },
+    ]);
+  });
+
+  it('两点是直线：补一个中点，起止不变', () => {
+    const out = sampleSmoothedPolyline([{ x: 0, y: 0 }, { x: 10, y: 4 }]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toEqual({ x: 0, y: 0 });
+    expect(out[1]).toEqual({ x: 5, y: 2 });
+    expect(out[2]).toEqual({ x: 10, y: 4 });
+  });
+
+  it('>=3 点保留起点与终点，中间每段一条二次曲线', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 10, y: 20 }, { x: 20, y: 0 }, { x: 30, y: 15 }];
+    const out = sampleSmoothedPolyline(pts);
+    expect(out[0]).toEqual(pts[0]);
+    expect(out[out.length - 1]).toEqual(pts[3]);
+    expect(out).toHaveLength(1 + QUAD_SAMPLES * (pts.length - 2) + 2);
+  });
+
+  it('二次曲线：不含起点、含终点；t=0.5 落在贝塞尔公式上', () => {
+    const out = sampleQuadratic({ x: 0, y: 0 }, { x: 10, y: 30 }, { x: 20, y: 0 });
+    expect(out).toHaveLength(QUAD_SAMPLES);
+    expect(out[out.length - 1]).toEqual({ x: 20, y: 0 });
+    const mid = sampleQuadratic({ x: 0, y: 0 }, { x: 10, y: 30 }, { x: 20, y: 0 }, 2)[0];
+    expect(mid?.x).toBeCloseTo(10, 6);
+    expect(mid?.y).toBeCloseTo(15, 6);
+  });
+
+  it('三次曲线：不含起点、含终点，中点符合公式', () => {
+    const out = sampleCubic({ x: 0, y: 0 }, { x: 0, y: 12 }, { x: 24, y: 12 }, { x: 24, y: 0 });
+    expect(out).toHaveLength(CUBIC_SAMPLES);
+    expect(out[out.length - 1]).toEqual({ x: 24, y: 0 });
+    const mid = sampleCubic({ x: 0, y: 0 }, { x: 0, y: 12 }, { x: 24, y: 12 }, { x: 24, y: 0 }, 2)[0];
+    expect(mid?.x).toBeCloseTo(12, 6);
+    expect(mid?.y).toBeCloseTo(9, 6);
+  });
+
+  it('bboxOf：空点集退化为零框，否则给出外接框', () => {
+    expect(bboxOf([])).toEqual({ minX: 0, minY: 0, maxX: 0, maxY: 0 });
+    expect(bboxOf([{ x: 3, y: 9 }, { x: -2, y: 4 }])).toEqual({ minX: -2, minY: 4, maxX: 3, maxY: 9 });
   });
 });

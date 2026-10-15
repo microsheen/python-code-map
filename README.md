@@ -17,12 +17,13 @@ Upload one or more `.py` files and see their function call graph in the browser 
 - **Real syntax parsing**: Python is parsed with tree-sitter (WASM), not by scanning lines with regexes — nested `def`, class methods, `async def`, decorators and relative imports are all recognized correctly.
 - **Stack**: Expo SDK 57 + React Native Web + react-native-svg + dagre layout + zustand.
 
-Four key design decisions are recorded as ADRs; read them before changing code:
+Five key design decisions are recorded as ADRs; read them before changing code:
 
 - [ADR-0001 Pure front end + tree-sitter WASM, no backend / no Pyodide](docs/adr/0001-expo-rn-web-no-backend.md)
 - [ADR-0002 Conservative call resolution and the reason taxonomy](docs/adr/0002-conservative-call-resolution.md)
 - [ADR-0003 The feedback channel is allowed to be nothing but two hrefs](docs/adr/0003-feedback-channel-href-only.md)
 - [ADR-0004 Interface themes are implemented with CSS custom properties (six switchable)](docs/adr/0004-css-variable-theming.md)
+- [ADR-0005 Clickable edges — cycling through the N call sites behind one line](docs/adr/0005-clickable-edges-call-site-cycling.md)
 
 _The ADRs and everything else under `docs/` are written in Chinese._
 
@@ -90,6 +91,47 @@ Clicks in the code are **semantics-aware**, not a plain "select whichever line y
 
 Clicking the same function again re-triggers the locate animation (implemented by incrementing `selection.nonce`; otherwise the id does not change and React concludes there is nothing to do).
 
+### Clicking a line: the N call sites behind one edge
+
+A node is a function; an edge is an **aggregate** — every call from A to B is merged into one polyline whose
+thickness follows its count (ADR-0002). The individual call sites survive inside that edge, which makes the
+line itself clickable:
+
+- **Click a line** → the code pane switches to the file that owns A, scrolls to the **first** call site, flashes
+  that single line and marks **every** call site of that edge: the others get a thin underline, the current one
+  gets a filled band and a numbered chip.
+- **Click the same line again** → the second call site, then the third, and after the last one it wraps back to
+  the first. `Shift`+click walks the same cycle backwards. A click on an edge that is not marked yet always
+  starts at call site 1 — there is nothing to step back from.
+- **`‹ 2/3 ›`** in the bottom-right corner of the code pane steps without chasing a thin line, `✕` clears. When
+  there is a single call site it reads `1/1` and neither arrow is rendered.
+- **The graph footer** names the current hit: `caller → callee · 2/3 · multi.py:7` (the `· 2/3` disappears when
+  the edge has only one call site).
+- **Hover** a line: the cursor becomes a pointer and a tooltip says what the click will do
+  (`caller → callee · 3 call sites · first at line 6`). Hover hit-testing switches itself off above 1500 edges
+  so a huge graph stays smooth; clicking keeps working there.
+- **The other direction lights the same line**: clicking a call site in the code selects that edge with
+  `origin: 'code'` — and because the code is already under your eyes, that path neither scrolls nor flashes.
+
+The order behind all of those numbers exists in exactly one place, `compareCallSites` in `src/graph/edges.ts`
+(line, then column inside the line, then the source text as a tie-break), so "call site 2 of 3" means the same
+thing in the chip, the stepper, the footer and the tests. One parser invariant makes the feature tractable at
+all: **all call sites of one edge live in one file**, because a caller is defined in exactly one file — the code
+pane therefore never has to group marks across files.
+
+Clicking a line deliberately changes **nothing else**: not the selection, not the scope, not the navigation
+history, not the zoom/pan, and not a single request. "Which line am I reading" is a different axis from "which
+function did I select", so cycling through three call sites must not blow away the neighborhood you clipped.
+Any real selection change (a node click, a code click, a scope switch, back/forward, removing a file,
+re-parsing, Clear) drops the marks, and so does clicking empty space in the graph.
+
+A line is hit using the same sampled points that draw it, within 7 **screen** pixels (`EDGE_HIT_TOL`, divided by
+the current zoom so it stays 7 pixels whatever the scale), and a node always wins over a line underneath the
+cursor. The `data-testid` anchors are the contract: `graph-edge-<src>-><tgt>`, `graph-edge-tooltip`,
+`graph-edge-info` on the graph; `callsite-stepper`, `callsite-prev`, `callsite-count`, `callsite-next`,
+`callsite-clear`, `callsite-mark-<i>` in the code pane. Why cycling instead of parallel edges, a dropdown list,
+jumping to the first call site only, or ①②③ badges on the line: [ADR-0005](docs/adr/0005-clickable-edges-call-site-cycling.md).
+
 ## Feedback channel
 
 `Feedback` in the top bar opens a read-only panel. **The page exposes exactly two links**: GitHub Issues and an email alias, both of them plain `<a href>` — something happens only when you click. No `fetch`, no beacon, no `<form>`, no `window.open`, no clipboard writes. The reasoning: feedback is the one feature on the whole site that inherently wants to "carry information outward", which makes it the only real counterexample risk to the "your source never goes upstream" promise, so it is built in the shape of "this page physically cannot send anything".
@@ -131,10 +173,11 @@ The alias is currently gated off by `CONTACT_EMAIL = null` (Email Routing is not
 npm run web
 ```
 
-Upload `main.py`, `shapes.py` and `utils.py` from `fixtures/` (select all three at once) and confirm each item:
+Upload `main.py`, `shapes.py`, `utils.py` and `multi.py` from `fixtures/` (select all four at once) and confirm each item:
 
-- [ ] The status at the top shows parsing finished, with roughly **funcs 45 / edges 47 / unresolved 28**
-      (`ambiguous 1 / external 14 / dynamic 13 / unknown 0`) — matching the ADR-0002 baseline
+- [ ] The status at the top shows parsing finished, with roughly **funcs 47 / edges 50 / unresolved 26** — that is
+      the three-file ADR-0002 baseline (**45 / 49 / 26**, `ambiguous 1 / external 14 / dynamic 11 / unknown 0`)
+      plus the 2 functions and the 1 aggregated edge `multi.py` adds; uncheck `multi.py` and the baseline is back
 - [ ] The call graph appears on the right, nodes colored per file, with a file-color legend at the bottom
 - [ ] A cross-file edge is visible: `main.py::boot → utils.py::load_config`
 - [ ] A recursive self-loop is visible: `main.py::factorial` points at itself
@@ -143,12 +186,18 @@ Upload `main.py`, `shapes.py` and `utils.py` from `fixtures/` (select all three 
 - [ ] **Code → graph**: click the function name on line 22 of main.py (`def boot():`) → the right centers and highlights `boot`
 - [ ] **Call-site jump**: click the name inside `cfg = utils.load_config(...)` on line 24 of main.py →
       what gets selected is `utils.py::load_config` (the callee), not `boot`
+- [ ] **Edge → call sites** (needs `multi.py` uploaded together with the three above): click the
+      `caller → callee` line in the graph → the left switches to multi.py, scrolls to line 6 and underlines all
+      three calls; click the same line again → line 7, once more → line 8, once more → back to line 6.
+      `Shift`+click steps backwards; `‹ 2/3 ›` in the bottom-right of the code pane does the same without
+      chasing the line, `✕` or clicking empty graph space clears; the graph footer reads
+      `caller → callee · 2/3 · multi.py:7`, and hovering the line promises `3 call sites · first at line 6`
 - [ ] Zoom & pan: the wheel zooms anchored at the cursor, dragging empty space pans, and `+` / `−` / Fit View all work
 - [ ] Scope switching: Neighborhood / This File / All all switch, and under "All" a large-graph hint appears at the top when there are many nodes
 - [ ] Removing a single file: click the × on the `utils.py` chip → its nodes and cross-file edges disappear together,
       the file tab on the left is removed in sync, and the current selection is cleared if it pointed into the removed file
 - [ ] Error isolation: also upload `fixtures/broken.py` (a deliberate syntax error) → a yellow warning bar names
-      broken.py at the top, the other three files still render, and the whole flow does not crash
+      broken.py at the top, the other four files still render, and the whole flow does not crash
 - [ ] Smooth scrolling on big files: upload a several-thousand-line file and scroll the code area fast without dropping frames
       (the code area is windowed and paints only the visible range ± 24 lines)
 - [ ] `Feedback` in the top bar: **clickable even while parsing is in progress** (it is a read-only entry point and deliberately not gated by busy);
@@ -157,7 +206,7 @@ Upload `main.py`, `shapes.py` and `utils.py` from `fixtures/` (select all three 
 - [ ] Themes: click `Theme` in the top bar → the six-row panel appears and floats on top; click `Nord` → **the whole UI changes without a reload** (code area, graph, syntax highlighting, scrollbars, address-bar tint), the panel closes itself; reopen it and the tick sits on Nord
 - [ ] Theme persistence: reload → still Nord, and the very first frame is already Nord (no flash back to dark); switch back to GitHub Dark → everything is restored; clicking Clear does **not** reset the theme
 
-The **three bolded core groups** above (graph → code, code → graph, call-site jump) are already automated.
+The **four bolded core groups** above (graph → code, code → graph, call-site jump, edge → call sites) are already automated.
 When changing interaction logic, run `node scripts/browser-verify.mjs` first — see the next section.
 
 ## Browser automation acceptance (real Chrome + CDP)
@@ -166,18 +215,19 @@ jest + jsdom cannot catch problems like "the flashing highlight fades out under 
 
 ```bash
 npm run export                  # produce dist/ first
-node scripts/browser-verify.mjs # 53 assertions (16 of them promise-surface E/F/G); all green => exit code 0
+node scripts/browser-verify.mjs # 68 assertions (16 promise-surface E/F/G, 15 edge → call sites); all green => exit code 0
 ```
 
-The script starts its own static server for `dist/` and applies the rules in `dist/_headers` verbatim to every response (so the smoke test runs exactly the production CSP). When the port is taken it reuses the existing service, but only after verifying two things: what runs on that port really is this application (the criterion is this project's Metro entry script tag in the HTML — **not `<title>`**, which would misfire as soon as the title changes), and the bytes served match `dist/index.html` exactly. It then launches headless Chrome, feeds in the three `fixtures/` files and clicks SVG nodes and code tokens **with real mouse events**, asserting item by item:
+The script starts its own static server for `dist/` and applies the rules in `dist/_headers` verbatim to every response (so the smoke test runs exactly the production CSP). When the port is taken it reuses the existing service, but only after verifying two things: what runs on that port really is this application (the criterion is this project's Metro entry script tag in the HTML — **not `<title>`**, which would misfire as soon as the title changes), and the bytes served match `dist/index.html` exactly. It then launches headless Chrome, feeds in the four `fixtures/` files and clicks SVG nodes, SVG edges and code tokens **with real mouse events**, asserting item by item:
 
 | Group             | Covers                                                                                                                                                                                                                                                             |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Upload            | no red fatal error bar; the graph renders (baseline 45 nodes / 47 edges)                                                                                                                                                                                             |
+| Upload            | no red fatal error bar; the graph renders (baseline 47 nodes / 50 edges over the four fixtures)                                                                                                                                                                                             |
 | A graph → code    | switches file, scrolls to the `def` line fully visible, the highlight band lands on the `def` line; the flash appears → peaks → fades → unmounts; repeated clicks re-trigger it                                                                                        |
 | B code → graph    | the target node is centered (deviation < 40px) and its stroke is thickened; the code → graph direction does **not** flash                                                                                                                                            |
 | C deep cross-file | jumps from `shapes.py` to `utils.py:95`; scroll amount, highlight band position and flash are all correct                                                                                                                                                            |
 | D semantic clicks | clicking a call site selects the callee; clicking a middle line of a body selects the enclosing function                                                                                                                                                             |
+| I edge → call sites | real mouse clicks on the aggregated `caller → callee` polyline of `multi.py`: the file switch, 1/3 → 2/3 → 3/3 → 1/3 cycling, Shift-click stepping backwards, all three call sites marked at strictly increasing x, the `‹ ›` stepper and `✕`, the hover tooltip with the pointer cursor, and **zero extra requests** for the whole group |
 | Stability         | no console errors, no uncaught page exceptions                                                                                                                                                                                                                       |
 | S artifact identity | the bytes served == the bytes of `dist/index.html` (same sha256); the response headers really carry the CSP from `_headers`; zero absolute URLs in the artifact HTML                                                                                                 |
 | E promise surface | every request same-origin / every request a GET / zero request bodies / no 4xx·5xx / every 200 maps to a file that really exists in `dist/` / what runs is that entry JS from `dist` / no user content in any URL / zero `securitypolicyviolation` under the production CSP |
@@ -193,7 +243,7 @@ Optional environment variables:
 | `CODEMAP_CDP_PORT` | `9333`         | Chrome remote debugging port                                                                                                                     |
 | `CHROME_PATH`      | auto-detected  | path to the browser executable (common Windows / macOS / Linux locations are all tried)                                                          |
 
-Screenshots (`codemap-shots/01-initial.png` … `06-deep-crossfile.png`, `07-feedback-panel.png`, `08-theme-panel.png`, `09-theme-light.png`, `10-theme-default-restored.png`) and the JSON report (`codemap-verify-report.json`) are written to the system temp directory and are not committed. When it finishes, the script shuts down the server it started.
+Screenshots (`codemap-shots/01-initial.png` … `06-deep-crossfile.png`, `11-edge-callsite.png` (written while group I runs, i.e. between the cross-file jumps and the feedback panel), `07-feedback-panel.png`, `08-theme-panel.png`, `09-theme-light.png`, `10-theme-default-restored.png`) and the JSON report (`codemap-verify-report.json`) are written to the system temp directory and are not committed. When it finishes, the script shuts down the server it started.
 
 ## Site icon
 
@@ -238,7 +288,7 @@ scripts/
   audit-egress.mjs        static scan of the contact path: request primitives / unpublished email literals (CI blocking gate)
 .github/workflows/
   ci-and-deploy.yml       gate -> browser smoke -> deploy; the three jobs share the artifact of one single build
-fixtures/                 test samples (main/shapes/utils/broken)
+fixtures/                 test samples (main/shapes/utils/multi/broken)
 src/
   parser/
     treeSitter.ts         wasm lifecycle: init / Language.load / singleton / smoke check
@@ -256,6 +306,7 @@ src/
     buildGraph.ts         symbols + call sites -> nodes / aggregated edges / stats
     scope.ts              neighborhood / this-file / all clipping
     layout.ts             dagre wrapper (pure function, LR layering, outputs coordinates and edge paths)
+    edges.ts              edge identity + the one sorted order of the call sites behind an aggregated edge
   state/store.ts          zustand: files / graph / selection(+nonce) / scope / view / split
   state/themeStore.ts     zustand: current theme id + setTheme (separate from store, so Clear cannot reset it)
   components/
@@ -263,8 +314,8 @@ src/
     TopBar.tsx            upload, file chips, scope switch, theme picker, feedback entry, stats, warning bar
     FeedbackDialog.tsx    feedback panel: a read-only overlay of native div/a/textarea whose only outward surface is two hrefs
     SplitLayout.tsx       left/right split + draggable divider + narrow-screen stacking
-    CodePane/             file tabs + windowed code view + clickable range computation
-    GraphPane/            the SVG graph: pan/zoom, node/edge rendering, highlight and dimming
+    CodePane/             file tabs + windowed code view + clickable range computation + call-site marks and the stepper
+    GraphPane/            the SVG graph: pan/zoom, node/edge rendering, highlight, dimming, clickable edges
     UploadPanel/          empty state: file picker + drop zone
   feedback/contact.ts     feedback rule layer: 8-field whitelist + count-only reduction + two hrefs (zero framework imports)
   platform/web/           the only DOM touchpoints: file picking/dropping, non-passive wheel and pointer listeners
@@ -294,7 +345,7 @@ Three layers, all run by `npm test`:
 
 | Layer                        | Files                                                                                                                                       | Needs wasm?                                     |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| **Pure-function unit tests** | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke` / `theme` (palette structure + variable closure + WCAG gates) | No (fake syntax trees through the `treeLike` interface) |
+| **Pure-function unit tests** | `modules` / `imports` / `scope` / `layout` / `buildGraph` / `edges` / `store` / `clickRanges` / `graphPaneMath` / `codeView` / `smoke` / `theme` (palette structure + variable closure + WCAG gates) | No (fake syntax trees through the `treeLike` interface; `edges` also runs on hand-built graphs) |
 | **Components & interaction**  | `appFlow.test.tsx` / `topBar.test.ts` / `feedback.test.tsx` (canary + whitelist shape + panel rendering) / `themePicker.test.tsx` (theme panel and switching) | No (store pre-seeded)                           |
 | **Real-wasm full chain**     | `parser.wasm.test.ts` / `imports.wasm.test.ts` / `e2e.wasm.test.tsx`                                                                         | Yes                                             |
 
@@ -302,7 +353,7 @@ When `public/wasm/*.wasm` does not exist, the third layer **skips entirely** ins
 
 `e2e.wasm.test.tsx` is the one closest to real usage: real wasm parses the fixtures → `store.loadFiles` → render `AppRoot` → real clicks, covering the two core navigation paths from the acceptance checklist above, bad-file degradation, and file-removal sync.
 
-When changing parsing rules, mind the `fixtures/` statistics baseline (funcs 45 / edges 47 / unresolved 28). If the numbers move you must be able to explain why — do not just edit the test.
+When changing parsing rules, mind the statistics baseline of the three files `__tests__/parser.wasm.test.ts` reads (`main.py` / `shapes.py` / `utils.py`): **funcs 45 / edges 49 / unresolved 26**. If the numbers move you must be able to explain why — do not just edit the test. `fixtures/multi.py` (added for clickable edges) and `fixtures/broken.py` deliberately stay out of that baseline; `multi.py` is why the browser smoke test renders 47 nodes / 50 edges from four fixtures.
 
 Beyond `npm test` there is a fourth layer: real-browser acceptance (`node scripts/browser-verify.mjs`, not part of `npm test`). It runs on real Chrome + rAF + native mouse events and covers the flash fade-out and the SVG hit-testing that jsdom cannot; see the "Browser automation acceptance" section.
 

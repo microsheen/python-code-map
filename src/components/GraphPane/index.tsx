@@ -12,6 +12,8 @@
  * - 按住拖动平移。拖动超过 DRAG_SLOP 像素后抑制节点 press，避免"拖一下"被误判成点击。
  * - 点击节点 -> selectFromGraph -> 左侧代码切文件 / 滚动到 def 行 / 闪烁函数体。
  * - 左侧点击函数 -> 这里按 selection.nonce 重新居中，并高亮该节点与其直接连边。
+ * - 点击边 -> selectEdgeFromGraph -> 左侧代码定位到「A 调用 B」那一行；同一条边再点一次
+ *   循环切到下一个调用点（Shift+点 反向），点空白清除。见 ADR-0005。
  */
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LayoutChangeEvent, ViewStyle } from 'react-native';
@@ -27,7 +29,8 @@ import {
   fitTransform,
   nodeLabel,
 } from '../../graph/layout';
-import type { NodeBox } from '../../graph/layout';
+import type { EdgePath, NodeBox, Pt } from '../../graph/layout';
+import { edgeKey, findEdge, sortedCallSites, splitEdgeKey } from '../../graph/edges';
 import { isLarge } from '../../graph/scope';
 import type { FuncId, FuncSymbol } from '../../parser/types';
 import {
@@ -35,6 +38,8 @@ import {
   localPoint,
   startPointerDrag,
   subscribePointerDown,
+  subscribePointerLeave,
+  subscribePointerMove,
   subscribeWheel,
 } from '../../platform/web/domEvents';
 import {
@@ -69,6 +74,21 @@ export const DIM_OPACITY = 0.7;
 /** 非邻居连边的不透明度：边比节点再暗一档，避免背景连线抢走视线 */
 export const EDGE_DIM_OPACITY = 0.7;
 export const NODE_RADIUS = 7;
+
+/**
+ * 边的命中容差，单位是**屏幕像素**（世界容差 = tolPx / scale）。
+ * 用屏幕像素而不是世界坐标，缩到 20% 时细线依然点得中；7px 大致是箭头的宽度，
+ * 再放大容易让相邻的两条边互相抢命中。
+ */
+export const EDGE_HIT_TOL = 7;
+/** 边数超过这个值就不做 hover 命中（点击仍然可用）：鼠标每动一下全量扫描太贵。 */
+export const MAX_HOVER_EDGES = 1500;
+/** 指针在同一条已命中的边上移动时，累计位移超过这个像素才更新 tooltip 位置。 */
+export const HOVER_MOVE_SLOP = 6;
+/** tooltip 与指针的间距，以及固定宽高（用来把气泡夹在画布内） */
+export const TIP_OFFSET = 12;
+export const TIP_W = 260;
+export const TIP_H = 26;
 
 const CURSOR_GRAB = { cursor: 'default', userSelect: 'none' } as unknown as ViewStyle;
 const NO_TOUCH = { touchAction: 'none' } as unknown as ViewStyle;
@@ -121,6 +141,59 @@ export function hitTestNode(
   return null;
 }
 
+/** 点 (px,py) 到线段 ab 的最短距离（投影参数夹在 [0,1]，退化的零长线段按点算）。 */
+export function distToSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/**
+ * 容器内坐标 -> 命中的边 id，命中不到返回 null。
+ *
+ * 与 hitTestNode 同构：只做视图逆变换 + 几何比较，不碰 DOM。命中用的是 layout 里
+ * 与 d 同源密采样的 points，所以「看到的线」和「点得中的线」不会各自漂移；
+ * 容差换算回世界坐标，缩放不改变手指/鼠标实际需要瞄准的像素宽度。
+ * 多条边同时命中时取最近的；bbox 预筛只是加速，外扩了一个容差，不会漏。
+ */
+export function hitTestEdge(
+  edges: EdgePath[],
+  view: ViewBox,
+  local: { x: number; y: number },
+  tolPx: number = EDGE_HIT_TOL,
+): string | null {
+  const wx = (local.x - view.tx) / view.scale;
+  const wy = (local.y - view.ty) / view.scale;
+  const tol = tolPx / view.scale;
+  let bestId: string | null = null;
+  let bestDist = Infinity;
+  for (const e of edges) {
+    const b = e.bbox;
+    if (wx < b.minX - tol || wx > b.maxX + tol || wy < b.minY - tol || wy > b.maxY + tol) continue;
+    const pts = e.points;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1] as Pt;
+      const p = pts[i] as Pt;
+      const d = distToSegment(wx, wy, a.x, a.y, p.x, p.y);
+      if (d < bestDist) {
+        bestDist = d;
+        bestId = e.id;
+      }
+    }
+  }
+  return bestDist <= tol ? bestId : null;
+}
+
 /** 节点标签按节点宽度截断，超出用省略号。 */
 export function fitLabel(label: string, boxW: number): string {
   const max = Math.max(6, Math.floor((boxW - 16) / CHAR_W));
@@ -135,15 +208,18 @@ export interface GraphNodeViewProps {
   selected: boolean;
   neighbor: boolean;
   dimmed: boolean;
+  /** 这条边被点选中时的端点：用邻居色描边，一眼看出线连的是哪两个函数 */
+  edgeEndpoint: boolean;
   showFile: boolean;
   /** 节点自身不挂 onPress：命中由容器的 pointer 事件 + hitTestNode 决定。 */
 }
 
 export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewProps): ReactNode {
-  const { func, box, colorIndex, selected, neighbor, dimmed, showFile } = props;
+  const { func, box, colorIndex, selected, neighbor, dimmed, edgeEndpoint, showFile } = props;
+  const onEdge = neighbor || edgeEndpoint;
   const stroke = selected
     ? colors.selected
-    : neighbor
+    : onEdge
       ? colors.neighbor
       : fileColor(colorIndex);
   const label = fitLabel(nodeLabel(func), box.w);
@@ -164,7 +240,7 @@ export const GraphNodeView = memo(function GraphNodeView(props: GraphNodeViewPro
         ry={NODE_RADIUS}
         fill={colors.nodeFill}
         stroke={stroke}
-        strokeWidth={selected ? 2.6 : neighbor ? 1.9 : 1.3}
+        strokeWidth={selected ? 2.6 : onEdge ? 1.9 : 1.3}
       />
       <SvgText
         x={box.cx}
@@ -208,6 +284,19 @@ export function GraphPane(): ReactNode {
   const nodeIndex = useNodeIndex(scoped);
   const neighbors = useNeighborIds(scoped, selection.funcId);
   const neighborEdges = useNeighborEdgeIds(scoped, selection.funcId);
+  const edgeSelection = useAppStore((s) => s.edgeSelection);
+  const selectedEdgeId = edgeSelection ? edgeKey(edgeSelection.source, edgeSelection.target) : null;
+  /** 选中边的两端节点：用邻居色描边，一眼看出这条线连的是哪两个函数 */
+  const edgeEndpoints = useMemo(() => {
+    const out = new Set<FuncId>();
+    if (edgeSelection) {
+      out.add(edgeSelection.source);
+      out.add(edgeSelection.target);
+    }
+    return out;
+  }, [edgeSelection]);
+  /** hover 命中的边（容器内坐标 + id）；null 表示没有 */
+  const [hoverEdge, setHoverEdge] = useState<{ id: string; x: number; y: number } | null>(null);
   /** 文件 -> 颜色下标。用全量图的 files，避免裁剪范围时颜色跳变。 */
   const colorIndexOf = useMemo(() => {
     const m = new Map<string, number>();
@@ -224,6 +313,10 @@ export function GraphPane(): ReactNode {
   const suppressPress = useRef(false);
   const fittedFor = useRef<{ nonce: number; w: number; h: number } | null>(null);
   const centeredNonce = useRef(-1);
+  /** hover 命中：待处理的指针位置 + rAF 句柄（一次移动最多算一次） */
+  const hoverPending = useRef<{ x: number; y: number } | null>(null);
+  const hoverRaf = useRef(0);
+  const hoverEnabledRef = useRef(true);
 
   useEffect(() => {
     viewportRef.current = viewport;
@@ -284,12 +377,79 @@ export function GraphPane(): ReactNode {
               const curEl = asElement(containerRef);
               const lp = localPoint(curEl, upEvent.clientX, upEvent.clientY);
               const hit = hitTestNode(curLayout.nodes, useAppStore.getState().view, lp);
-              if (hit) onNodePress(hit);
+              if (hit) {
+                onNodePress(hit);
+              } else {
+                // 节点优先：节点的矩形面积大，先判它，边只吃剩下的空白区域
+                const st = useAppStore.getState();
+                const edgeId = hitTestEdge(curLayout.edges, st.view, lp);
+                const ends = edgeId ? splitEdgeKey(edgeId) : null;
+                if (ends) st.selectEdgeFromGraph(ends.source, ends.target, upEvent.shiftKey);
+                else st.clearEdgeSelection();
+              }
             }
           }
         },
       });
     });
+  }, []);
+
+
+  const hoverEnabled = !!layout && layout.edges.length <= MAX_HOVER_EDGES;
+  useEffect(() => {
+    hoverEnabledRef.current = hoverEnabled;
+    if (!hoverEnabled) setHoverEdge(null);
+  }, [hoverEnabled]);
+
+  /**
+   * hover 命中：原生 pointermove + rAF 节流。
+   *
+   * 只做两件事：改容器上的光标（命令式写 style，避免为了一根手指形状的变化整棵树重渲染）
+   * 和更新 tooltip 状态。拖动中（suppressPress）不检测 —— 那一下是平移不是浏览；
+   * 边数超过 MAX_HOVER_EDGES 时命中直接算 null，点击路径不受影响。
+   */
+  useEffect(() => {
+    const el = asElement(containerRef);
+    const compute = (): void => {
+      hoverRaf.current = 0;
+      const pt = hoverPending.current;
+      if (!pt) return;
+      const curLayout = layoutRef.current;
+      let edgeHit: string | null = null;
+      let pointer = false;
+      if (curLayout) {
+        const st = useAppStore.getState();
+        if (hoverEnabledRef.current) edgeHit = hitTestEdge(curLayout.edges, st.view, pt);
+        pointer = !!edgeHit || !!hitTestNode(curLayout.nodes, st.view, pt);
+      }
+      if (el) el.style.cursor = pointer ? 'pointer' : 'default';
+      setHoverEdge((prev) => {
+        if (!edgeHit) return prev === null ? prev : null;
+        const same = prev && prev.id === edgeHit;
+        const drifted = prev ? Math.abs(prev.x - pt.x) + Math.abs(prev.y - pt.y) > HOVER_MOVE_SLOP : true;
+        return same && !drifted ? prev : { id: edgeHit, x: pt.x, y: pt.y };
+      });
+    };
+    const offMove = subscribePointerMove(el, (e) => {
+      hoverPending.current = localPoint(asElement(containerRef), e.clientX, e.clientY);
+      if (suppressPress.current || hoverRaf.current) return;
+      hoverRaf.current = requestAnimationFrame(compute);
+    });
+    const offLeave = subscribePointerLeave(el, () => {
+      hoverPending.current = null;
+      if (hoverRaf.current) {
+        cancelAnimationFrame(hoverRaf.current);
+        hoverRaf.current = 0;
+      }
+      if (el) el.style.cursor = 'default';
+      setHoverEdge(null);
+    });
+    return () => {
+      offMove();
+      offLeave();
+      if (hoverRaf.current) cancelAnimationFrame(hoverRaf.current);
+      hoverRaf.current = 0;
+    };
   }, []);
 
   // 适应窗口：图变了 / fitNonce 变了才重算，用户手动平移不会被覆盖
@@ -339,12 +499,15 @@ export function GraphPane(): ReactNode {
   const edgePaths: ReactNode[] = [];
   if (layout) {
     for (const e of layout.edges) {
-      const active = neighborEdges.has(e.id);
-      const stroke = active ? colors.neighbor : colors.edge;
-      const opacity = hasSelection && !active ? EDGE_DIM_OPACITY : 1;
+      const selected = e.id === selectedEdgeId;
+      const hovered = !!hoverEdge && e.id === hoverEdge.id;
+      const adjacent = neighborEdges.has(e.id);
+      const stroke = selected ? colors.selected : adjacent ? colors.neighbor : colors.edge;
+      const opacity = hasSelection && !adjacent && !selected ? EDGE_DIM_OPACITY : 1;
+      const strokeWidth = selected ? Math.max(e.strokeWidth, 2.6) : hovered ? e.strokeWidth + 1.2 : e.strokeWidth;
       edgePaths.push(
         <G key={e.id} testID={'graph-edge-' + e.id} opacity={opacity}>
-          <Path d={e.d} stroke={stroke} strokeWidth={e.strokeWidth} fill="none" />
+          <Path d={e.d} stroke={stroke} strokeWidth={strokeWidth} fill="none" />
           <Path d={arrowHeadPath(e.arrow)} fill={stroke} stroke="none" />
           {e.weight > 1 ? (
             <SvgText
@@ -353,7 +516,7 @@ export function GraphPane(): ReactNode {
               textAnchor="middle"
               fontSize={10}
               fontFamily={fonts.ui}
-              fill={active ? colors.neighbor : colors.faint}
+              fill={selected ? colors.selected : adjacent ? colors.neighbor : colors.faint}
             >
               {'\u00d7' + e.weight}
             </SvgText>
@@ -377,11 +540,55 @@ export function GraphPane(): ReactNode {
           selected={selection.funcId === n.id}
           neighbor={hasSelection && neighbors.has(n.id)}
           dimmed={hasSelection && selection.funcId !== n.id && !neighbors.has(n.id)}
+          edgeEndpoint={edgeEndpoints.has(n.id)}
           showFile={layout.showFile}
         />
       );
     }
   }
+
+
+  /** 端点标签：优先当前范围内的节点符号，被裁出范围时回退到全量图，再退化成原始 id */
+  const funcLabel = (id: FuncId): string => {
+    const f = nodeIndex.get(id) ?? fullGraph?.nodes.find((n) => n.id === id);
+    return f ? nodeLabel(f) : id;
+  };
+
+  /** 底栏一行文本：A → B · 第 k/N 处 · file:line（只有 1 处调用时不显示序号） */
+  const edgeInfo = (() => {
+    if (!edgeSelection) return null;
+    const site = sortedCallSites(findEdge(fullGraph, edgeSelection.source, edgeSelection.target))[
+      edgeSelection.index
+    ];
+    const text = funcLabel(edgeSelection.source) + ' \u2192 ' + funcLabel(edgeSelection.target);
+    if (!site) return text;
+    const seq =
+      edgeSelection.count > 1 ? '  \u00b7  ' + (edgeSelection.index + 1) + '/' + edgeSelection.count : '';
+    return text + seq + '  \u00b7  ' + site.file + ':' + site.line;
+  })();
+
+  /** hover 提示：这根线可以点，以及点下去会落到哪一行 */
+  const hoverInfo = (() => {
+    if (!hoverEdge) return null;
+    const ends = splitEdgeKey(hoverEdge.id);
+    if (!ends) return null;
+    const sites = sortedCallSites(findEdge(fullGraph, ends.source, ends.target));
+    const first = sites[0];
+    if (!first) return null;
+    const label =
+      funcLabel(ends.source) +
+      ' \u2192 ' +
+      funcLabel(ends.target) +
+      (sites.length > 1
+        ? '  \u00b7  ' + sites.length + ' call sites  \u00b7  first at line ' + first.line
+        : '  \u00b7  line ' + first.line);
+    const vp = viewportRef.current;
+    return {
+      text: label,
+      left: Math.max(4, Math.min(vp.w - TIP_W - 4, hoverEdge.x + TIP_OFFSET)),
+      top: Math.max(4, Math.min(vp.h - TIP_H - 4, hoverEdge.y + TIP_OFFSET)),
+    };
+  })();
 
   const transform = 'translate(' + view.tx + ',' + view.ty + ') scale(' + view.scale + ')';
   const empty = !scoped || scoped.nodes.length === 0;
@@ -463,6 +670,17 @@ export function GraphPane(): ReactNode {
             </Text>
           </View>
         ) : null}
+
+        {hoverInfo ? (
+          <View
+            style={[styles.tip, { left: hoverInfo.left, top: hoverInfo.top }]}
+            testID="graph-edge-tooltip"
+          >
+            <Text style={styles.tipText} numberOfLines={1}>
+              {hoverInfo.text}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.footer} testID="graph-footer">
@@ -478,6 +696,11 @@ export function GraphPane(): ReactNode {
               ))
             : null}
         </View>
+        {edgeInfo ? (
+          <Text style={styles.edgeInfo} testID="graph-edge-info" numberOfLines={1}>
+            {edgeInfo}
+          </Text>
+        ) : null}
         <Text style={styles.selInfo} testID="graph-selection-info" numberOfLines={1}>
           {selectedFunc
             ? nodeLabel(selectedFunc) +
@@ -566,6 +789,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.overlay,
   },
   busyText: { color: colors.text, fontFamily: fonts.ui, fontSize: 13 },
+  tip: {
+    pointerEvents: 'none',
+    position: 'absolute',
+    width: TIP_W,
+    height: TIP_H,
+    justifyContent: 'center',
+    backgroundColor: colors.tooltipBg,
+    borderWidth: 1,
+    borderColor: colors.selected,
+    borderRadius: 6,
+    paddingHorizontal: spacing.sm,
+  },
+  tipText: { color: colors.tooltipText, fontFamily: fonts.mono, fontSize: 11 },
   footer: {
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -587,5 +823,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     flexShrink: 1,
     marginLeft: 'auto',
+  },
+  edgeInfo: {
+    color: colors.selected,
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    flexShrink: 1,
   },
 });

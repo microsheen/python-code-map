@@ -27,6 +27,28 @@ export function subscribeWheel(el: HTMLElement | null, handler: WheelHandler): (
   return () => el.removeEventListener('wheel', wrapped);
 }
 
+/**
+ * 原生 pointermove / pointerleave 订阅（hover 命中检测用）。
+ * RN 的 onPointerMove 在 web 上只在指针位于组件内时触发且拿不到原生事件，这里直接挂 DOM。
+ */
+export function subscribePointerMove(
+  el: HTMLElement | null,
+  handler: (e: PointerEvent) => void,
+): () => void {
+  if (!el) return () => undefined;
+  el.addEventListener('pointermove', handler);
+  return () => el.removeEventListener('pointermove', handler);
+}
+
+export function subscribePointerLeave(
+  el: HTMLElement | null,
+  handler: (e: PointerEvent) => void,
+): () => void {
+  if (!el) return () => undefined;
+  el.addEventListener('pointerleave', handler);
+  return () => el.removeEventListener('pointerleave', handler);
+}
+
 /** 原生 pointerdown 订阅（RN 的合成事件里拿不到 DOM PointerEvent）。 */
 export function subscribePointerDown(
   el: HTMLElement | null,

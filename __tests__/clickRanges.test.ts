@@ -8,8 +8,10 @@ import {
   type ClickRange,
 } from '../src/components/CodePane/clickRanges';
 import { makeFuncId } from '../src/parser/symbols';
-import { callSite, func } from './helpers/synth';
+import { analysisOf, callSite, func, graphFromAnalyses, pyFile } from './helpers/synth';
+import { findEdge, sortedCallSites } from '../src/graph/edges';
 
+const NL = String.fromCharCode(10);
 const A = 'a.py';
 const ID_ALPHA = makeFuncId(A, 'alpha');
 const ID_BETA = makeFuncId(A, 'beta');
@@ -56,10 +58,12 @@ describe('buildClickRanges', () => {
     expect(r.size).toBe(0);
   });
 
-  it('已解析调用生成 call 区间，指向 callee', () => {
+  it('已解析调用生成 call 区间，指向 callee 并带反向点亮边所需的信息', () => {
     const call = callSite({ file: A, line: 4, column: 11, text: 'beta', caller: ID_ALPHA, target: ID_BETA });
     const r = buildClickRanges([fAlpha], [call], lines);
-    expect(r.get(4)).toEqual([{ start: 11, end: 15, funcId: ID_BETA, kind: 'call' }]);
+    expect(r.get(4)).toEqual([
+      { start: 11, end: 15, funcId: ID_BETA, kind: 'call', caller: ID_ALPHA, callIndex: 0 },
+    ]);
   });
 
   it('未解析（external）调用不生成区间', () => {
@@ -75,8 +79,65 @@ describe('buildClickRanges', () => {
     const r = buildClickRanges([fa], [call], src);
     expect(r.get(1)).toEqual([
       { start: 4, end: 5, funcId: ID_A, kind: 'def' },
-      { start: 8, end: 9, funcId: ID_BETA, kind: 'call' },
+      { start: 8, end: 9, funcId: ID_BETA, kind: 'call', caller: fa.id, callIndex: 0 },
     ]);
+  });
+  it('A 调 B 三次：callIndex 按源码顺序（行 -> 列）编号，跨行也连续', () => {
+    const src = ['def caller():', '    b()', '    x = 1; b()', '    b()', '    pass'];
+    const fCaller = func(A, 'caller', { defLine: 1, startLine: 1, endLine: 5 });
+    // 故意乱序传入：编号不能依赖调用方给的顺序
+    const calls = [
+      callSite({ file: A, line: 4, column: 4, text: 'b', caller: fCaller.id, target: ID_BETA }),
+      callSite({ file: A, line: 3, column: 11, text: 'b', caller: fCaller.id, target: ID_BETA }),
+      callSite({ file: A, line: 2, column: 4, text: 'b', caller: fCaller.id, target: ID_BETA }),
+    ];
+    const r = buildClickRanges([fCaller], calls, src);
+    expect(r.get(2)).toEqual([
+      { start: 4, end: 5, funcId: ID_BETA, kind: 'call', caller: fCaller.id, callIndex: 0 },
+    ]);
+    expect(r.get(3)).toEqual([
+      { start: 11, end: 12, funcId: ID_BETA, kind: 'call', caller: fCaller.id, callIndex: 1 },
+    ]);
+    expect(r.get(4)).toEqual([
+      { start: 4, end: 5, funcId: ID_BETA, kind: 'call', caller: fCaller.id, callIndex: 2 },
+    ]);
+  });
+
+  it('序号按 (caller, target) 分组：不同边各自从 0 开始编号', () => {
+    const src = ['def caller():', '    b()', '    c()', '    b()', '    pass'];
+    const fCaller = func(A, 'caller', { defLine: 1, startLine: 1, endLine: 5 });
+    const idC = makeFuncId(A, 'c');
+    const calls = [
+      callSite({ file: A, line: 2, column: 4, text: 'b', caller: fCaller.id, target: ID_BETA }),
+      callSite({ file: A, line: 3, column: 4, text: 'c', caller: fCaller.id, target: idC }),
+      callSite({ file: A, line: 4, column: 4, text: 'b', caller: fCaller.id, target: ID_BETA }),
+    ];
+    const r = buildClickRanges([fCaller], calls, src);
+    expect((r.get(2) ?? [])[0]?.callIndex).toBe(0);
+    expect((r.get(3) ?? [])[0]?.callIndex).toBe(0);
+    expect((r.get(4) ?? [])[0]?.callIndex).toBe(1);
+  });
+
+  it('callIndex 与图那边 sortedCallSites 的下标逐一对应（真实聚合，防两套口径漂移）', () => {
+    const src = ['def caller():', '    b()', '    y = 1; b()', '    b()', 'def b():', '    pass'];
+    const fCaller = func(A, 'caller', { defLine: 1, startLine: 1, endLine: 4 });
+    const fB = func(A, 'b', { defLine: 5, startLine: 5, endLine: 6 });
+    const calls = [
+      callSite({ file: A, line: 3, column: 11, text: 'b', caller: fCaller.id, target: fB.id }),
+      callSite({ file: A, line: 4, column: 4, text: 'b', caller: fCaller.id, target: fB.id }),
+      callSite({ file: A, line: 2, column: 4, text: 'b', caller: fCaller.id, target: fB.id }),
+    ];
+    const file = pyFile(A, src.join(NL));
+    const g = graphFromAnalyses([analysisOf(file, [fCaller, fB], calls)]);
+    const sites = sortedCallSites(findEdge(g, fCaller.id, fB.id));
+    expect(sites).toHaveLength(3);
+    const ranges = buildClickRanges([fCaller, fB], calls, src);
+    sites.forEach((site, i) => {
+      const hit = (ranges.get(site.line) ?? []).find((x) => x.start === site.column);
+      expect(hit?.kind).toBe('call');
+      expect(hit?.callIndex).toBe(i);
+      expect(hit?.caller).toBe(fCaller.id);
+    });
   });
 });
 

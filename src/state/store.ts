@@ -6,10 +6,12 @@
  */
 import { create } from 'zustand';
 import { applyScope, neighborhoodScope, scopeContains, ALL_SCOPE, type Scope } from '../graph/scope';
+import { findEdge, sortedCallSites } from '../graph/edges';
 import { analyzeFiles, makePyFile } from '../parser/analyze';
 import { getParser, type PythonParser } from '../parser/treeSitter';
 import type {
   CallGraph,
+  CallSite,
   FileAnalysis,
   FuncId,
   LineTokens,
@@ -24,6 +26,27 @@ export interface Selection {
   funcId: FuncId | null;
   source: SelectionSource;
   /** 每次选中都 +1，用于重复点击时重新触发定位动画 */
+  nonce: number;
+}
+
+export type EdgeOrigin = 'graph' | 'code';
+
+/**
+ * 图上一条「边」的选中状态。
+ *
+ * 一条边是同一对函数之间全部调用的聚合（ADR-0002），所以光记住 source/target 不足以定位，
+ * 必须带 index —— 口径是 `sortedCallSites` 的下标（源码顺序），UI 上显示为「第 index+1/N 处」。
+ * nonce 与 selection.nonce 同理：重复点同一条边的同一处时，靠它重新触发滚动与闪烁。
+ */
+export interface EdgeSelection {
+  source: FuncId;
+  target: FuncId;
+  /** 0-based，指向这条边的第几个调用点 */
+  index: number;
+  /** 这条边的调用点总数（冗余存放，渲染 "2/3" 时不必回查图） */
+  count: number;
+  /** 'code' 表示这次选中由代码区点击发起：代码已经在那儿了，不要再滚动/闪烁 */
+  origin: EdgeOrigin;
   nonce: number;
 }
 
@@ -70,6 +93,8 @@ export interface AppStore {
   progress: Progress;
   activeFile: string | null;
   selection: Selection;
+  /** 当前选中的边（A 调 B 的第 index 处调用）；null 表示没有选中边 */
+  edgeSelection: EdgeSelection | null;
   scope: Scope;
   splitRatio: number;
   view: ViewState;
@@ -91,6 +116,13 @@ export interface AppStore {
   setActiveFile: (path: string) => void;
   selectFromCode: (funcId: FuncId | null) => void;
   selectFromGraph: (funcId: FuncId) => void;
+  /** 点击图上的边：再点同一条边会循环切到下一个调用点；backward（Shift+点）反向 */
+  selectEdgeFromGraph: (source: FuncId, target: FuncId, backward?: boolean) => void;
+  /** 点击代码里的调用点：反向点亮对应的边，但不驱动代码区滚动 */
+  selectEdgeFromCode: (source: FuncId, target: FuncId, index: number) => void;
+  /** 调用点步进器：+1 / -1，循环绕回 */
+  stepEdge: (delta: number) => void;
+  clearEdgeSelection: () => void;
   setScope: (scope: Scope) => void;
   setSplitRatio: (ratio: number) => void;
   setView: (patch: Partial<ViewState>) => void;
@@ -107,6 +139,34 @@ function pickActiveFile(current: string | null, files: PyFile[]): string | null 
   return files[0]?.path ?? null;
 }
 
+/**
+ * 边选中的 nonce 由模块级计数器提供，而不是存在 state 里再从 null 重新起算：
+ * clearEdgeSelection / reset 之后重新点边，nonce 也必须比上一次大，
+ * 否则代码区 effect 的「nonce 没变就不滚动」判断会把这次点击当成重复事件吞掉。
+ */
+let edgeNonce = 0;
+
+/**
+ * 按 (source, target, index) 组装一条边选中，并把 activeFile 切到调用点所在文件。
+ * 边不存在或没有调用点（图还没算出来）时返回 null，调用方据此保持原状态。
+ */
+function projectEdge(
+  state: AppStore,
+  source: FuncId,
+  target: FuncId,
+  index: number,
+  origin: EdgeOrigin,
+): Pick<AppStore, 'edgeSelection' | 'activeFile'> | null {
+  const sites = sortedCallSites(findEdge(state.graph, source, target));
+  if (sites.length === 0) return null;
+  const clamped = index >= 0 && index < sites.length ? index : 0;
+  const site = sites[clamped] as CallSite;
+  return {
+    edgeSelection: { source, target, index: clamped, count: sites.length, origin, nonce: ++edgeNonce },
+    activeFile: state.files.some((f) => f.path === site.file) ? site.file : state.activeFile,
+  };
+}
+
 export const useAppStore = create<AppStore>()((set, get) => {
   const runAnalysis = async (picked: PickedFile[], parser?: PythonParser | null): Promise<void> => {
     set({ status: 'loading-wasm', error: null, warnings: [], progress: { done: 0, total: picked.length } });
@@ -119,6 +179,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         status: 'idle',
         activeFile: null,
         selection: NO_SELECTION,
+        edgeSelection: null,
         scope: ALL_SCOPE,
         progress: { done: 0, total: 0 },
       });
@@ -146,6 +207,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
             : null,
         warnings: failed.map((f) => `${f.name}：${f.error ?? 'Unknown error'}`),
         selection: NO_SELECTION,
+        edgeSelection: null,
         scope: ALL_SCOPE,
         view: IDENTITY_VIEW,
         fitNonce: get().fitNonce + 1,
@@ -174,6 +236,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
     progress: { done: 0, total: 0 },
     activeFile: null,
     selection: NO_SELECTION,
+    edgeSelection: null,
     scope: ALL_SCOPE,
     splitRatio: DEFAULT_SPLIT,
     view: IDENTITY_VIEW,
@@ -229,7 +292,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
     selectFromCode: (funcId) =>
       set((state) => {
         const nonce = state.selection.nonce + 1;
-        if (!funcId) return { selection: { funcId: null, source: 'code', nonce } };
+        if (!funcId) return { selection: { funcId: null, source: 'code', nonce }, edgeSelection: null };
         const scoped = state.graph
           ? applyScope(state.graph, state.scope)
           : null;
@@ -240,6 +303,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
           : [funcId];
         return {
           selection: { funcId, source: 'code', nonce },
+          edgeSelection: null,
           scope: visible ? state.scope : neighborhoodScope(funcId),
           navHistory: nextHistory,
           navIndex: nextHistory.length - 1,
@@ -259,12 +323,46 @@ export const useAppStore = create<AppStore>()((set, get) => {
           : [funcId];
         return {
           selection: { funcId, source: 'graph', nonce: state.selection.nonce + 1 },
+          edgeSelection: null,
           scope: nextScope,
           activeFile: file && state.files.some((f) => f.path === file) ? file : state.activeFile,
           navHistory: nextHistory,
           navIndex: nextHistory.length - 1,
         };
       }),
+
+    selectEdgeFromGraph: (source, target, backward) =>
+      set((state) => {
+        const sites = sortedCallSites(findEdge(state.graph, source, target));
+        if (sites.length === 0) return state;
+        const prev = state.edgeSelection;
+        const same = !!prev && prev.source === source && prev.target === target;
+        const from = same && prev && prev.index >= 0 && prev.index < sites.length ? prev.index : -1;
+        // 同一条边：往前走一步（Shift 往后），到头绕回；换边：从第一处开始
+        const index = from < 0 ? 0 : (from + (backward ? -1 : 1) + sites.length) % sites.length;
+        const next = projectEdge(state, source, target, index, 'graph');
+        return next ?? state;
+      }),
+
+    selectEdgeFromCode: (source, target, index) =>
+      set((state) => {
+        const next = projectEdge(state, source, target, index, 'code');
+        return next ?? state;
+      }),
+
+    stepEdge: (delta) =>
+      set((state) => {
+        const prev = state.edgeSelection;
+        if (!prev) return state;
+        const sites = sortedCallSites(findEdge(state.graph, prev.source, prev.target));
+        if (sites.length === 0) return { edgeSelection: null };
+        const from = prev.index >= 0 && prev.index < sites.length ? prev.index : 0;
+        const index = (from + (delta < 0 ? -1 : 1) + sites.length) % sites.length;
+        const next = projectEdge(state, prev.source, prev.target, index, 'graph');
+        return next ?? state;
+      }),
+
+    clearEdgeSelection: () => set((state) => (state.edgeSelection ? { edgeSelection: null } : state)),
 
     setScope: (scope) =>
       set((state) => {
@@ -279,6 +377,8 @@ export const useAppStore = create<AppStore>()((set, get) => {
           selection: keep
             ? state.selection
             : { funcId: null, source: 'scope', nonce: state.selection.nonce },
+          // 切范围 = 整张图重画，边高亮与代码区打点跟着清掉：一次只有一个焦点（README 与 ADR-0005 的口径）
+          edgeSelection: null,
         };
       }),
 
@@ -297,6 +397,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         const file = funcFile(prevId);
         return {
           selection: { funcId: prevId, source: 'nav', nonce: state.selection.nonce + 1 },
+          edgeSelection: null,
           activeFile: file && state.files.some((f) => f.path === file) ? file : state.activeFile,
           navIndex: state.navIndex - 1,
         };
@@ -310,6 +411,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         const file = funcFile(nextId);
         return {
           selection: { funcId: nextId, source: 'nav', nonce: state.selection.nonce + 1 },
+          edgeSelection: null,
           activeFile: file && state.files.some((f) => f.path === file) ? file : state.activeFile,
           navIndex: state.navIndex + 1,
         };
@@ -345,6 +447,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         progress: { done: 0, total: 0 },
         activeFile: null,
         selection: NO_SELECTION,
+        edgeSelection: null,
         scope: ALL_SCOPE,
         view: IDENTITY_VIEW,
         fitNonce: state.fitNonce + 1,

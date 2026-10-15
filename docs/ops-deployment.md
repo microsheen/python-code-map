@@ -799,6 +799,40 @@ pack 108 个对象）。
   `522`；而就在同一时刻，**真浏览器**（走系统代理那条路）打 apex 仍是一张「网站被拦」的错误页。⇒ 判据
   不是「办公网等于全拦」，而是每一次都看 `cf-ray` 在不在；结论要按**路径**写，按机器写就注定哪天被推翻。
 
+- [实测] **第七轮公开镜像（2026-10-15）：内网 `4debd1f` → 公开单提交 `ff0697e`，`audit:egress` 第一次在 CI 里真跑**：
+  强推报 `+ 43c5d89...ff0697e main -> main (forced update)`，推后远端仍只有 `refs/heads/main` 一条 ref；再另起一次干净
+  匿名 clone 对**落地的那棵树**复审计 —— `findings 0 / exit 0`、**99 个跟踪文件**（到 `43c5d89` 那轮是 85，多出的 14 个是
+  反馈那三个源文件、`__tests__/feedback.test.tsx`、`scripts/audit-egress.mjs`、ADR-0003 与文档）。commit 身份
+  author == committer == `microsheen <…@users.noreply.github.com>`。run `38677677341`（run_number 14）
+  `completed / success`，三个 job 全绿：`checks` `116234883813`、`browser-smoke` `116235191036`（**47 / 47 passed**、
+  console errors 0、page exceptions 0）、`deploy` `116235343761`；不可变 URL 照 §11 只从 wrangler stdout 那行取，
+  是 `https://e8c78aa5.python-code-map.pages.dev`。`dist` artifact `11947670005`（zip 582,694 B、展开 **31 个文件**、
+  共 2,125,340 B），入口 `entry-20c7f880…js` = 1,401,433 B。这句话的意义要说准：上一轮记的「那一步只有本地 exit 0、
+  CI 侧一条执行记录都没有」到这一轮才兑现 —— `checks` 日志里 `Contact path cannot send anything` 那步打出
+  `clean: no egress primitive, no unpublished address`。从这次起，「CI 在拦这道闸门」才是既成事实，不再是设计意图。
+- [实测] **线上 == CI 产物：本轮逐文件证到 18/18**：`/`、`robots.txt`、四个图标、两个 wasm、入口 JS，在
+  `python-code-map.pages.dev` 与 `e8c78aa5.python-code-map.pages.dev` 两个 host 上都是 `200` 且 sha256 与本轮 CI 产物
+  逐个相同。`check-deploy.mjs --mode=browser --dist=<本轮 CI 产物>` 那两条 host 的结论是
+  `clean: identical bytes on every host, no third-party URLs in HTML, no local-build diff`；九条差异只有
+  `x-robots-tag`（生产别名不带、`<hash>` 主机带 `noindex`），按既有口径归 server-dependent、显式
+  `--ignore-header=x-robots-tag` 声明后不计入，不是拿它去压字节差。`/` 里 `https?://` 仍是零个 —— Issues 的地址只活在
+  bundle JS 里，这条门禁量的从来是 HTML。
+- [实测] **这台机器上的 Node 现在对所有 host 都过不了 TLS 信任：先修信任，再读 `check-deploy` 的退出码**：本轮第一次跑
+  是 9 条路径 × 2 个 host 全 `FAILED fetch failed`、每行都跟一句 `vs --dist NOT COMPARED (no host answered)`、
+  `CHECK_EXIT=1`，真因 `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` —— 中间设备用一张装在 Windows 证书库、但不在 Node 自带
+  CA store 里的根 CA 重签了证书。同一分钟 `curl`（走 Schannel、信任系统库）打这两个 host 全是 `200` ⇒ **这 1 不是站点挂了，
+  是这台机器这条工具的信任面**。修法就是脚本自己写的那句：从 `Cert:\LocalMachine\Root` 取那张根证书、导出公钥 PEM、设
+  `NODE_EXTRA_CA_CERTS` 再重测（Windows PowerShell 里 `[…+X509Certificates.CertificateFormat]` 这个枚举类型不存在，
+  `$c.Export(…)` 会抛 `Unable to find type` 并写出一个 55 B 的空壳 PEM —— 用 `$c.RawData` 拿 DER 再 base64 wrap 就行；
+  判据：PEM 应该 ≈1.8 KB 对应 1,260 B DER，几十 B 就是导出失败）。加完之后同一条命令 `CHECK_EXIT=0`。
+  **绝不加 `--insecure` / `rejectUnauthorized:false` 去把它「修好」**：那只会把信任故障读成通过。
+- [实测] **apex 与 `www` 本轮从这台机器一条路都拿不到真应答 —— 又一次证明结论只能按「路径 × 时刻」写**：2026-10-14 记的
+  是「本机直连打 apex 连取三次 1,455 B、与 CI 产物同哈希」，2026-10-15 同一条路先 `307` 跳到安全网关自己的校验 URL、
+  跟着跳转则拿到 `403` 拦截页（apex 14,919 B、`www` 14,935 B，请求 URL 被追加 `?_sm_nck=1`），应答里**没有** `cf-ray`、
+  `server` 也不是 `cloudflare` ⇒ 按 §8「先问谁答的」判成中间设备。换到 git 里配的那条企业代理同样不通（`www` 直接 `403`、
+  apex 超时）。两条推论：① 上一轮「apex 此刻可达」不能继承到这一轮，每一轮当场重量；② `www` 那条 `301` 本轮**没复验成功**，
+  所以这里记的是「没观察到」，不等于规则被删 —— 它目前的证据仍是 2026-10-14 那三次跨 POP 的一致观测。
+
 **没做到的，不许写成已完成**（[实测] 2026-10-13）：
 
 - **自定义域名还没在真浏览器里被端到端验证。** Cloudflare 侧的证据已经齐了：域名 `status=active`，DoH 查

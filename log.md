@@ -487,3 +487,68 @@
   步骤 `npm run audit:egress` 到 `f2f3267` 为止只有**本地** exit 0 的记录，CI 侧一条执行记录都没有 —— 内网的
   run 永远 `skipped`，所以它的第一次真执行只能发生在推给公开归属的那次 run 上。这条不是遗漏，是这台机器的仓库
   形状决定的；但在那次 run 变绿之前，不要把「CI 在拦这道闸门」当成既成事实。
+## 2026-10-15 第七轮发布（`audit:egress` 第一次在 CI 里真跑；线上逐文件 == CI 产物；apex 本轮被中间设备挡住）
+
+- 用户只说了两个字：「发布」。按 ops §11，这就是一轮独立的公开镜像动作：从内网 `master` clone 到临时目录 → scrub
+  `AGENTS.md` → `--orphan` 单提交 → noreply 身份 → `audit-public-repo.mjs --history` 必须 0 findings → 强推 `main` →
+  盯 CI → 从 wrangler stdout 取不可变 URL → 取回**同一次 run** 的产物做线上字节比对 → 回内网把这一轮入册。本轮
+  **不动任何代码**，所以上一轮那条反馈轮的门禁数字全部照旧有效：`npm run verify` 这一轮又实跑一遍，17 suites /
+  280 tests、exit 0；`npm run audit:egress` 仍是 `clean: no egress primitive, no unpublished address`。README 记录的
+  那些数（47 项断言、17/280）本轮不需要改，也没改。
+- 开工前按 AGENTS.md 复验过同步：`git -c maintenance.auto=false pull --ff-only origin master` + `git push`，
+  `origin/master...HEAD` = 0/0（工作树只有另一个会话的 README 改动，见下面那条）。
+- 推之前抓到**三条**泄漏，全部在内网提交里改掉，公开侧一个都没见到（`30c0973` / `2989195` / `4debd1f`）：
+  ① log.md 写过内网仓的 owner 与仓库名 —— 公开树里按纪律不写实例名与账号名；② ops §13 写过完整的 32 位入口哈希
+  —— 它与 Cloudflare account/zone id 同形，会命中 `audit-public-repo` 的 `opaque-32-hex-id`，改成 8 位前缀（ops §4
+  早就立下「只取 8 位」这条戒，本轮是它**第一次真被闸门抓到**）；③ log.md 写过企业代理的主机名与端口 —— 这条
+  **审计抓不到**：它的 `internal-git-host` 只匹配 `.corp.` / `intranet.` 那一类形状，公司自有域名不在表里。
+- ③ 逼出来的教训要写全：**规则表匹配的是形状，不是类别**，所以「`findings 0`」永远替代不了按类别手工过一遍
+  （内网名 / 本机路径 / token 前缀 / 完整哈希 / 邮箱 / 代理与拓扑 / 工号）。顺带核过公开侧的历史记录：上一轮已发布
+  的那份 log.md 里**没有**代理主机名，也就是说这一轮如果没人按类别扫，就是第一次把它推出去。审计脚本只看 commit
+  元数据里的消费级邮箱域名，源码里的产品别名（`hi@` 那条）不会命中 —— 这也是它够不到拓扑值的原因。
+- 候选（临时目录 `cm-pub-9`）：从内网 HEAD clone（`--no-hardlinks`）→ `git remote remove origin` → 把 `AGENTS.md`
+  第 7 行的 issue tracker 指向改成本仓 GitHub Issues → `git checkout --orphan main` → `git add -A`（99 个文件）→
+  noreply 身份提交 → 删 `master` → `reflog expire --expire=now --all` + `gc --prune=now`。结果：单提交
+  `ff0697e`、parents=[]、tree `a48502a`、`in-pack 124` / loose 0、只有 `refs/heads/main`。提交信息沿用上一轮那句
+  ASCII 标语，身份与上一轮逐字相同。与内网 `4debd1f` 的**树差只有一个 blob**（就是 `AGENTS.md`）—— 这一条是 scrub
+  唯一性的硬证，比人肉读 diff 可靠。autocrlf（system 级）把文本 blob 归一成 LF，所以上线的 log.md/AGENTS.md 是纯
+  LF，与上一轮发布的字节形状一致。
+- 推与落地复核：`git push --force public main:main` → `+ 43c5d89...ff0697e main -> main (forced update)`；推前先取
+  一次远端 ref 快照（`main` = `43c5d89`、只有这一条 ref），推后再**另起一次干净匿名 clone** 复审计 —— 这是 §13 那条
+  纪律：审「真落地的树」，不是审「暂存出来的候选」。落地 clone：HEAD `ff0697e`、99 个跟踪文件、
+  `audit-public-repo.mjs --history .` = `findings 0 / exit 0`（95 scanned + 4 media skipped = 99）；`AGENTS.md` 第 7
+  行已是 scrub 后的文本；commit 元数据 author == committer == noreply。另外把候选树与内网树做了 `ls-tree -r`
+  全表比对（跨仓不能直接 `git diff`，orphan 之后对象不共享），差异仍然只有那一个 blob。
+- CI（run `38677677341`，run_number 14，`completed / success`）：`checks` 116234883813 / `browser-smoke`
+  116235191036 / `deploy` 116235343761。三件必须说清的事：① **这一步第一次在 CI 里真执行并放行** ——
+  `Contact path cannot send anything (egress + address gate)` 打出 `clean: no egress primitive, no unpublished
+  address`；上一轮记的「blocking 步骤只有本地 exit 0、CI 侧一条记录都没有」到此兑现，从 `ff0697e` 起「CI 在拦这道
+  闸门」才是事实。② 冒烟 **47/47**，G3 把 `build` 钉在 CI 那批字节上（`build=20c7f880` == CI 入口哈希前 8 位），
+  G2 开→关面板零新增请求，G5 `<a>` 数 == 门控期望 1、零 `<li>`、零邮件痕迹；E1–E8 请求集 9 个全同源全 GET、
+  零请求体、零 4xx、E7 零命中、E8 零 CSP 违规。③ `deploy` 日志里那句 `A request to the Cloudflare API … failed`
+  + `already exists [code: 8000002]` **不是故障**（§12 已记：那是故意先试建项目的分支），随后
+  `✨ Success! Uploaded 3 files (9 already uploaded)`、`✨ Deployment complete!` 给出的不可变 URL 是
+  `https://e8c78aa5.python-code-map.pages.dev` —— 只从 stdout 这一行取，没猜。
+- 线上 == 产物（参照系是 artifact `11947670005`：zip 582,694 B、展开 **31 个文件**、共 2,125,340 B；入口
+  `entry-20c7f880…js` = 1,401,433 B、`index.html` = 1,455 B / sha256 `8e05b22f6880e6b3…`）：生产别名与那个不可变
+  host 各取 9 条路径（`/`、`robots.txt`、四个图标、两个 wasm、入口 JS）**18/18 逐文件 MATCH**；
+  `check-deploy.mjs --mode=browser --dist=<本轮 CI 产物>` 结论 `clean: identical bytes on every host, no
+  third-party URLs in HTML, no local-build diff`，九条 `x-robots-tag` 差异按既有口径显式声明不计入。CI 产物里
+  `index.html` 的 `https?://` 计数为 0，反馈地址只存在于 bundle JS —— 那条 HTML 门禁没被这次发布动摇。
+- 本轮两条**新工具事实**（写进 ops §13）：其一，这台机器上的 Node 现在对所有 host 都报
+  `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`，中间设备用一张装在系统证书库、不在 Node 自带 CA store 里的根 CA 重签证书；
+  `check-deploy` 于是 18 行全 `FAILED fetch failed`、`CHECK_EXIT=1`，而同一分钟 `curl`（走 Schannel）两个 host 全
+  `200` ⇒ **这个 1 是信任面故障，不是站点故障**。修法是导出那张根 CA 的公钥 PEM、设 `NODE_EXTRA_CA_CERTS` 后重测
+  （绝不加 insecure 开关）。坑：Windows PowerShell 里没有 `CertificateFormat` 这个枚举类型，`$c.Export(…)` 抛
+  `Unable to find type` 之后照样写出一个 55 B 的空壳 PEM，得用 `$c.RawData`；判据是 PEM ≈1.8 KB。其二，apex 与
+  `www` 本轮从这台机器直连和走企业代理**两条路都拿不到真应答**（先 `307` 跳到网关自己的校验 URL，跟随后是 `403`
+  拦截页，apex 14,919 B / `www` 14,935 B，URL 被追加 `?_sm_nck=1`，无 `cf-ray`）⇒ 按 §8「先问谁答的」判成中间设备。
+  2026-10-14 恰恰相反（本机直连打 apex 三次都 1,455 B、与产物同哈希），所以「apex 此刻可达」这种话**每一轮都要
+  重新量**，不能继承上一轮。`www` 那条 `301` 本轮没复验成功，记成「没观察到」，不记成「规则没了」。
+- 一条写法纪律：本轮改的三个 commit 全部**点名** `git add log.md` / `git add docs/ops-deployment.md`，没有用过
+  `git add -A`。同一个工作树里有**另一个并发会话**正在改写国际化：` M README.md`（中英拆分）+ 未跟踪的
+  `README.zh-CN.md`、`README.ja.md`。它们的改动**没有进这一轮发布**（公开候选是从 `HEAD` clone 出来的，工作树不入
+  册），也没被我提交或删掉。
+- 遗留：`%TEMP%` 下 `cm-pub-7`、`cm-pub-8`、`cm-pub-recon`、`cm-pub-9`、`cm-pub-10-verify`、
+  `cm-pub-10-artifact`、`cm-pub-10-live` 这些临时目录还在 —— 递归删除被本机策略挡住，只能人工清理。公开侧
+  此刻服务 `ff0697e`，回滚方式按 §11：下一次 scrub 轮覆盖推 `main`，不可变 host 各自留在历史里。

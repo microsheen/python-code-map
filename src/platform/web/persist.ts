@@ -68,6 +68,27 @@ export async function loadSession(): Promise<SessionData | null> {
   }
 }
 
+/**
+ * 只问「有没有存过会话」，不读内容：诊断块里的 persisted 是一个是/否，不是任何用户数据。
+ * 用 getKey 而不是 get —— payload 根本不进这条路径。复用 loadSession 的同一个开库路径。
+ * 任何异常一律 resolve(false)：面板是只读入口，绝不能把 reject 抛给它。
+ */
+export async function hasSession(): Promise<boolean> {
+  try {
+    const db = await openDB();
+    const exists = await new Promise<boolean>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).getKey(KEY);
+      req.onsuccess = () => resolve(req.result !== undefined && req.result !== null);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return exists;
+  } catch {
+    return false;
+  }
+}
+
 /** 清除会话数据。 */
 export async function clearSession(): Promise<void> {
   try {

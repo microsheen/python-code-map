@@ -393,3 +393,90 @@
 - 文档同轮同步：ops §7 两处 `www` / `522` 交叉引用改为已收、§13 别名链补 `8b5659f6`（并写明第五轮的没记下来）、
   新增本轮 5 条实测、删掉「没做到的」里那条已被推翻的 `www` 长条目、推广入口地址的前置从三条减到两条；门禁复核：
   无 CR、无连续空行、末尾无换行、`longLines>140` 仍是 **13** 条且与 HEAD 逐条等长（没有新增）。
+
+## 2026-10-15 反馈渠道轮（两枚 href · 8 字段计数白名单 · 三道闸门）
+
+- 需求：给 code-map 加反馈入口，形状照 Event_Logger 的 contact 层（顶栏按钮 → 只读面板 → 用户自己点的链接）。用户
+  当场拍两件事：① 渠道 = **GitHub Issues（公开）+ mailto 别名（私密）**，这**推翻** ops §10 台账 2026-10-13 那条
+  「只用 GitHub Issues」，同一轮把 §9/§10 一起改写；② 回复身份 = A+B —— 专用一次性 destination（名字带产品、可
+  丢弃），面板里明说「回信来自一个个人邮箱、不是这个地址」，Issues 仍是主渠道。隐私差异在面板上就写清，不等人踩。
+- 形状定死：页面对外**只有两枚 `<a href>`**，没有任何 `fetch`/beacon/`<form>`/`window.open`/剪贴板写入。诊断文本
+  是**冻结的 8 字段白名单**（`build, ua, files, funcs, edges, unresolved, warnings, persisted`，顺序即契约），
+  而且只吐计数：数组取 `.length`、非有限数字退化为 `0`、`persisted` 非 `true/false/'yes'/'no'` 一律 `unknown`。
+  选白名单而不是黑名单的理由：文件名/函数名/代码原文**在结构上进不了**这段文本，而不是「我记得没写」。无 `lang`
+  字段（全站英文、无 i18n 字典）。
+- `build` 不烧进产物：运行时从正在执行的 `<script src="…/entry-<hex>.js">` 取哈希**前 8 位**，取不到 → `unknown`
+  （`npm run web` 的 Metro dev bundle 不带哈希，dev 下显示 unknown 是预期）。刻意只取 8 位，因为公开仓审计的
+  `opaque-32-hex-id` 会命中完整 32 位十六进制。本轮 `git grep --untracked` 复验：除 `dist/` 之外零处出现完整哈希。
+- 门控：`CONTACT_EMAIL = null`。理由是 Email Routing **未开通**，且本机无 Cloudflare 凭据、无 wrangler（实测），
+  这轮没人能验证信到不到。关闭态下面板不渲染地址块/mailto/「没有邮件客户端怎么办」提示，`mailtoUrl()` 直接返回
+  `null`；G5 断言 `<a>` 数 == 1、`feedback-email` 不存在、面板文本里连 `@` 都没有。别名在仓库里只出现在 ops §9
+  （README、ADR-0003、本条都不写它），开通是后续独立一轮：8 步 runbook 落 ops §9，第 5 步「必须真发一封测试信
+  确认到达，控制台显示 verified 不算证据」，第 7 步才改常量、**同一提交**补 `--public-address=` + §10 + log.md。
+- 冒烟 G1–G6 插在 F 组之后、E 组之前（断言 41 → **47**）：这样 G 期间真发生的任何请求都会被 E1–E8 一并审计，
+  「打开反馈面板不发出任何东西」是被同一批请求计数证明的（G2：开→关整个来回 `netRequests.size` 9→9），不是新立
+  一组自说自话的断言。两枚链接一律只读 `getAttribute('href')`、**绝不点击** —— 一点就交给外部协议处理器或触发
+  跨源导航，run 会挂住、E1 会红，还留个对话框害掉后面每一步。G3 把面板里的 `build` 与 `expectIndex.entry` 的前
+  缀比死：改源码不改产物会红，面板报别的版本也会红。
+- 草稿残影：清状态写在 render 期（`if (open !== wasOpen) { setWasOpen(open); … }`）而不是 `useEffect`。effect
+  清草稿会先渲染出一帧上一轮的残影，这是 Event_Logger 的 panel.md 里**实测**被 CI headless Chrome 抓到的那一帧；
+  effect 只留异步采样（`hasSession` / UA / build）。连带两条同源的坑：G1 就绪判据必须是「元素存在」而不是「文本
+  以 `build=` 开头」（残留草稿同样满足后者）；`autoText` 的 `useMemo` 依赖只能是原始值（`diag.files`、`diag.funcs`
+  …），依赖 `diag` 对象会被 TopBar 解析期的高频重渲打掉。重新打开丢弃草稿、重新采样；一旦用户动过文本，两枚链接
+  都带改后的内容。
+- 本轮最值钱的一条只有真浏览器能发现：面板在 DOM 里、`getBoundingClientRect` 坐标正确、诊断文本也对，截图里却
+  看不见它，点「关闭」点到了图上。根因：RNW 的 `View` 基础样式写死 `position: relative` + `zIndex: 0`（实测
+  `node_modules/react-native-web/dist/exports/View/index.js` 的 `baseStyle`）⇒ **每一个 View 都是一个层叠上下文**；
+  `#topbar` 自己就是 `z:0` 的一层，遮罩的 `z-index: 1000` 只在这层内部比大小。实测 `elementFromPoint` 打在面板中心
+  返回 `svg#graph-svg`。修法：顶栏 `zIndex: Z_INDEX_AUTO`，顺带放开了同样被困住的 chipTooltip（图标轮之前就存在的
+  潜在 bug）。**jsdom 没有布局，单测抓不到这个** ⇒ G6 把「关闭按钮中心的命中测试必须是它自己」写成断言，这类事
+  由冒烟拦，不靠 review 自觉。
+- 三道闸门，缺一不可：① 静态扫描器 `scripts/audit-egress.mjs`（从 skill 逐字拷入后跑过一次 prettier ——
+  `.prettierignore` 不含 `scripts/`，不先格式化则 `npm run format` 会改它），CI `checks` job 在 Invariants 之后、
+  Build web bundle 之前加 blocking 步骤 `npm run audit:egress`（不加 `continue-on-error`、不动 `needs`）；它是
+  **纯文本**匹配，注释里也算，所以禁用别名期间那三个被扫的文件连注释都不许出现别名、`<form`、`new Image(`、`fetch(`。
+  ② jest 金丝雀 `__tests__/feedback.test.tsx`（27 例）：把塞满显眼秘密（中文文件路径、函数名、告警原文、含非
+  ASCII 的代码原文）的来源喂进去，断言这些 needle 在诊断文本、Issues href、mailto 三种输出里一个都不出现，再加
+  幂等、脏输入、600/160/64 长度预算、URL 形状（`&`→`%26`、空格→`%20` 不是 `+`）、门控渲染、`wasOpen` 重开回
+  自动值。③ 冒烟 G 组。外加一条反向不变量：`mailto:` 在产品源码里只可能出现在 `src/feedback/contact.ts` ——
+  本轮 `git grep` 实测只有那一条命中；本仓没有 Help 面板，所以 panel.md 的「Help 保持干净」在这里落成「不许长出
+  第二条联系路径」。
+- 一处刻意的不做：不做「复制诊断」按钮。`navigator.clipboard` 就是这条路上唯一被承诺掉的外发能力，地址改用
+  `user-select: all` 让用户三击自己复制。面板用原生 `<div>`/`<a>`/`<textarea>`（AppRoot 已有原生 `<div>` 先例），
+  既绕开 RNW 类型里没有 `href`/`hrefAttrs` 的 cast，也让扫描器的 `href=` 文本判据成立。
+- 入口：顶栏 `topbar-feedback` ghost 按钮，放在 scope 段之后、`Clear` 之前（`Clear` 出现/消失不会让它跳位）。
+  **故意不读 `busy`**：它是只读入口，解析中和从本机 IndexedDB 恢复出旧会话时都必须能点 —— 盯着那份恢复出来的
+  旧版本看的人正是最需要报 bug 的人；源码里留了注释，否则下一次重构会顺手「修好」它。`feedback.test.tsx` 里也锁了
+  这条（`status: 'parsing'` 时 `topbar-upload` 禁用而 `topbar-feedback` 不禁用）。`TopBar` 自持 `showFeedback` 状态
+  （已有 `ctxMenu`/`hoveredChip` 先例），不改 `AppRoot` 签名；面板只收 props，不写 store、不订阅 store，降级态也
+  能渲染。
+- 持久层新增 `hasSession()`：复用 `loadSession` 的同一个开库路径，但用 `getKey(KEY)` 而不是 `get`（**不读
+  payload**），任何异常一律 `resolve(false)`，绝不把 reject 抛进面板。坑：jest 的 `moduleNameMapper` 会把 persist
+  换成 `__mocks__/persist.js`，漏补 `hasSession` 就是 TypeError，已同步补 mock。
+- 门禁（本轮全部实跑，不是引用上一轮）：`npm run verify` → typecheck 0 + lint 0 error / 12 warning（均为既有）
+  + jest **17 suites / 280 tests** 全绿；`npm run audit:egress` → `clean: no egress primitive, no unpublished
+  address`、exit 0；`npm run smoke` → **47/47 PASS**、请求集 9 个全同源全 GET 零请求体零 4xx、E7 零命中、
+  E8 零 CSP 违规、`console errors/warnings = []`、页面异常 0。G4 实测 `diag=3/45/49/26/0/unknown` 与
+  `page=3/45/49/?/bar=false` 自洽（files/funcs/edges 对 chips/graph-node-/graph-edge- 元素数；unresolved 没有
+  页面对端，只断言 ≥ 0）。
+- 产物基线变化：入口 `entry-dd0b2e36….js` → `entry-841acd7d….js`；`index.html` sha256
+  `05acbf08114b0e3cfeaf5d2eecffce1836a24b12c886473a33cf136c31955f0a` →
+  `e62cf05bf468e3a63f19c4c90eafded6ea2633d643595a1e67fcb9c688f10056`，字节数仍是 1455B（新增的是**源码**，不是
+  `<head>` 标签）；HTML 里仍**零个** `https?://` —— Issues 的地址只活在 bundle JS 里，那条门禁量的是 HTML。
+- 一条**既有**文档漂移被 G4 逼出来：面板/冒烟实测 `edges=49 unresolved=26`，而 ADR-0002 与 README 手动清单写
+  「边 47 / 未解析 28」。49/26 是 `__tests__/parser.wasm.test.ts:81` 逐字断言的现行回归基线（本轮没动
+  `src/parser/`、`src/graph/`、`fixtures/`，且该套件是真跑过不是 `public/wasm` 缺失时的整文件跳过）；47/28 是
+  保守解析那一轮的旧记录。本轮**两个数都不碰**，只把矛盾与判据写进 ops §4 —— 修订旧文档要另外在浏览器里重测一遍，
+  静默改写数字比把矛盾摆着更糟。另：`persisted` 两次实测分别读到 `yes` 与 `unknown`，取决于会话写入与采样先后，
+  所以 G4 只断言取值域，ops §4 两次读数都留着。
+- 文档同轮：ops 744 → **831** 行（§1 承诺表加一行 href-only、§4 加反馈轮实测块、§9 从「打算用」改写成「已实现 +
+  8 步启用 runbook + 回滚顺序：删规则 → 删 destination → Disable Routing，Pages 的 CNAME 完全不在这条路径上」、
+  §10 台账改写为双渠道 + 回复身份 A+B + 「Email Routing 未开通」实测行），`longLines>140` 13 → 16；README
+  316 → **377** 行（顶栏 ASCII 图加「反馈」、新增 `## 反馈渠道` 节：两条渠道的隐私差异、8 字段白名单、11 个
+  `data-testid` 锚点即契约、三道闸门、门控与 runbook 指向 ops §9、ADR-0003 链接；目录结构/命令表/冒烟组表 G 行/
+  47 项断言/测试表/手动验收清单同步），`longLines>140` 6 → 7；新增 `docs/adr/0003-feedback-channel-href-only.md`
+  148 行（Accepted，含「这三道闸门真的在拦」的证据表与回归基线块）。目标邮箱地址**永不**进仓库/历史/文档，只存在
+  Cloudflare 控制台的 Destination 字段。
+- 本轮**只落内网 `master`**，公开镜像不推：公开侧按 ops §11 另起一轮（临时目录 clone → scrub `AGENTS.md` →
+  `--orphan` 单提交 → noreply 身份 → `audit-public-repo.mjs --history` 必须 0 findings → 推 `main` → CI
+  构建/冒烟/部署）。开工前按 AGENTS.md 复验过 `origin/master...HEAD` = 0/0。

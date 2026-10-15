@@ -92,6 +92,14 @@ jobs:
       - name: Invariants (typecheck + lint + jest)
         run: npm run verify
 
+      - name: Contact path cannot send anything (egress + address gate)
+        run: npm run audit:egress
+        # 反馈是唯一「往外搬信息」的功能，所以它的承诺不能靠 review 自觉。
+        # 这道闸门逐字读 src/feedback/contact.ts、FeedbackDialog.tsx、buildStamp.ts：
+        # 出现任何请求原语（fetch / beacon / <form> / 剪贴板 …，注释也算）或任何未公开的
+        # 邮箱字面量就红。别名门控关闭期间故意不带 --public-address，于是任何邮箱都是 finding。
+        # blocking：不加 continue-on-error，也不动 needs。
+
       - name: Build web bundle (preexport copies wasm, postexport strips HTML comments)
         run: npm run export
 
@@ -150,7 +158,8 @@ jobs:
   browser-smoke:
     # 真 headless Chrome 打在这份产物上，断言的是承诺面：同源 / 全 GET / 零请求体 /
     # URL 里没有用户内容 / 每个 200 都对应 dist 里真实存在的文件 / 生产 CSP 下零违规。
-    # 它只读 package.json + scripts + fixtures + dist，不需要 node_modules。
+    # 它只读 package.json + scripts + fixtures + dist + src/feedback/contact.ts（冒烟 G 组要拿
+    # 源码里的常量核对面板渲染的地址与门控的链接数），不需要 node_modules。
     needs: checks
     if: github.repository == 'microsheen/python-code-map'
     runs-on: ubuntu-latest

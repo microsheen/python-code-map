@@ -654,6 +654,26 @@ async function poll(cdp, expr, ok, timeoutMs, label) {
   throw new Error('timeout waiting for ' + (label || expr) + ' last=' + JSON.stringify(last).slice(0, 400));
 }
 
+// ---------------------------------------------------------------------------
+// 反馈面板的期望值从源码里读，不在冒烟脚本里再抄一份：门控常量一改，断言跟着改，
+// 不会出现「冒烟还绿着，但它测的已经不是源码了」。读不到就抛 —— 静默跳过的守卫
+// 比红灯更糟：那条红灯本来要防的正是「契约被改掉而没人发现」。
+// ---------------------------------------------------------------------------
+function contactContract() {
+  const file = path.join(ROOT, 'src/feedback/contact.ts');
+  const src = fs.readFileSync(file, 'utf8');
+  const email = /^export const CONTACT_EMAIL[^=]*=\s*(null|'[^']*');/m.exec(src);
+  if (!email) throw new Error('读不到 CONTACT_EMAIL 常量（契约被改掉？）: ' + file);
+  const alias = email[1] === 'null' ? null : email[1].slice(1, -1);
+  const issues = /^export const REPO_ISSUES_URL = '([^']+)';/m.exec(src);
+  if (!issues) throw new Error('读不到 REPO_ISSUES_URL 常量（契约被改掉？）: ' + file);
+  const fields = /export const DIAG_FIELD_NAMES[\s\S]*?\[([\s\S]*?)\] as const/.exec(src);
+  if (!fields) throw new Error('读不到 DIAG_FIELD_NAMES 白名单（契约被改掉？）: ' + file);
+  const names = (fields[1].match(/'[^']+'/g) || []).map((s) => s.slice(1, -1));
+  if (names.length < 1) throw new Error('DIAG_FIELD_NAMES 解析出 0 个字段: ' + file);
+  return { alias, issuesUrl: issues[1], fieldNames: names };
+}
+
 async function main() {
   if (!fs.existsSync(path.join(DIST, 'index.html'))) {
     throw new Error('dist/index.html 不存在，请先运行 npm run export 产出静态站点');
@@ -954,6 +974,194 @@ async function main() {
     'F2 每个注入 href 都能当 <img> 解码（同源 + CSP img-src + MIME 全对）',
     iconBroken.length === 0,
     iconBroken.map((r) => r.href).join(', ') || 'ok',
+  );
+
+  // ---- G：反馈面板 —— 页面上唯一「往外搬信息」的功能，它的对外动作只有 href ----
+  // 必须排在 E 组之前：G 期间真实发生的任何请求都会被 E1-E8 一并审计（包括「一个都没有」）。
+  // 两枚链接一律只读 getAttribute('href')，**绝不点击** —— 一点就交给外部协议处理器或触发
+  // 跨源导航，整个 run 会挂在那里，把 E1 打红，还留下一个对话框害掉后面的每一步。
+  const contact = contactContract();
+  // 先把范围切到「全部」：诊断块报的是全图计数，而图面板只渲染当前范围的子集。
+  // 这一步必须在打开面板之前做完：面板是一层全屏遮罩，开着它点不到顶栏。
+  await clickTestId(cdp, 'scope-all');
+  // 布局完成后 DOM 计数才稳定：等它，别赌一个固定 sleep
+  const pageCounts = await poll(
+    cdp,
+    'window.__t.stats()',
+    (s) => s && s.nodes > 0 && s.edges > 0,
+    10000,
+    'G4 page counts after scope=all',
+  ).then((r) => r.value);
+  const chipCount = await evalJs(
+    cdp,
+    '(function () {' +
+      'var els = Array.prototype.slice.call(document.querySelectorAll(\'[data-testid^="chip-"]\'));' +
+      'var n = 0;' +
+      'for (var i = 0; i < els.length; i++) {' +
+      'var t = els[i].getAttribute(\'data-testid\');' +
+      'if (t.indexOf(\'chip-remove-\') === 0) continue;' +
+      'if (t.indexOf(\'chip-scroll-\') === 0) continue;' +
+      'if (t.indexOf(\'chip-tooltip-\') === 0) continue;' +
+      'n += 1;' +
+      '}' +
+      'return n;' +
+      '})()',
+  );
+  // 黄条是「有告警」在页面上的唯一可见形态（TopBar 只在 warnings.length > 0 时渲染它）：
+  // 拿它当告警计数的对端证据，比解析它的文案可靠 —— 文案是给人读的，不是数字。
+  const warnBarVisible = await evalJs(cdp, '!!window.__t.byId("topbar-warnings")');
+  const reqsBeforeFeedback = netRequests.size;
+
+  await clickTestId(cdp, 'topbar-feedback');
+  // 就绪判据用「元素存在」，不用「诊断文本以 build= 开头」：残留的草稿同样满足后者，
+  // 而残留草稿正是这个面板被 CI 抓住过的那个 bug。
+  const openedG1 = await poll(
+    cdp,
+    '!!window.__t.byId("feedback-dialog")',
+    (v) => v === true,
+    5000,
+    'G1 feedback dialog',
+  )
+    .then(() => true)
+    .catch(() => false);
+  const fb = openedG1
+    ? await evalJs(
+        cdp,
+        '(function () {' +
+          'var d = window.__t.byId("feedback-dialog");' +
+          'if (!d) return null;' +
+          'var box = window.__t.byId("feedback-diag");' +
+          'var anchors = Array.prototype.slice.call(d.querySelectorAll("a")).map(function (a) {' +
+          'return {' +
+          'tid: a.getAttribute("data-testid"),' +
+          'href: a.getAttribute("href"),' +
+          'target: a.getAttribute("target"),' +
+          'rel: a.getAttribute("rel")' +
+          '};' +
+          '});' +
+          'var em = window.__t.byId("feedback-email");' +
+          'return {' +
+          'diag: box ? String(box.value) : null,' +
+          'anchors: anchors,' +
+          'lis: d.querySelectorAll("li").length,' +
+          'email: em ? (em.textContent || "").trim() : null,' +
+          'text: (d.textContent || "").replace(/\\s+/g, " ").trim()' +
+          '};' +
+          '})()',
+      )
+    : null;
+  // 面板还必须真的「浮在最上面」：RNW 的 View 基础样式带 z-index:0，每一个 View 都是
+  // 一个层叠上下文，遮罩一旦被埋住，DOM、坐标、诊断文本全都正常，截图里却看不见面板，
+  // 点关闭会点到图上 —— G6 第一次跑红抓到的正是这个。所以点之前先断言「关闭按钮中心
+  // 这个点上，最上面的元素就是它自己」。
+  const closeHit = fb
+    ? await evalJs(
+        cdp,
+        '(function () {' +
+          'var c = window.__t.byId("feedback-close");' +
+          'if (!c) return null;' +
+          'var r = c.getBoundingClientRect();' +
+          'var x = r.left + r.width / 2;' +
+          'var y = r.top + r.height / 2;' +
+          'var e = document.elementFromPoint(x, y);' +
+          'return {' +
+          'x: Math.round(x),' +
+          'y: Math.round(y),' +
+          'hit: e ? e.tagName + "#" + (e.getAttribute("data-testid") || e.id || "") : "none",' +
+          'inside: !!(e && (e === c || c.contains(e)))' +
+          '};' +
+          '})()',
+      )
+    : null;
+  await shot(cdp, '07-feedback-panel.png');
+  // 命中测试没过就不点：那点坐标落在图上，会白改一次选中状态，红灯也说不清是谁的错
+  const closedG6 =
+    closeHit && closeHit.inside
+      ? await clickTestId(cdp, 'feedback-close')
+          .then(() =>
+            poll(
+              cdp,
+              '!window.__t.byId("feedback-dialog")',
+              (v) => v === true,
+              5000,
+              'G6 feedback dialog closed',
+            )
+              .then(() => true)
+              .catch(() => false),
+          )
+          .catch(() => false)
+      : false;
+
+  const fbLines = fb && fb.diag ? String(fb.diag).split('\n') : [];
+  const fbFields = {};
+  fbLines.forEach((l) => {
+    const eq = l.indexOf('=');
+    if (eq > 0) fbFields[l.slice(0, eq)] = l.slice(eq + 1);
+  });
+  const entryHash = (/entry-([0-9a-f]{8,})\.js/.exec(expectIndex.entry || '') || [])[1] || '';
+  const issuesAnchor = fb ? fb.anchors.filter((a) => a.tid === 'feedback-issues-link')[0] : null;
+  const mailAnchor = fb ? fb.anchors.filter((a) => a.tid === 'feedback-mail-link')[0] : null;
+  const noRawSpace = (h) => typeof h === 'string' && h === h.trim() && !/\s/.test(h);
+  const wantAnchors = contact.alias ? 2 : 1;
+
+  check('G1 点顶栏 Feedback 真的开出了面板（就绪判据=元素存在，不是文本前缀）', openedG1 && !!fb, 'opened=' + openedG1 + ' read=' + !!fb);
+  check(
+    'G2 开→关整个来回 netRequests 一个都没多（打开反馈面板不发出任何东西）',
+    netRequests.size === reqsBeforeFeedback,
+    'before=' + reqsBeforeFeedback + ' after=' + netRequests.size,
+  );
+  check(
+    'G3 诊断块恰好 ' + contact.fieldNames.length + ' 行、第 i 行是第 i 个白名单字段、build 钉在被测字节上',
+    fbLines.length === contact.fieldNames.length &&
+      fbLines.every((l, i) => l.indexOf(contact.fieldNames[i] + '=') === 0) &&
+      fbFields.build === entryHash.slice(0, 8),
+    'lines=' + JSON.stringify(fbLines).slice(0, 420) + ' build=' + fbFields.build + ' expect=' + entryHash.slice(0, 8),
+  );
+  check(
+    'G4 诊断计数与页面上真实渲染的数字自洽（不新立基线），persisted 只断言取值域',
+    Number(fbFields.files) === chipCount &&
+      Number(fbFields.funcs) === pageCounts.nodes &&
+      Number(fbFields.edges) === pageCounts.edges &&
+      pageCounts.nodes > 0 &&
+      Number(fbFields.unresolved) >= 0 &&
+      (Number(fbFields.warnings) > 0) === warnBarVisible &&
+      ['yes', 'no', 'unknown'].indexOf(fbFields.persisted) >= 0,
+    'diag=' +
+      [fbFields.files, fbFields.funcs, fbFields.edges, fbFields.unresolved, fbFields.warnings, fbFields.persisted].join('/') +
+      ' page=' +
+      [chipCount, pageCounts.nodes, pageCounts.edges, '?', 'bar=' + warnBarVisible].join('/'),
+  );
+  check(
+    'G5 面板里的 <a> 数 == 门控期望(' + wantAnchors + ')、零 <li>、Issues 锚点 href 形状正确' +
+      (contact.alias ? '、mailto 指向门控常量' : '、门控关闭时零邮件痕迹'),
+    !!fb &&
+      fb.anchors.length === wantAnchors &&
+      fb.lis === 0 &&
+      !!issuesAnchor &&
+      issuesAnchor.target === '_blank' &&
+      issuesAnchor.rel === 'noopener noreferrer' &&
+      issuesAnchor.href.indexOf(contact.issuesUrl + '?title=') === 0 &&
+      issuesAnchor.href.indexOf('&body=') > 0 &&
+      noRawSpace(issuesAnchor.href) &&
+      (contact.alias
+        ? !!mailAnchor &&
+          mailAnchor.href.indexOf('mailto:' + contact.alias + '?') === 0 &&
+          !mailAnchor.target &&
+          !mailAnchor.rel &&
+          noRawSpace(mailAnchor.href) &&
+          fb.email === contact.alias
+        : !mailAnchor && fb.email === null && fb.text.indexOf('@') < 0),
+    'anchors=' +
+      (fb ? JSON.stringify(fb.anchors.map((a) => [a.tid, a.target, a.rel])) : 'null') +
+      ' lis=' + (fb ? fb.lis : 'null') +
+      ' email=' + (fb ? fb.email : 'null') +
+      ' alias=' + contact.alias +
+      ' hrefHead=' + (issuesAnchor ? String(issuesAnchor.href).slice(0, 90) : 'null'),
+  );
+  check(
+    'G6 面板浮在最上面（关闭按钮中心命中自己）、点 feedback-close 后面板从 DOM 消失',
+    !!closeHit && closeHit.inside === true && closedG6 === true,
+    'hit=' + (closeHit ? closeHit.hit + '@' + closeHit.x + ',' + closeHit.y : 'null') + ' closed=' + closedG6,
   );
 
   // ================= ACCEPTANCE 4: 承诺面 —— 浏览器里真实发生的一切 =================

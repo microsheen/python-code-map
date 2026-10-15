@@ -480,3 +480,9 @@
 - 本轮**只落内网 `master`**，公开镜像不推：公开侧按 ops §11 另起一轮（临时目录 clone → scrub `AGENTS.md` →
   `--orphan` 单提交 → noreply 身份 → `audit-public-repo.mjs --history` 必须 0 findings → 推 `main` → CI
   构建/冒烟/部署）。开工前按 AGENTS.md 复验过 `origin/master...HEAD` = 0/0。
+- [实测] 推完内网后 `gh run list` 复核：`ci-and-deploy` 对 `8720972` 的 run 是 `completed / skipped`（上一个
+  `a36b598` 同样 skipped）。原因不是坏了，是每个 job 都带 `if: github.repository ==
+  'microsheen/python-code-map'` 的 Route B 归属守卫，而内网仓是 `<internal-user>/code-map` ⇒ 整条 workflow 直接跳过。
+  也就是说本轮新加的 blocking 步骤 `npm run audit:egress` **在 CI 侧还没实跑过**，它现在只有本地两次 exit 0 +
+  workflow 里那段配置为证；第一次真被 CI 执行要等公开镜像那一轮。这条不是遗漏，是这台机器的仓库形状决定的，
+  但在闸门被远程验证之前不要把「CI 在拦」当成既成事实。

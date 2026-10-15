@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 把图标与 meta 注入 dist/ 的 HTML：postexport 的第一步，跑在 polish-dist.mjs 之前。
+ * 把图标、meta 与壳层底色样式注入 dist/ 的 HTML：postexport 的第一步，跑在 polish-dist.mjs 之前。
  *
  * 为什么不用 Expo 的 web.favicon：它会拿 @expo/image-utils 把母版重新栅格化成 favicon.ico，
  * 等于在构建链里塞第二套 SVG 解释器 + 一条图像依赖。我们的 PNG/ICO 已由 scripts/build-icons.mjs
@@ -43,6 +43,22 @@ export const HEAD_METAS = [
   { name: 'theme-color', content: '#0d1117' },
 ];
 
+/**
+ * 壳层底色：给 HTML 外壳上默认主题的背景色，消掉「白屏一闪」。
+ *
+ * 为什么是内联 <style> 而不是内联 <script>：上线的 CSP 是 script-src 'self'（禁内联脚本），
+ * 而 style-src 带 'unsafe-inline' —— 唯一能在 bundle 执行之前动底色的手段就是这段样式。
+ * 它只带默认主题的 --cm-bg 一条变量：主题切换发生在 JS 里，而 JS 一跑起来整页颜色都是它的了。
+ *
+ * 色值必须与 src/theme.ts 的 THEMES['github-dark'].colors.bg 同字面值，
+ * 也与下面 theme-color 的 content 同值 —— 三条都由 __tests__/icons.test.ts 钉住。
+ * 存了非默认主题的用户仍会先看到这一帧默认底色（到 bundle 执行为止），这是不换 CSP 的代价，
+ * 记在 docs/adr/0004。
+ *
+ * 零绝对 URL：这段里没有 http，polish-dist.mjs 的承诺自检照样过。
+ */
+export const SHELL_STYLE = ':root{--cm-bg:#0d1117}html,body,#root{background-color:var(--cm-bg)}';
+
 function fail(msg) {
   console.error('[inject-html-head] ' + msg);
   process.exit(1);
@@ -74,6 +90,7 @@ function buildBlock(indent) {
     if (i === 0) parts.push(SENTINEL);
     lines.push(indent + '<link ' + parts.join(' ') + ' />');
   });
+  lines.push(indent + '<style data-codemap="shell">' + SHELL_STYLE + '</style>');
   return lines.join('\n');
 }
 
@@ -107,7 +124,7 @@ for (const file of files) {
       HEAD_METAS.length +
       ' 个 meta + ' +
       HEAD_LINKS.length +
-      ' 个 link，' +
+      ' 个 link + 1 段壳层样式，' +
       Buffer.byteLength(before) +
       'B -> ' +
       Buffer.byteLength(after) +

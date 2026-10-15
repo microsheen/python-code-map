@@ -68,7 +68,7 @@ export function AppRoot(): ReactNode {
             padding: '4px 0',
             minWidth: 140,
             zIndex: 10000,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            boxShadow: '0 4px 16px ' + colors.shadow,
           }}
         >
           <div

@@ -600,3 +600,119 @@
 - apex 与 `www` **本轮依旧量不到真应答**，并且比上一轮多一个结论：直连与走本机那条隧道出口**两条路拿到同一个 `307`**，跳到网关自己的校验路径（参数里回指原始 URL），响应里没有 `server: cloudflare`、没有 `cf-ray`；而 DNS 两条都正常解析到 Cloudflare 的地址 ⇒ 拦在 HTTP 层而非 DNS 层，按 §8「先问谁答的」判成中间设备。既然隧道也是同一条被检查的出口，**这台机器上不存在第二个观察点**，换客户端并不能换来独立证据。写法沿用上一轮：README 只说「打不开就用兜底」，既不写「apex 可达」，也不写「apex 坏了」。
 - Node 的信任面坑按上轮记的修法复现成功：证书链深 4，根 CA 用 `$c.RawData` 导出、PEM 1,764 B（判据仍是 ≈1.8 KB，那个 55 B 的是空壳），设 `NODE_EXTRA_CA_CERTS` 之后 `check-deploy` 的结论才可信；**没有**加任何跳过校验的开关。
 - 公开侧元数据核对：`visibility=PUBLIC`、默认分支 `main`、描述句仍是「浏览器内解析、不上传」。遗留：`%TEMP%` 下 `cm-pub-7` 一路到 `cm-pub-14` 还在（含被闸门拦下的 `cm-pub-11`，留作证据），递归删除被本机策略挡住，只能人工清。回滚仍按 §11：下一次 scrub 轮覆盖推 `main`，不可变 host 各自留在历史里。这条记录本身要**第九轮**才进公开树 —— 这个滞后是既定写法。
+
+## 2026-10-15 界面主题轮（6 套 CSS 变量配色 · 组件一行不改 · 切换不发请求）
+
+- 开工前按 AGENTS.md 复验同步：`git pull` + `git push` 之后 `origin/master...HEAD` 才 0/0，改动全落内网 `master`；
+  公开镜像按 ops §11 走独立一轮，本轮不上线。
+- 需求：用户要「界面 UI 风格提供多种，用户可以选择」。定六套：`github-dark`（默认，色值 = 加主题之前**逐字不动**）/
+  `github-light` / `dracula` / `nord` / `solarized-dark` / `solarized-light`，其余五套取各家**官方公开色表**；顶栏
+  `Theme` 按钮开六行面板，选择存 localStorage `code-map:theme`。首访固定默认深色，**刻意不跟随系统** —— 需求是「
+  用户可以选择」，不是「我们猜」。这一轮的「风格」只等于配色 + `color-scheme`：字体、字号、间距、圆角、布局尺寸、
+  站点图标与栅格图标都不跟着变。
+- 落地机制（本轮最值钱的一条）：CSS 自定义属性。`src/theme.ts` 导出的 `colors` / `tokenColors` / `FILE_COLORS`
+  **键名与形状一字不改，值换成 `var(--cm-*)`**，真色住在 `THEMES` 的六块字面调色板里，由纯函数 `cssVarsFor(palette)`
+  摊平成 54 条（实测 `colorsKeys=31 tokenKeys=13 fileColors=10`）。9 个组件文件加根布局一共 10
+  个模块在模块作用域消费这三张表，其中 7 个文件的 `StyleSheet.create` **一行没改**就跟着主题走（判据：`git grep` 实测
+  10 个 import、7 个文件命中 `StyleSheet.create`）。切主题 = 往 `<html>` 重写 54 条变量 + 改 `theme-color` meta：
+  不触发 React 重渲染、不重新解析文件、代码高亮的 `useMemo` 分片不失效，浏览器一个请求都不多发。
+- 动手前先实测可行性（真 Chrome + CDP，三条判据）：class 样式里的 `var()` 解析；**SVG 表现属性**里的 `var()`
+  同样解析成 rgb；`:root` 变量改完 `getComputedStyle` 立即变。再读
+  `node_modules/react-native-web/dist/modules/isWebColor/index.js` —— 判据就是 `color.indexOf('var(') === 0`，
+  它放行以 `var(` 开头的字符串。由此立下两条戒：UI 引用的值**必须以 `var(` 开头**，不能拼前缀；
+  带透明度的颜色必须**整条**做成变量 —— `rgba(var(--x),.5)` 这种拼法 RNW 不认，所以 `overlay` / `selectedSoft` /
+  `dangerSoft` / `warnSoft` / `shadow` / `underline` 全走整套变量。
+- 7 个新 token 收掉 13 处散落字面色：`onAccent`（3 处）/ `tooltipBg` / `tooltipText` / `dangerSoft` / `warnSoft` /
+  `shadow` / `underline`，落在 TopBar、UploadPanel、FeedbackDialog、AppRoot、FileTabs、CodeView 六个组件文件；外加
+  `app/_layout.tsx` 把写死的 `#0d1117` 换成 `colors.bg` —— **组件侧这一轮只改了这些**。`paper`
+  键保留（图标底板契约要用），`fonts` / `spacing` / `ROW_H` / `GUTTER_W` / `CODE_FONT_SIZE` / `RENDER_BUFFER_ROWS`
+  一律不动。
+- 首帧与 CSP 的取舍：生产 CSP 的 `script-src 'self'` 禁内联脚本，**没有 boot script 可用**。改成两头：
+  `app/_layout.tsx` 在**模块作用域**调 `initTheme()`（入口模块执行的第一件事，一定早于第一次绘制，
+  所以存过非默认主题的人不会先闪一帧深色）；构建期 `scripts/inject-html-head.mjs` 注入一段内联
+  `<style data-codemap="shell">`（`style-src` 本就允许 `unsafe-inline`）给 HTML 外壳铺默认底色，
+  顺手收掉历史那条白屏一闪。**没为了省一帧去放宽 CSP**，代价原样写进 ADR：bundle 执行前的外壳仍是默认底色。
+- 选择器：`Theme` 是 `actions` 行里 Feedback 旁的一枚 `btnGhost`（`testID="topbar-theme"`），**故意不受 `busy` 门控**
+  —— 和 Feedback 同一个理由：解析中、从 IndexedDB 恢复出旧会话时正是最该能切的时候，源码注释里点名「
+  下一次重构请别顺手把它修成 `disabled={busy}`」。面板 `top: 36` / `right: 0` / `zIndex: 1000`，配色复用 `ctxMenu`
+  那一套，六行按 `THEME_ORDER`，每行 = 3 个预览块 + 官方英文标签 + 当前项 `✓`，点选项即切换并自动关面板。
+- 预览块必须用 `THEMES[id]` 的**字面 hex**，不能用 `colors.*`：变量只描述「当前」这一套主题，用它六行会长得一模一样。
+  H2 就按这条判 —— swatch 段里必须出现 github-light 的 `rgb(255,255,255)`，且整段零 `var(`。
+- 三条 RNW/浏览器端的坑（本轮踩到并把判据写死的）：① 外点关闭沿用 `ctxMenu` 的 `window click` 写法，包含判断是
+  `closest('[data-testid="topbar-theme"],[data-testid="theme-panel"]')` —— RNW 的 `View` 上没有 DOM `contains`，走
+  ref 那条路要先做一次类型欺骗，被 tsc 顶回来；② RNW 0.21 的 `createDOMProps` 不认 `accessibilityState`（当未知 prop
+  丢掉），所以当前项**同时**写进 `accessibilityLabel`，读屏听到 "Nord (current)" 而不是只看见一个勾；③「
+  面板浮在最上面」这条 jsdom 永远抓不到（没有布局），沿用反馈轮 G6 立下的 `elementFromPoint` 判据，由冒烟 H2 拦。
+- 偏好不进 `AppStore`：新增 `src/state/themeStore.ts`（独立 zustand store `{ themeId, setTheme }`），`setTheme` =
+  写偏好 + 应用调色板 + 同步 meta + setState。理由就一条 —— `AppStore.reset()`（Clear）会把主题一起清掉，
+  而**一个偏好和被分析的代码不是一回事**，README 的手动验收照这条写「点 Clear 不会重置主题」。
+  `src/platform/web/themeVars.ts` 六个函数：`varsForTheme` / `applyPalette` / `setThemeColorMeta` /
+  `readThemePref`（空值与非法值一律回落默认）/ `writeThemePref`（try/catch 静默降级，隐私模式不炸）/ `initTheme`；
+  没有 `document` 时静默返回，jest 的 node 项目不会炸。首访**不写** localStorage（不留痕），单测钉死这条。
+- 图标契约换钉法：`public/icon.svg` 与各栅格图标**不动**（品牌固定，切主题不动图标），但地址栏 `theme-color`
+  跟随当前主题。`__tests__/icons.test.ts` 的三条契约从「正则读 `theme.ts` 文本」改成
+  `import { THEMES, DEFAULT_THEME }`：icon 的每个 hex ∈ 默认主题色值集合、icon 用到的 `accentDim` / `paper` ==
+  默认主题对应值、注入的 `theme-color` 与新 shell style 的 `--cm-bg` 都 == 默认主题 bg。同源性由测试钉，不靠肉眼比对。
+- 对比度门禁：**阈值不动，让调色板让步**。~10 行自写 WCAG 相对亮度 helper，正文级 ≥4.5（`text/bg`、`text/panel`、
+  `dim/bg`、`onAccent/accentDim`、13 个语法 token 对 `panel`），图形与强调 ≥3.0（`faint` / `accent` / `danger` /
+  `warn` / `ok` / `selected` / `neighbor` 对 `bg`，10 支文件色对 `bg` 与 `panel` 两侧），`edge` / `nodeStroke` /
+  `border*` / `overlay` 属装饰性不设门禁。本轮复算**六套全部零违例**，各套 4.5 档最紧的一条：github-dark
+  `onAccent/accentDim 4.63`、github-light `token:decorator/panel 4.72`、dracula `token:comment/panel 4.63`、nord
+  `token:decorator/panel 4.59`、solarized-dark `token:funcName/panel 4.61`、solarized-light
+  `token:decorator/panel 4.60`；3.0 档最紧 = solarized-light 的 `selected/bg` **3.06**（全表最紧），其余 github-dark
+  `faint/bg 4.12`、github-light `selected/bg 3.14`、dracula 与 nord `file9/panel 3.07`、solarized-dark
+  `danger/bg 3.25`。默认主题按现状即过（`text/bg 12.26`、token 对 panel 最低 4.87、文件色对 bg 最低 7.45），
+  这几个实测值也钉进单测 —— 谁悄悄挪色值就红。
+- 测试：新增 `__tests__/theme.test.ts`（**30** 例）与 `__tests__/themePicker.test.tsx`（**10** 例），jest 基线 17
+  suites / 280 tests → **19 suites / 320 tests**。前者三类：数据完整性（六套 `colors` 键集合逐字一致 31 个、13 个
+  `TokenScope` 全覆盖、`fileColors` 恰好 10 支 6 位 hex、**调色板里不许出现 `var()`** —— 变量套变量是静默失效）、
+  变量闭合性（54 条名字唯一、`--cm-` 前缀 + 小写 kebab、六套摊出的变量名逐字相同否则切主题留下孤变量、界面每个
+  `var(--cm-*)` 都能在默认主题里查到、没有一处界面色绕开变量写字面色）、jsdom 行为（变量真写进 `documentElement` 且
+  `colorScheme` 跟着 `scheme`、meta 只改不新建、meta 缺席时不凭空长出来、偏好读写的三条回落与写失败不冒泡）。
+  后者钉常驻位置（scope 之后、Feedback 之前，Clear 出现消失都不跳位）、busy 也点得动、点 nord 后 store / `<html>`
+  变量 / localStorage 三处同变且面板自动关、重开勾跟着挪、Escape 与外点与再点 Theme 三种关法、**切主题不碰
+  `AppStore`（状态对象仍是同一个引用）**、刷新等于整套流程重跑。
+- 冒烟 H 组六项（断言 47 → **53**，插在 G 组之后、E 组之前，理由与 G 组那条一模一样：切换期间真发生的任何请求都会被
+  E1–E8 一并审计，「换主题零上行」因此不是自说自话）。H1 首访 = 默认主题：54 条变量逐条 == 源码调色板、meta
+  与壳层底色同字面 hex（`#0d1117`）、`localStorage` 无该键；H2 面板开得到、**真的浮在最上面**、六行按 `THEME_ORDER`、
+  预览块是各主题字面 rgb；H3 切 `github-light` 后 `<html>` 变量 / `app-root` 计算背景 / `theme-color` /
+  `color-scheme` / localStorage 五处同变、面板自动关、**`reqs=9->9` 一个都没多**；H4 45 个图节点的 `fill` 计算值匹配
+  `/^rgb/` 且不含 `var(`（实测 `attr=var(--cm-node-fill) computed=rgb(246, 248, 250)`）—— 那是
+  var-in-presentation-attribute 这条前提在生产产物里的现场保险；H5 reload 后不点任何东西仍是亮色、新文档
+  `violations=[]`；H6 切回默认后变量 / 计算背景 / meta / `color-scheme` / 偏好全部复原。
+- 闸门本轮**逐条重跑**（不引用上一轮）：`npm run verify` → typecheck 0 + lint **0 error / 12 warning**（均为既有）+
+  jest 19 suites / 320 tests 全绿；`npm run export` →
+  `[inject-html-head] 注入 2 个 meta + 4 个 link + 1 段壳层样式，1182B -> 1830B`、`[polish-dist] 1830B -> 1562B`，
+  入口 `entry-94cee640….js` **1,419,639 B**、`dist/index.html` sha256 `191879c5…`（1562 B），零绝对 URL / 入口脚本 /
+  root 三项自检仍过；`npm run smoke` → **53/53 PASS**、`failed=[]`，E 组 **14** 个请求全同源全 GET 零请求体零 4xx、E7
+  零命中、E8 刷新前后两个文档都零 CSP 违规；`npm run audit:egress` → `scanned 3 file(s)`、`clean`、exit 0。
+- 一条刻意的不做：新主题文件**不加进** `audit:egress --files`。那个脚本把 `localStorage.setItem` 当违禁词字面量，把
+  `themeVars.ts` 塞进去必红，而主题偏好根本不是上行通道；「零上行」由 H3 的请求计数与 E 组审计证明，不给扫描器开口子、
+  也不加豁免。`code-map:theme` 在产品源码里只出现在 `src/platform/web/themeVars.ts` 一处（本轮 `git grep` 复验）。
+- 一条免费的确定性证据：本轮把几处**说错的数字**改准 —— `theme.ts` 头注与 ADR-0004 里「10 个组件」改成「9
+  个组件文件加根布局一共 10 个模块、其中 7 个文件用 `StyleSheet.create`」，「7 处硬编码」改成「7 个新 token 换掉 6
+  个组件文件里的 13 处字面色」（判据见上面两条的 `git grep` 实测）。改完重跑 `npm run export`，
+  入口哈希**一字未变**（仍 `entry-94cee640…`）—— 压缩产物里没有注释，这就是「改注释不改行为」的硬证据，比 review
+  自觉可靠。
+- prettier 与 lint 基线的小坑（记一次就够）：本轮新写的六个文件一律 prettier-clean，并把**被本轮弄脏**的
+  `TopBar.tsx`、`app/_layout.tsx` 重排回 clean；HEAD 本来就 dirty 的（`AppRoot` / `CodeView` / `FileTabs` /
+  `UploadPanel` / `theme.ts` / `browser-verify.mjs`）**没顺手格式化**，本轮不制造无关 diff。一处踩坑：
+  `themePicker.test.tsx` 里「刷新=重跑」那条用例要 `require`，prettier 把长 `require` 折行之后，
+  `eslint-disable-next-line` 就指到注释行上，同时报「unused disable directive」和真违例（warning 一度 14），换成块级
+  `/* eslint-disable */ … /* eslint-enable */` 才回到基线 **12**。文档一律不跑 `npm run format`（HEAD
+  的文档本来就不是 prettier-clean，跑了会淹掉本轮 diff）。
+- 文档同轮：新增 `docs/adr/0004-css-variable-theming.md` **154** 行（Accepted：为何是 CSS 变量而不是 Context +
+  动态样式表 / 构建 6 份 CSS / 跟随系统 / 内联 boot script，四条不选的理由各带判据；附实测证据与残留限制）；README
+  三份同步 —— `## 界面` 新增主题小节、顶栏 ASCII 图加 `Theme`、`data-testid` 契约加 `topbar-theme` / `theme-panel` /
+  `theme-option-*`、冒烟组表加 H 行、测试表与目录结构加两个新文件、手动验收清单加 2 条（切换即时生效 / 刷新后保持）、
+  隐私节补「主题选择存 localStorage `code-map:theme`，同样不出本机」并挂上 ADR-0004 链接。行数/字节：`README.md` 337
+  / 37,665、`README.zh-CN.md` 413 / 30,968、`README.ja.md` 340 / 46,314。
+- 政策沿用：README 与 ADR-0002 里 `funcs 45 / edges 47 / unresolved 28`
+  那组旧数**本轮一个都没碰**（上一轮已把矛盾与判据记进 ops §4，并立下「两个数都不碰」）；本轮同一条 G3 诊断行实测仍是
+  `funcs=45 edges=49 unresolved=26`，只在这里记账。截图 `codemap-shots/08-theme-panel.png`（六行面板浮在图上）、
+  `09-theme-light.png`（切到 GitHub Light 的整页）、`10-theme-default-restored.png`（H6 复原后）。
+- 已知限制与遗留（写进 ADR，不当 bug 偷偷修）：① 存过非默认主题的人，在 bundle 执行前看到的仍是默认底色的 HTML 外壳
+  —— 这是 CSP 的代价，不靠放宽 `script-src` 换；② `color-scheme` 只管浏览器原生件（滚动条、表单控件、光标），
+  系统明暗在这些件上仍然生效，但它不决定页面配色；③ 六套主题（含三套亮色）的 `onAccent` 都是白，因为各家 `accentDim`
+  都是深色，过门禁靠调色板让步而不是降阈值；④ `%TEMP%` 下上一轮的 `cm-pub-7`…`cm-pub-14` 与本轮编译 `theme.ts` 用的
+  `cm-theme` 还在，递归删除被本机策略挡住，只能人工清。

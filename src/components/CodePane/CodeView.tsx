@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     userSelect: 'text',
   },
-  clickable: { textDecorationLine: 'underline', textDecorationColor: 'rgba(201, 209, 217, 0.4)' },
+  clickable: { textDecorationLine: 'underline', textDecorationColor: colors.underline },
   emptyText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 13, padding: spacing.lg },
   // pointerEvents 走 style：RN 0.78+ / RNW 0.21 已废弃 prop 形式
   measurerWrap: {

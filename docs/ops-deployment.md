@@ -12,6 +12,7 @@
 | 无第三方代码 | 产物 HTML 里**零个** `https?://`（含被剥掉的注释）；线上新增第三方引用按 counted finding 处理 | `polish-dist.mjs` + `check-deploy.mjs` |
 | 没有服务端存储 | 托管是 Direct Upload 的纯文件站点，没有 Functions / KV / D1 / DO | 选平台时就决定了 |
 | 会话只在你机器上 | 写本机 IndexedDB（`code-map` / `session` / `current`），Clear 即删 | ADR-0001 Amendment |
+| 页面对外的动作只有**用户点的 `href`** | 无 fetch / beacon / `<form>` / 剪贴板写入：`audit-egress.mjs` 逐字扫那三个文件（注释也算）+ jest 金丝雀 + 冒烟 G2「开→关请求数不变」 | CI blocking 步骤 `npm run audit:egress`（`checks` job） |
 
 第三条是"host 物理上没有写的能力"，比任何"我们不会滥用"的承诺都强。代价是必须能设响应头，
 所以 GitHub Pages 出局（它不能设 CSP）。
@@ -211,6 +212,59 @@ npm run smoke  -> 41/41 PASS，退出码 0（比上轮多 F1/F2 两项图标链�
 四个派生物字节数随之变为 3005 / 5500 / 5680 / 16197 B，但文件名、缓存档、上面 9 个请求集与
 `index.html` 的 sha 均未变 —— 注入写进去的只是固定 href，与图标字节无关。
 
+**[实测] 2026-10-15 反馈轮基线（请求集与 sha 取代上面两次）**
+
+```
+npm run verify       -> exit 0；typecheck + lint（0 error / 12 warning，均为既有）
+                        + jest 17 suites / 280 tests 全过（新增 __tests__/feedback.test.tsx 27 例）
+npm run audit:egress -> 扫 src/feedback/contact.ts、src/components/FeedbackDialog.tsx、
+                        src/platform/web/buildStamp.ts：clean: no egress primitive,
+                        no unpublished address，exit 0
+npm run export
+  entry: /_expo/static/js/web/entry-841acd7d….js
+  index.html: 1455B（字节数与图标轮相同）
+  index.html sha256: e62cf05bf468e3a63f19c4c90eafded6ea2633d643595a1e67fcb9c688f10056
+
+npm run smoke  -> 47/47 PASS，退出码 0（比图标轮多 G1–G6 六项反馈面板断言）
+  真实请求集仍是 9 个：开→关反馈面板**没有新增任何一个请求**（G2 的判据）
+  E7 零命中、E8 零 CSP 违规、console errors = []
+  面板里实测的诊断块：build=841acd7d files=3 funcs=45 edges=49 unresolved=26
+                                                  warnings=0 persisted=yes
+```
+
+入口哈希从图标轮的 `dd0b2e…` 变成 `841acd7d…`、`index.html` 的 sha 随之改变：新增的是**源码**
+（反馈面板与规则层），不是 `<head>` 标签，所以 HTML 字节数不变而 bundle 变。
+`index.html` 里仍然**零个** `https?://` —— Issues 的地址只活在 bundle JS 里（bundle 里本来就有
+几十个来自依赖的 URL，那条门禁量的是 HTML，不是 JS）。
+
+诊断块里的 `build=841acd7d` 就是这批字节的哈希前 8 位，由冒烟 G3 钉住：它拿
+`expectIndex.entry`（也就是被测的那个文件名）算出前缀去比面板里的值。改源码不改产物
+会红、面板报别的版本也会红 —— 「面板说的是哪一版」不靠人记。
+
+同一行里 `edges=49 unresolved=26` 与本仓 ADR-0002、README 手动清单里那组「边 47 / 未解析 28」**不是同一个
+测量时点**，而且都不是本轮改出来的：49/26 是**现行**回归基线 —— [实测] `__tests__/parser.wasm.test.ts:81`
+逐字断言 `stats.edges` / `stats.unresolved` 为 49 / 26，本轮没动过那个文件、也没动过 `src/parser/`、
+`src/graph/`、`fixtures/`，`npm run verify` 里它是真跑过（不是 `public/wasm` 缺失时的整文件跳过）；面板报的
+就是这组全图 `graph.stats`，G4 断言它与页面上真实渲染的 `graph-node-` / `graph-edge-` 元素数相等。47/28 则是
+保守解析那一轮留下的记录，此后没人跟着改文档 —— 一条**既有的文档漂移**，本轮**两个数都不碰**：修订 ADR-0002
+的历史记录与 README 的人工验收基线要另外在浏览器里重测一遍再定，静默改写数字比把矛盾摆在这儿更糟。
+
+本轮复跑冒烟（`dist/` 未重新导出，源码零改动）：再次 **47/47**、请求集仍是 9 个、E7 零命中、E8 零违规，
+`build=841acd7d files=3 funcs=45 edges=49 unresolved=26 warnings=0` 与上面一字不差；只有 `persisted`
+这次读到 `unknown` —— 它取决于 IndexedDB 会话写入与面板采样的先后顺序，这正是 G4 只断言取值域
+（`yes|no|unknown`）、不断言具体值的原因。两次读到的值都留在文档里：`persisted` 本来就不是稳定值，
+把某一次的读数写成「基线」反而会把下一个人带进 flake 的坑里。
+
+**G 组上线当轮抓到一个只有真浏览器能发现的问题**：面板在 DOM 里、`getBoundingClientRect`
+坐标正确、诊断文本也对，但截图里看不见它，点「关闭」点到了图上。根因：RNW 的 `View` 基础样式
+写死 `position: relative` + `zIndex: 0`（[实测] `node_modules/react-native-web/dist/exports/`
+`View/index.js` 的 `baseStyle`），于是**每一个 View 都是一个层叠上下文**；`#topbar` 自己就是
+`z:0` 的一层，遮罩的 `z-index: 1000` 只在这层内部比大小，整体仍排在正文两个面板之后。
+[实测] `elementFromPoint` 打在面板中心返回的是 `svg#graph-svg`。修法是顶栏 `zIndex: auto`
+（见 `src/components/TopBar.tsx` 的注释与 ADR-0003），顺带放开了同样被困住的 chipTooltip
+（那是图标轮之前就存在的潜在 bug）。**jsdom 测不出这个 —— 它没有布局**，所以 G6 把「关闭按钮
+中心的命中测试必须是它自己」写成断言：这类事要由冒烟拦，而不是由 review 自觉。
+
 ## 5. `public/_headers` 与"声明 ≠ 生效"
 
 `_headers` 里不写任何主机名，换域名是零 diff。缓存分档：
@@ -334,19 +388,51 @@ DNS、证书、部署 —— 是**验证机上面的中间设备**替 Cloudflare
 不能只信办公网里那次全绿。本机跑 `--mode=browser` 时也一样：企业网关改写过 HTML 时，
 本机能证明的只有"这台机器收到了什么"。
 
-## 9. 无服务端反馈渠道
+## 9. 反馈渠道（已实现；邮件别名门控关闭中）
 
-打算用 Cloudflare **Email Routing** 做接收别名 → 个人邮箱转发，零后端、不加代码路径。
-纪律：
+**[实测] 2026-10-15 已落地**：顶栏 `Feedback` → 只读面板 → **两枚由用户点击的 `<a href>`**
+（GitHub Issues + mailto 别名），携带一份白名单 8 字段、只有计数的诊断文本。页面自己发不出
+任何东西：没有 `fetch` / beacon / `<form>` / `window.open` / 剪贴板写入。理由与取舍见
+ADR-0003；代码在 `src/feedback/contact.ts`（规则层）与 `src/components/FeedbackDialog.tsx`（面板）。
 
-- 只开 Email **Routing**，**不开 Email Sending**（那是另一套 beta 管道：`cf-bounce.*` 记录、
-  DKIM/DMARC/配额/抑制表/信誉 = 长期运维义务，而且和"无后端"立场矛盾）。
-- 转发**目标地址**绝不进仓库、git 历史、文档 —— 这个映射只存在于控制台 Destination 字段里。
-- 绝不建 alias → 同一个 alias 的规则（自环）。要拒信用 `Drop` 动作。
+**Email Routing 目前是「未开通」**（[实测] 2026-10-15：本机无 Cloudflare 凭据、无 `wrangler`，
+见 §10 那张前置表）。所以 `CONTACT_EMAIL` 常量置 `null` 门控关闭：面板只渲染 Issues 一条渠道，
+源码里不出现任何邮箱字面量（连注释都不许 —— `audit-egress.mjs` 是纯文本匹配）。
+本节的别名取值 `hi@python-code-map.com` **只写在这份文档里**，启用前它不进仓库。
+
+### 启用 runbook（八步，顺序不能换）
+
+1. 在**别的服务商**建一个专用的一次性目标邮箱（destination），名字带产品（例如
+   `python-code-map-inbox@<provider>`），它的用途就是被垃圾邮件淹没后可丢弃。
+   **这个地址永不进仓库、git 历史、这份文档** —— 它只存在于控制台 Destination 字段。
+2. 控制台只开 Email **Routing**，**不开 Email Sending**（那是另一套 beta 管道：`cf-bounce.*`
+   记录、DKIM/DMARC/配额/抑制表/信誉 = 长期运维义务，而且和"无后端"立场矛盾）。
+3. 加 destination 并完成**验证信**这一步。
+4. 建规则 `hi@python-code-map.com` → destination。**绝不**建 alias → 同一个 alias 的规则（自环）；
+   要拒信用 `Drop` 动作。
+5. **从外部真发一封测试信，确认它到达 destination**。控制台显示 `verified` 不算证据 ——
+   面板上写的每一条渠道都必须是我们**实际走通过**的那条，这是本节和上一版的实质区别。
+6. 重跑只读 DNS 探针对 §7 的基线。预期变化：apex 的 `CNAME` 查询仍是 `ENODATA`（CNAME
+   flattening 的正常结果），另外多出 `MX` 与 `_email._envelFrom` 之类的路由记录；
+   `_dmarc` 返回 `NXDOMAIN` **是转发域的预期结果、不是故障** —— 我们只做收信转发，
+   不发信，所以不需要 DMARC。若某天开始发信，这条判断立刻失效。
+7. 只有到这一步才改 `CONTACT_EMAIL = 'hi@python-code-map.com'`，而且必须在**同一个提交**里
+   给 `package.json` 的 `audit:egress` 加上 `--public-address=hi@python-code-map.com`、
+   更新 §10 台账与本节、追加 `log.md`。分开做必红：不带 `--public-address` 时源码里的
+   地址是 finding，带了而源码没改则那个 flag 白放行一个没人用的地址。
+   改名成本 = 一个常量 + 一条控制台规则 + 同一提交里的 flag。
+8. 回滚顺序：删 routing 规则（地址立刻失效，站点不动）→ 删 destination（引用它的规则被禁用）→
+   Disable Email Routing（撤销它自己加的记录）。Pages 的 CNAME **完全不在这条路径上**。
+
+### 其他纪律
+
 - 配额读官方 limits 页，社区帖的数字流传过期且互相矛盾。
-- 回滚顺序：删 routing 规则（地址立刻失效，站点不动）→ 删 destination（引用它的规则被禁用）→
-  Disable Email Routing（撤销它自己加的记录）。Pages 的 CNAME 完全不在这条路径上。
-- 公开页面上放联系地址会在公开后招垃圾邮件：这是**决定推送顺序**的理由，不是砍掉渠道的理由。
+- 公开页面上放联系地址会在公开后招垃圾邮件：这是**决定推送顺序**与"先门控再开通"的理由，
+  不是砍掉渠道的理由（渠道本身已由用户于 2026-10-14 拍板，见 §10）。
+- 面板文案必须诚实做预期管理：邮件的**回信来自那个个人邮箱**，不是从这个别名发出
+  （别名是纯转发，没有回复能力）。这一条写在面板里，不是写在文档里就算了。
+- 新增渠道 = 新增可被爬取的字符串。推公开仓 `main` 之前，§11 的 scrub 清单会按类别扫邮箱，
+  本节的别名是**有意公开**的那一个，其余任何邮箱都算 finding。
 
 ## 10. 拍板台账（Phase 2 各项的当前结论）
 
@@ -362,7 +448,9 @@ DNS、证书、部署 —— 是**验证机上面的中间设备**替 Cloudflare
 | Cloudflare API token 与 account id | ✅ 2026-10-13 用户直接提供。只存在仓库之外的临时目录，并已写入 Actions secrets（`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`）；**任何一份拷贝都不进仓库、历史、文档** |
 | 域名：复用已有 zone 还是新注册 | ✅ 复用账户下已有的 `python-code-map.com` zone（`status=active`、区内原本 0 条记录）。[实测] 2026-10-13 绑定完成：`POST /pages/projects/<p>/domains`（字段名必须是 `name`）成功，状态 `initializing → pending → active`；再手建两条 proxied CNAME（`@`、`www` → `python-code-map.pages.dev`、`ttl: 1`），记录由 0 条变 2 条。这一步顺带**证实了 token 有 Zone / DNS: Edit** —— §7 那条「建 DNS 记录需要 token 有 Zone / DNS: Read + Edit」的前置条件到此已由实做证实。**但办公网无法端到端验证它**，见 §8 与 §13 |
 | Pages 项目名 | ✅ `python-code-map`（2026-10-13 agent 代拍，可撤销）。[实测] `POST /accounts/<acct>/pages/projects` 直接创建成功 ⇒ 这个名字**全局未被占用**，返回 `subdomain=python-code-map.pages.dev`、`production_branch=main`；`vars.PAGES_PROJECT_NAME` 已指向它。代价说清楚：项目名**不可改名**，换名的唯一路径是删项目重建 + 重绑域名 + 改变量，**已发出的 URL 会全部失效** |
-| 反馈渠道 | ✅ 定为只用 GitHub Issues（2026-10-13，agent 代拍）：仓库已开 `has_issues`，零新增配置、不在页面上公开任何邮箱地址，也就没有垃圾邮件面。若以后要邮箱别名，只做 Email **Routing** 收信转发、**不开** Email **Sending**（那是带 DKIM/DMARC/配额/信誉的新负担），且转发的目标邮箱只留在控制台 |
+| 反馈渠道 | ✅ 2026-10-14 用户拍板改为**双渠道**：GitHub Issues（公开、主渠道）+ mailto 别名（私密、次要）。这**推翻** 2026-10-13 那条「只用 GitHub Issues」（原文理由仍然成立：零新增配置、不公开邮箱就没有垃圾邮件面 —— 用户选择了用一条门控的私密渠道换掉那个便利性）。落地形态：顶栏按钮 → 只读面板 → 两枚**用户点击的 `<a href>`**，携带白名单 8 字段、只有计数的诊断文本，页面无任何自动出口能力（ADR-0003）。**别名当前门控关闭**（`CONTACT_EMAIL = null`），代码先行、开通路由是后续独立一轮，runbook 见 §9 |
+| 反馈的回复身份 | ✅ 选 A+B（2026-10-14 用户拍板）：A = 专用一次性目标邮箱（名字带产品、可丢弃、地址永不进仓库），B = 以 Issues 为主渠道。面板里明说「回信来自个人邮箱，不是这个地址」——别名是纯转发、没有回复能力，这条预期管理必须写在用户看得见的地方，而不是只写在文档里 |
+| Cloudflare Email Routing 状态 | ⏳ **未开通**（[实测] 2026-10-15：本机无 Cloudflare 凭据、无 `wrangler`、无可复用 OAuth 会话，与下面前置表那一行一致；本轮也无从代劳，目标 destination 邮箱由用户另行创建）。因此 `CONTACT_EMAIL` 置 `null`，面板只显示 Issues，`package.json` 的 `audit:egress` **不带** `--public-address` —— 于是那三个受审文件里出现任何邮箱字面量都是 finding。启用与回滚见 §9 |
 
 **本机已具备 / 尚缺的前置条件**（[实测] 2026-10-09 只读复探）
 

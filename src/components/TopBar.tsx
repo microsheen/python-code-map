@@ -16,10 +16,29 @@ import type { Scope } from '../graph/scope';
 import { pickFiles } from '../platform/web/filePick';
 import type { GraphStats } from '../parser/types';
 import { useAppStore, MAX_FILES } from '../state/store';
+import { FeedbackDialog } from './FeedbackDialog';
 import { colors, fileColor, fonts, spacing } from '../theme';
 
 /** RN 样式类型里没有横向滚动开关，RNW 支持，用 cast 绕过。 */
 const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewStyle;
+
+/**
+ * 顶栏必须取消自己这层「层叠上下文」，否则反馈面板的全屏遮罩会被正文面板盖住。
+ *
+ * 原因在 RNW 里：View 的基础样式写死了 position:'relative' + zIndex:0
+ * （node_modules/react-native-web/dist/exports/View/index.js 的 baseStyle），
+ * 于是**每一个** View 都是一个层叠上下文。遮罩写成 position:fixed + zIndex:1000
+ * 也没用 —— 它只在顶栏这一层内部比较大小，整体仍然排在正文两个面板之后。
+ * 实测（冒烟 G6 第一次就是红的）：面板确实在 DOM 里、getBoundingClientRect 坐标
+ * 正确，但 elementFromPoint 在那个点上返回的是 svg#graph-svg，截图里看不见面板，
+ * 点关闭也点到图上。
+ *
+ * 只改 zIndex，不改 position：chipTooltip 的绝对定位锚点保持不动；绘制先后也不变
+ * （z-index:0 与 auto 在同一个绘制步骤里，仍按 DOM 顺序），被放开的只有顶栏子树里
+ * 带 z-index 的那几个覆盖层（chipTooltip 与反馈遮罩）—— 它们本来就该浮在全页之上。
+ * RN 的类型里 zIndex 只承认 number，'auto' 是合法 CSS 值，按 SCROLL_X 的先例 cast。
+ */
+const Z_INDEX_AUTO = 'auto' as unknown as number;
 
 /** 文件 chips 的着色下标：与 GraphPane 用同一份 files 顺序，保证颜色一致。 */
 export function colorIndexOfFile(
@@ -80,6 +99,7 @@ export function TopBar(): ReactNode {
   const navForward = useAppStore((s) => s.navForward);
   const navIndex = useAppStore((s) => s.navIndex);
   const navHistory = useAppStore((s) => s.navHistory);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [hoveredChip, setHoveredChip] = useState<string | null>(null);
   const [chipScroll, setChipScroll] = useState({ canLeft: false, canRight: false });
   const chipsRef = useRef<RNScrollView>(null);
@@ -245,6 +265,21 @@ export function TopBar(): ReactNode {
             />
           </View>
 
+          {/*
+            有意**不**读 busy、不 disabled：这是一个只读入口，解析中、从 IndexedDB 恢复出旧会话时
+            都必须能点。盯着那份恢复出来的旧版本看的人，正是最需要报 bug 的人。
+            下一次重构请别顺手把它「修好」成 disabled={busy} —— 那样最该用的时候它就没了。
+          */}
+          <Pressable
+            testID="topbar-feedback"
+            onPress={() => setShowFeedback(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Feedback"
+            style={styles.btnGhost}
+          >
+            <Text style={styles.btnGhostText}>Feedback</Text>
+          </Pressable>
+
           {files.length > 0 ? (
             <Pressable
               testID="topbar-reset"
@@ -396,6 +431,18 @@ export function TopBar(): ReactNode {
         </View>
       ) : null}
 
+      <FeedbackDialog
+        open={showFeedback}
+        onClose={() => setShowFeedback(false)}
+        diag={{
+          files: files.length,
+          funcs: graph?.stats.funcs ?? 0,
+          edges: graph?.stats.edges ?? 0,
+          unresolved: graph?.stats.unresolved ?? 0,
+          warnings: warnings.length,
+        }}
+      />
+
       {warnings.length > 0 ? (
         <View style={styles.warnBar} testID="topbar-warnings">
           <Text style={styles.warnText} numberOfLines={3}>
@@ -411,6 +458,8 @@ export function TopBar(): ReactNode {
 
 const styles = StyleSheet.create({
   wrap: {
+    // 见 Z_INDEX_AUTO 的注释：不写这行，顶栏自己就是个层叠上下文，反馈遮罩会被埋掉
+    zIndex: Z_INDEX_AUTO,
     backgroundColor: colors.panel,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
@@ -585,4 +634,3 @@ const styles = StyleSheet.create({
   },
   warnText: { color: colors.warn, fontFamily: fonts.ui, fontSize: 11 },
 });
-

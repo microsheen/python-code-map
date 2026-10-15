@@ -11,9 +11,9 @@
  * - 函数体内任意其它位置     -> 选中最内层包含函数
  * 前两类是嵌套的可点击 Text：web 上内层 PressResponder 会 stopPropagation，不会重复触发整行点击。
  *
- * 点图上的线（edgeSelection）在代码区铺多少痕迹，按调用次数分两档：
- * - N > 1：N 处调用全打点 + 当前那处的行号左边挂序号角标 + 右下角 ‹k/N›✕ 步进器
- * - N = 1：什么都不铺 —— 没有可循环的目标，定位反馈交给滚动闪烁、底栏的 file:line 和图上的高亮
+ * 点图上的线（edgeSelection）在代码区铺的痕迹：N 处调用全部打点，当前那处铺底色 + 行号左边挂序号角标，
+ * 右下角常驻 ‹k/N› ✕ 步进器。N = 1 也照铺（角标 1、步进器显示 1/1，只是两枚箭头不画）—— 少掉的只有
+ * 「往前 / 往后」这个动作本身，控件不藏，理由与被否方案见 ADR-0005 §9。
  */
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type {
@@ -496,10 +496,10 @@ export function CodeView(): ReactNode {
    * 当前选中边在本文件里的全部调用点区间（N 处全打点）。
    * 序号口径 = sortedCallSites，与 store 里 edgeSelection.index 完全一致。
    *
-   * count <= 1 时直接返回空：只有一处调用的线没有可循环的目标，打点/角标/步进器全是噪音。
+   * N = 1 也铺：这里仍然返回那一条，代码区因此一直看得见「落点在哪」，而不只靠一次 1.2 秒的闪烁。
    */
   const callSiteMarks = useMemo(() => {
-    if (!edgeSelection || edgeSelection.count <= 1 || !path) return [];
+    if (!edgeSelection || !path) return [];
     const out: { index: number; line: number; start: number; end: number }[] = [];
     sortedCallSites(findEdge(graph, edgeSelection.source, edgeSelection.target)).forEach((s, i) => {
       if (s.file !== path) return;
@@ -637,28 +637,34 @@ export function CodeView(): ReactNode {
             </View>
           ) : null}
       </ScrollView>
-      {/* 只有一处调用的线不显示步进器：N=1 没有可循环的目标，见 callSiteMarks 的注释 */}
-      {edgeSelection && edgeSelection.count > 1 ? (
+      {/* N=1 也显示步进器（读作「就是这一处」而不是「三处里的第一处」），只是没有可走的路，两枚箭头不画 */}
+      {edgeSelection ? (
         <View style={styles.stepper} testID="callsite-stepper">
-          <Pressable
-            testID="callsite-prev"
-            style={styles.stepBtn}
-            onPress={() => stepEdge(-1)}
-            accessibilityLabel="previous call site"
-          >
-            <Text style={styles.stepBtnText}>{'\u2039'}</Text>
-          </Pressable>
+          {edgeSelection.count > 1 ? (
+            <Pressable
+              testID="callsite-prev"
+              style={styles.stepBtn}
+              onPress={() => stepEdge(-1)}
+              accessibilityLabel="previous call site"
+            >
+              <Text style={styles.stepBtnText}>{'\u2039'}</Text>
+            </Pressable>
+          ) : null}
           <Text style={styles.stepCount} testID="callsite-count">
-            {edgeSelection.index + 1 + '/' + edgeSelection.count}
+            {edgeSelection.count > 1
+              ? edgeSelection.index + 1 + '/' + edgeSelection.count
+              : '1/1'}
           </Text>
-          <Pressable
-            testID="callsite-next"
-            style={styles.stepBtn}
-            onPress={() => stepEdge(1)}
-            accessibilityLabel="next call site"
-          >
-            <Text style={styles.stepBtnText}>{'\u203a'}</Text>
-          </Pressable>
+          {edgeSelection.count > 1 ? (
+            <Pressable
+              testID="callsite-next"
+              style={styles.stepBtn}
+              onPress={() => stepEdge(1)}
+              accessibilityLabel="next call site"
+            >
+              <Text style={styles.stepBtnText}>{'\u203a'}</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             testID="callsite-clear"
             style={styles.stepBtn}

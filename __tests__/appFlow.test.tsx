@@ -462,21 +462,25 @@ describe('验收 3：点调用关系图的线 -> 定位到 A 调用 B 的那一�
     expect(screen.queryByTestId('callsite-mark-active')).toBeNull();
   });
 
-  it('只有一处调用的线：步进器与标记全都不出现，只滚动 + 闪烁 + 底栏定位', () => {
+  it('只有一处调用的线：照样打点 + 角标，步进器显示 1/1 但不画两枚箭头', () => {
     preset(multiCallProject(), N_PATH);
     render(<AppRoot />);
 
     tapGraphEdge(ID_INDIRECT, ID_CALLEE);
 
-    // 选中状态仍然成立（index 恒 0 / count 恒 1），只是代码区不铺痕迹
+    // 语义从没变过：N=1 的线也是 {index:0,count:1}，代码区也照常铺痕迹（读法 B：不藏控件）
     expect(useAppStore.getState().edgeSelection).toMatchObject({ index: 0, count: 1 });
-    expect(screen.queryByTestId('callsite-stepper')).toBeNull();
+    expect(screen.getByTestId('callsite-count').textContent).toBe('1/1');
+    // 没有可走的路，所以两枚箭头不渲染；✕ 仍然在，清除这条动作对 N=1 同样有意义
     expect(screen.queryByTestId('callsite-prev')).toBeNull();
     expect(screen.queryByTestId('callsite-next')).toBeNull();
-    expect(screen.queryByTestId('callsite-clear')).toBeNull();
-    expect(screen.queryAllByTestId(/callsite-mark-\d/)).toHaveLength(0);
-    expect(screen.queryByTestId('callsite-mark-active')).toBeNull();
-    // 反馈改由别处承担：底栏写明 file:line（不带 k/N），代码区仍然闪一下
+    expect(screen.queryByTestId('callsite-clear')).not.toBeNull();
+    // 那一处调用仍然打点，并且是当前处 -> 行号左边挂角标 '1'
+    expect(screen.getAllByTestId(/callsite-mark-\d/)).toHaveLength(1);
+    const chip = screen.getByTestId('callsite-mark-active');
+    expect(chip.textContent).toBe('1');
+    expect(screen.getByTestId('code-line-4').contains(chip)).toBe(true);
+    // 底栏仍然只写 file:line，不拼 k/N（1/1 只在步进器里读）
     const info = screen.getByTestId('graph-edge-info').textContent ?? '';
     expect(info).toContain('n.py:4');
     expect(info).not.toContain('/');

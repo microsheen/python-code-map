@@ -860,6 +860,7 @@ const HARNESS = `
       info: txt(byId('graph-edge-info')),
       hasPrev: !!byId('callsite-prev'),
       hasNext: !!byId('callsite-next'),
+      hasClear: !!byId('callsite-clear'),
       tip: txt(byId('graph-edge-tooltip')),
       cursor: canvas ? getComputedStyle(canvas).cursor : null,
       marks: marks,
@@ -1395,10 +1396,10 @@ async function main() {
     })
   );
 
-  // ---- I8：只有一处调用的线（N=1）—— 代码区一个标记都不铺 ----
+  // ---- I8：只有一处调用的线（N=1）—— 痕迹照铺，只是没有可走的路 ----
   // utils.py::load_config 只在第 54 行调了一次 parse_lines，图上是一根 weight=1 的聚合边。
-  // 没有可循环的目标，所以打点 / 角标 / ‹ › ✕ 步进器全部不出现，定位反馈交给
-  // 滚动 + 闪烁 + 底栏 file:line + 图上的高亮 —— 这一组钉的就是「不铺」这件事。
+  // 这一组钉的是「N=1 也铺」：步进器在、读作 1/1、✕ 在，唯独两枚箭头不画（没有第二处可去）；
+  // 那一处调用照样打点，角标仍然落在第 54 行的行号左边。撤掉这个断言组就等于把读法 B 忘掉。
   let n1Pt = null;
   for (const f of [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8]) {
     const cand = await evalJs(
@@ -1421,9 +1422,29 @@ async function main() {
   const i8 = await evalJs(cdp, 'window.__t.edgeState()');
   note('edge state on the N=1 edge', i8);
   check(
-    'I8 N=1 的线：步进器和标记（打点/角标/计数）一个都不出现',
-    i8.stepper === false && i8.count === '' && (i8.marks || []).length === 0 && !i8.chip,
-    JSON.stringify({ stepper: i8.stepper, count: i8.count, marks: (i8.marks || []).length, chip: i8.chip })
+    'I8 N=1 的线步进器照样在、读作 1/1、✕ 在，只有一枚箭头都不画',
+    i8.stepper === true &&
+      i8.count === '1/1' &&
+      i8.hasClear === true &&
+      i8.hasPrev === false &&
+      i8.hasNext === false,
+    JSON.stringify({
+      stepper: i8.stepper,
+      count: i8.count,
+      hasClear: i8.hasClear,
+      hasPrev: i8.hasPrev,
+      hasNext: i8.hasNext
+    })
+  );
+  check(
+    'I8 N=1 的那一处调用照样打点，角标落在第 54 行的行号左边',
+    iMarkIds(i8) === 'callsite-mark-0 callsite-mark-active' &&
+      !!i8.chip &&
+      i8.chip.inRow === 'code-line-54' &&
+      i8.chip.text === '1' &&
+      i8.chip.relLeft >= 0 &&
+      i8.chip.relRight <= 20,
+    'marks=' + iMarkIds(i8) + ' chip=' + JSON.stringify(i8.chip)
   );
   // 窗口化渲染：跳到第 54 行之后 code-line-1 早就不在渲染区间里了，所以「切到 utils.py」这件事
   // 要用第 54 行自己渲染出来且写着 parse_lines 来证，不能看首行文本
@@ -1451,9 +1472,18 @@ async function main() {
   await sleep(300);
   const i8Clear = await evalJs(cdp, 'window.__t.edgeState()');
   check(
-    'I8 点图上的节点就清掉这根单调用线的痕迹（一次只有一个焦点）',
-    i8Clear.info === '' && !i8Clear.stepper && !i8Clear.chip && (i8Clear.marks || []).length === 0,
-    JSON.stringify({ info: i8Clear.info, stepper: i8Clear.stepper, marks: (i8Clear.marks || []).length })
+    'I8 点图上的节点就清掉这根单调用线的全部痕迹（一次只有一个焦点）',
+    i8Clear.info === '' &&
+      !i8Clear.stepper &&
+      !i8Clear.chip &&
+      (i8Clear.marks || []).length === 0 &&
+      !i8Clear.hasClear,
+    JSON.stringify({
+      info: i8Clear.info,
+      stepper: i8Clear.stepper,
+      marks: (i8Clear.marks || []).length,
+      hasClear: i8Clear.hasClear
+    })
   );
 
   check(

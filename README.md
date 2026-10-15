@@ -106,9 +106,11 @@ line itself clickable:
   the first. `Shift`+click walks the same cycle backwards. A click on an edge that is not marked yet always
   starts at call site 1 — there is nothing to step back from.
 - **`‹ 2/3 ›`** in the bottom-right corner of the code pane steps without chasing a thin line, `✕` clears.
-- **A line with a single call site lays nothing down**: no stepper, no underlines, no chip — one answer is not
-  a page to turn. Locating still happens, it is just carried by the scroll, the 1.2 s flash, the footer
-  `file:line` and that polyline going bold in the graph (see [ADR-0005 §8](docs/adr/0005-clickable-edges-call-site-cycling.md)).
+- **A line with a single call site keeps the same furniture**: the stepper is there and reads `1/1`, that one
+  call site gets its underline-free mark and its chip in front of the line number — only the two arrows are
+  missing, because there is nowhere to step. The footer still says just `file:line`; a `1/1` in that sentence
+  would be noise. This was "lay nothing down" for exactly one day, and both trade-offs stay on record in
+  [ADR-0005 §9](docs/adr/0005-clickable-edges-call-site-cycling.md).
 - **The graph footer** names the current hit: `caller → callee · 2/3 · multi.py:7` (the `· 2/3` disappears when
   the edge has only one call site).
 - **Hover** a line: the cursor becomes a pointer and a tooltip says what the click will do
@@ -133,9 +135,10 @@ A line is hit using the same sampled points that draw it, within 7 **screen** pi
 the current zoom so it stays 7 pixels whatever the scale), and a node always wins over a line underneath the
 cursor. The `data-testid` anchors are the contract: `graph-edge-<src>-><tgt>`, `graph-edge-tooltip`,
 `graph-edge-info` on the graph; `callsite-stepper`, `callsite-prev`, `callsite-count`, `callsite-next`,
-`callsite-clear`, `callsite-mark-<i>`, `callsite-mark-active` in the code pane. On a single-call line none of
-those code-pane ids exist at all, and `callsite-mark-active` lives inside the row's sticky gutter rather than
-in an overlay — an assertion that expects it to be merely empty would let the regression through.
+`callsite-clear`, `callsite-mark-<i>`, `callsite-mark-active` in the code pane. Only `callsite-prev` and
+`callsite-next` are conditional on the count: on a single-call line every other id above still exists, and
+`callsite-mark-active` lives inside the row's sticky gutter rather than in an overlay, so its `style.left` is
+always empty — its position can only be measured as a rectangle relative to the row's left edge.
 Why cycling instead of parallel edges, a dropdown list, jumping to the first call site only, or ①②③ badges
 on the line: [ADR-0005](docs/adr/0005-clickable-edges-call-site-cycling.md).
 
@@ -201,8 +204,9 @@ Upload `main.py`, `shapes.py`, `utils.py` and `multi.py` from `fixtures/` (selec
       `caller → callee · 2/3 · multi.py:7`, and hovering the line promises `3 call sites · first at line 6`
 - [ ] **Edge with a single call site**: click a one-call line (e.g. `load_config → parse_lines`, whose only call
       site is `utils.py:54`) → the left switches to utils.py, scrolls there and flashes that line, the footer reads
-      `load_config → parse_lines · utils.py:54`, and the code pane lays down **no stepper, no underlines, no
-      chip**. Clicking a node in the graph clears the flash again.
+      `load_config → parse_lines · utils.py:54`, and the code pane shows the same furniture as a three-call line:
+      one mark, its chip in front of the line number, and a `1/1` stepper **with neither arrow drawn**. Clicking
+      a node in the graph clears it again.
 - [ ] Zoom & pan: the wheel zooms anchored at the cursor, dragging empty space pans, and `+` / `−` / Fit View all work
 - [ ] Scope switching: Neighborhood / This File / All all switch, and under "All" a large-graph hint appears at the top when there are many nodes
 - [ ] Removing a single file: click the × on the `utils.py` chip → its nodes and cross-file edges disappear together,
@@ -226,7 +230,7 @@ jest + jsdom cannot catch problems like "the flashing highlight fades out under 
 
 ```bash
 npm run export                  # produce dist/ first
-node scripts/browser-verify.mjs # 74 assertions (16 promise-surface E/F/G, 21 edge → call sites); all green => exit code 0
+node scripts/browser-verify.mjs # 75 assertions (16 promise-surface E/F/G, 22 edge → call sites); all green => exit code 0
 ```
 
 The script starts its own static server for `dist/` and applies the rules in `dist/_headers` verbatim to every response (so the smoke test runs exactly the production CSP). When the port is taken it reuses the existing service, but only after verifying two things: what runs on that port really is this application (the criterion is this project's Metro entry script tag in the HTML — **not `<title>`**, which would misfire as soon as the title changes), and the bytes served match `dist/index.html` exactly. It then launches headless Chrome, feeds in the four `fixtures/` files and clicks SVG nodes, SVG edges and code tokens **with real mouse events**, asserting item by item:
@@ -238,7 +242,7 @@ The script starts its own static server for `dist/` and applies the rules in `di
 | B code → graph    | the target node is centered (deviation < 40px) and its stroke is thickened; the code → graph direction does **not** flash                                                                                                                                            |
 | C deep cross-file | jumps from `shapes.py` to `utils.py:95`; scroll amount, highlight band position and flash are all correct                                                                                                                                                            |
 | D semantic clicks | clicking a call site selects the callee; clicking a middle line of a body selects the enclosing function                                                                                                                                                             |
-| I edge → call sites | real mouse clicks on the aggregated `caller → callee` polyline of `multi.py`: the file switch, 1/3 → 2/3 → 3/3 → 1/3 cycling, Shift-click stepping backwards, all three call sites marked at strictly increasing x, the numbered chip measured **in front of the line number** inside the sticky gutter, the `‹ ›` stepper and `✕`, a single-call line (`load_config → parse_lines`) that gets **no stepper and no marks at all** while still scrolling and flashing on the right line, the hover tooltip with the pointer cursor, and **zero extra requests** for the whole group |
+| I edge → call sites | real mouse clicks on the aggregated `caller → callee` polyline of `multi.py`: the file switch, 1/3 → 2/3 → 3/3 → 1/3 cycling, Shift-click stepping backwards, all three call sites marked at strictly increasing x, the numbered chip measured **in front of the line number** inside the sticky gutter, the `‹ ›` stepper and `✕`, a single-call line (`load_config → parse_lines`) that keeps the same furniture — `1/1` stepper with **no arrows**, one marked call site, its chip in front of the line number — while scrolling and flashing on the right line, the hover tooltip with the pointer cursor, and **zero extra requests** for the whole group |
 | Stability         | no console errors, no uncaught page exceptions                                                                                                                                                                                                                       |
 | S artifact identity | the bytes served == the bytes of `dist/index.html` (same sha256); the response headers really carry the CSP from `_headers`; zero absolute URLs in the artifact HTML                                                                                                 |
 | E promise surface | every request same-origin / every request a GET / zero request bodies / no 4xx·5xx / every 200 maps to a file that really exists in `dist/` / what runs is that entry JS from `dist` / no user content in any URL / zero `securitypolicyviolation` under the production CSP |

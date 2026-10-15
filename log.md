@@ -716,3 +716,46 @@
   系统明暗在这些件上仍然生效，但它不决定页面配色；③ 六套主题（含三套亮色）的 `onAccent` 都是白，因为各家 `accentDim`
   都是深色，过门禁靠调色板让步而不是降阈值；④ `%TEMP%` 下上一轮的 `cm-pub-7`…`cm-pub-14` 与本轮编译 `theme.ts` 用的
   `cm-theme` 还在，递归删除被本机策略挡住，只能人工清。
+
+## 2026-10-15 第九轮发布（主题轮上线；公开树与内网树只差一颗 blob；默认探针集在本站是空断言）
+
+- 发布事实：公开 `main` 从 `74dfb3d` **覆盖推**到 `14a57c6` —— 无父的孤儿提交、106 个在册文件、author 与 committer 同
+  为公开侧那个 noreply 身份。判据仍是 `git ls-remote` 回来的 `HEAD` 与 `refs/heads/main` 都是 `14a57c6` 且**只有**
+  `main` 这一个 ref，推送客户端的 `EXIT=0` 只当线索不当证据；动作照 §13 包在 `Start-Job` + `Wait-Job -Timeout 55` 里，
+  这台机器到 github.com 的那条出口可能静默挂死。开工前按 AGENTS.md 复验同步：内网 `master` = `bf4d51d`、
+  `origin/master...HEAD` 0/0、工作树干净，之后才动镜像。
+- 清洗与上两轮同形：只改 `AGENTS.md` 第 7 行（node 写入 1,041 B、无 BOM），落定后暂存树里那颗 blob 是 `be5e07fb` —— 与
+  上一轮公开树**同一颗**。同源性本轮拿到硬证据：内网 `HEAD` 树与公开落地树做 `git ls-tree -r` 全量对比，
+  **只差 `AGENTS.md` 这一处的两行**（`aa542d57` → `be5e07fb`），其余 105 个文件的 blob 逐字节相同 —— 标题那句「只差一
+  颗 blob」是对拉出来的比较结果，不是修辞。
+- 匿名落地复审（审落地的树，不是暂存的候选）：不带凭据 `git clone` 成功 ⇒ 公开是真公开；`commits_ALL=1`、根提交无父。
+  `audit-public-repo --history .` 在暂存仓与匿名 clone（`cm-pub-15/verify/land`）各跑一遍，两次都
+  **findings 0 / exit 0**（102 扫 + 4 个媒体跳过 = 106）。
+- 本轮新公开的正文约 2,125 行 diff（主题轮记录、README×3 的契约行、ADR-0004 与 `theme.ts` 等源码），逐类别手工扫：内网
+  主机名 / 本机绝对路径 / 邮箱 / 32 位十六进制 / token 形状 / 代理拓扑值 / run 号形状，**全部零命中**。全树只剩 4 处
+  **既有**披露（将来邮件别名、`package-lock` 自带的那条上游作者邮箱、`log.md:369` 的回环端口、一个内网 run 号），照旧
+  向用户点出而不静默改写。
+- CI run `38709464607` 三个 job 全绿：`checks` tsc 空输出、lint 0 error / 12 warning（既有基线）、jest
+  **19 suites / 320 tests**、`audit:egress` `scanned 3 file(s)` clean；`browser-smoke`
+  **`"passed": 53, "failed": []`**，H1–H6 全过 —— H3 切 `github-light` 后 `reqs=9->9` **一个请求都没多**，「换主题零上
+  行」由现场计数坐实；E1 总数仍是 14、E8 刷新前后两个文档零 CSP 违规；`deploy` 成功，不可变 URL 只从 stdout 取：
+  `https://788e0a45.python-code-map.pages.dev`。日志里的 `code: 8000002` 仍是「故意先试建项目」的既有口径，不是故障。
+  **本轮不是空发布**：新 bundle 与上一轮字节不同，主题轮内容真的上线了。
+- 线上 == 产物（逐文件）：`gh run download` 取 CI 的 `dist` artifact（31 个文件）当 `--dist`，`NODE_EXTRA_CA_CERTS` 指
+  向那份 1,764 B 真根 CA PEM（判据仍是 ≈1.8 KB，不是 55 B 空壳），**11 条路径 × 2 个 host**（不可变 + 生产）全部
+  `vs --dist MATCH`、`CHECK_EXIT=0`，只差 11 处 `x-robots-tag` 的平台差异、不计入。入口 `entry-f96e1ac….js`
+  **1,413,292 B**（sha 前缀 `c7d11c48`）、`index.html` `1,562 B` / `ea43a80a…`。
+- 本轮挖出一个**闸门级**的坑：`check-deploy` 的默认探针 `/sw.js` 与 `/manifest.webmanifest` **本仓根本不存在**，Pages
+  的 SPA 回退让线上把它们答成与 `index.html` **相同的字节** —— 于是第八轮「四条全 200」作为一致性证据其实是
+  **空断言**，探针根本没命中真实文件。本轮把探针显式换成 CI 产物里真实存在的 11 条路径再验，上一轮记录不偷偷改写，更正
+  记在这一条里。
+- 本机不可复现性**第三次复现**：本地 `npm run export` 得入口 `entry-94cee640….js` 1,419,639 B、`index.html` sha 前缀
+  `191879c5…`，与 CI 的 1,413,292 B / `ea43a80a…` 差 6,347 B ⇒ 判据维持原样：`--dist` 只能指 CI artifact，本机构建只用
+  于自检与注入层数值核对。
+- 公开侧元数据核对：`visibility=PUBLIC`、默认分支 `main`、`has_issues=true`、仓库描述仍是「浏览器内解析、不上传」；
+  `public/icon.svg` 与各栅格图标按主题轮立的契约**未随主题变化**，品牌固定，`theme-color` meta 才跟随。
+- 回滚仍按 §11：下一次 scrub 轮覆盖推 `main`，不可变 host 各自留在历史里。这条记录本身要**第十轮**才进公开树 —— 滞后是
+  既定写法。
+- 遗留两笔：① `%TEMP%` 下 `cm-pub-7` 一路到 `cm-pub-15` 以及本轮匿名 clone 的 `cm-anon-15` 都还在（含留证的
+  `cm-pub-11`），递归删除被本机策略挡住，只能人工清；② 本轮**没有**顺手改 `docs/ops-deployment.md`：探针集的更正还没经
+  过下一轮发布复用，文档照既定规矩只写已被再次验证的口径，要改就等第十轮落地时一起动 —— 这个决定记在这里，不靠口头。

@@ -1,0 +1,53 @@
+# code-map / Python Code Map — Cloudflare Pages 响应头
+# 由 npm run export 从 public/ 原样拷进 dist/，Pages 在边缘按此文件下发。
+# 改这里的任何一行后必须重跑 node scripts/browser-verify.mjs（本地静态服务会按同样的规则
+# 回响应头，等于把线上 CSP 提前在冒烟里跑一遍），以及部署后的 check-deploy.mjs。
+# 不写死任何主机名：换域名时这个文件应当是零改动。
+
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# 根路径 / 单独列一条：Pages 的 SPA fallback 把 / 当 index.html 服务，
+# 而 "/index.html" 会不会连带覆盖 "/" 官方没写清，部署后逐资源验一次（见 docs/ops-deployment.md）；
+# 这里先两条都声明，重复声明没有副作用，漏声明的后果是白屏。
+# / 一旦被缓存住，新发布后用户拿到的旧 index.html 会指向已经不在生产别名里的 hash 资产 -> 白屏。
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+# 入口 HTML 必须每次校验，否则新构建发布后用户还会拿到旧 index.html（指向已消失的 hash 资产）
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# 以下两类文件名带内容 hash，可永久缓存
+/_expo/*
+  Cache-Control: public, max-age=31536000, immutable
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/metadata.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+# wasm 文件名没有 hash：绝对不能 immutable，否则旧 wasm + 新 JS = LinkError
+/wasm/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+# 图标文件名固定、没有内容 hash（和 /wasm/* 同一档）：换了图标必须立刻生效，所以每次校验。
+# 这里把路径逐个列死，不写 /*.png 这类通配 —— Cloudflare 的 * 跨路径分隔符，/*.png 会连带命中
+# /_expo/static/media/*.hash.png，把带 hash 资产的 immutable 顶掉（同名头以最后命中的那条为准，
+# 本地冒烟服务器 scripts/browser-verify.mjs 的 headersFor() 就是同一套语义）。
+# 下面写的仍是“声明的”策略：docs/ops-deployment.md §5 实测过 zone 的 Browser Cache TTL
+# 会把非 immutable 的 max-age=0 改写成 14400，上线后要逐路径核对“声明 == 生效”。
+/icon.svg
+  Cache-Control: public, max-age=0, must-revalidate
+/favicon.ico
+  Cache-Control: public, max-age=0, must-revalidate
+/apple-touch-icon.png
+  Cache-Control: public, max-age=0, must-revalidate
+/icon-192.png
+  Cache-Control: public, max-age=0, must-revalidate
+/icon-512.png
+  Cache-Control: public, max-age=0, must-revalidate

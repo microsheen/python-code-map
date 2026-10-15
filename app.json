@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Python Code Map",
+    "slug": "code-map",
+    "version": "0.1.0",
+    "scheme": "code-map",
+    "platforms": [
+      "web"
+    ],
+    "web": {
+      "output": "single",
+      "bundler": "metro",
+      "name": "Python Code Map"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

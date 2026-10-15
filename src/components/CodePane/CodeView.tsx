@@ -10,6 +10,10 @@
  *   （k 与 sortedCallSites 同口径；代码区自己发起的点击不触发滚动）
  * - 函数体内任意其它位置     -> 选中最内层包含函数
  * 前两类是嵌套的可点击 Text：web 上内层 PressResponder 会 stopPropagation，不会重复触发整行点击。
+ *
+ * 点图上的线（edgeSelection）在代码区铺多少痕迹，按调用次数分两档：
+ * - N > 1：N 处调用全打点 + 当前那处的行号左边挂序号角标 + 右下角 ‹k/N›✕ 步进器
+ * - N = 1：什么都不铺 —— 没有可循环的目标，定位反馈交给滚动闪烁、底栏的 file:line 和图上的高亮
  */
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type {
@@ -181,6 +185,8 @@ export interface CodeRowProps {
   spans: TokenSpan[] | undefined;
   ranges: ClickRange[] | undefined;
   defFunc: FuncSymbol | null;
+  /** 非 null = 这一行是当前选中的调用点，值为 1-based 序号，渲染成行号左边的角标 */
+  chipIndex: number | null;
   inSelection: boolean;
   onBodyPress: (line: number) => void;
   /** edge 为 null 表示点的不是调用点（def 名 / ƒ 标记）：清除边高亮 */
@@ -188,7 +194,8 @@ export interface CodeRowProps {
 }
 
 export const CodeRow = memo(function CodeRow(props: CodeRowProps): ReactNode {
-  const { line, text, spans, ranges, defFunc, inSelection, onBodyPress, onTokenPress } = props;
+  const { line, text, spans, ranges, defFunc, chipIndex, inSelection, onBodyPress, onTokenPress } =
+    props;
   const pieces = useMemo(() => buildPieces(line, text, spans, ranges), [line, text, spans, ranges]);
   return (
     <Pressable
@@ -197,16 +204,25 @@ export const CodeRow = memo(function CodeRow(props: CodeRowProps): ReactNode {
       style={[styles.row, inSelection && styles.rowSelected]}
     >
       <View style={[styles.gutter, STICKY, inSelection && styles.gutterSelected]}>
-        <Pressable
-          testID={'code-def-mark-' + line}
-          disabled={!defFunc}
-          onPress={defFunc ? () => onTokenPress(defFunc.id, null) : undefined}
-          style={styles.gutterMarkWrap}
-        >
-          <Text style={[styles.gutterMark, defFunc ? styles.gutterMarkOn : styles.gutterMarkOff]}>
-            {'\u0192'}
-          </Text>
-        </Pressable>
+        {/* 角标渲染在 sticky 的 gutter 里：内容坐标的覆盖层会随横向滚动跑位，行号槽却留在视口左边 */}
+        {chipIndex === null ? (
+          <Pressable
+            testID={'code-def-mark-' + line}
+            disabled={!defFunc}
+            onPress={defFunc ? () => onTokenPress(defFunc.id, null) : undefined}
+            style={styles.gutterMarkWrap}
+          >
+            <Text style={[styles.gutterMark, defFunc ? styles.gutterMarkOn : styles.gutterMarkOff]}>
+              {'\u0192'}
+            </Text>
+          </Pressable>
+        ) : (
+          <View style={styles.gutterMarkWrap}>
+            <View style={styles.chip} testID="callsite-mark-active">
+              <Text style={styles.chipText}>{chipIndex}</Text>
+            </View>
+          </View>
+        )}
         <Text style={[styles.gutterNum, defFunc && styles.gutterNumDef]}>{line}</Text>
       </View>
       <Text style={[styles.code, PRE_TEXT]}>
@@ -479,9 +495,11 @@ export function CodeView(): ReactNode {
   /**
    * 当前选中边在本文件里的全部调用点区间（N 处全打点）。
    * 序号口径 = sortedCallSites，与 store 里 edgeSelection.index 完全一致。
+   *
+   * count <= 1 时直接返回空：只有一处调用的线没有可循环的目标，打点/角标/步进器全是噪音。
    */
   const callSiteMarks = useMemo(() => {
-    if (!edgeSelection || !path) return [];
+    if (!edgeSelection || edgeSelection.count <= 1 || !path) return [];
     const out: { index: number; line: number; start: number; end: number }[] = [];
     sortedCallSites(findEdge(graph, edgeSelection.source, edgeSelection.target)).forEach((s, i) => {
       if (s.file !== path) return;
@@ -496,13 +514,6 @@ export function CodeView(): ReactNode {
     ? (callSiteMarks.find((m) => m.index === edgeSelection.index) ?? null)
     : null;
 
-  /** 序号角标优先放调用名左边的缩进空白；缩进不够就挪到名字右边，绝不压住行号 */
-  const chipLeft = activeMark
-    ? activeMark.start >= 3
-      ? GUTTER_W + 2
-      : GUTTER_W + (activeMark.end + 1) * charW
-    : 0;
-
   const rows: ReactNode[] = [];
   for (let line = win.first; line <= win.last; line++) {
     const defFunc = defByLine.get(line) ?? null;
@@ -514,6 +525,7 @@ export function CodeView(): ReactNode {
         spans={tokensByLine.get(line)?.spans}
         ranges={clickRanges.get(line)}
         defFunc={defFunc}
+        chipIndex={activeMark && activeMark.line === line ? activeMark.index + 1 : null}
         inSelection={showBand && !!target && line >= target.startLine && line <= target.endLine}
         onBodyPress={onBodyPress}
         onTokenPress={onTokenPress}
@@ -604,25 +616,6 @@ export function CodeView(): ReactNode {
               />
             );
           })}
-          {activeMark ? (
-            <View
-              testID="callsite-mark-active"
-              style={{
-                pointerEvents: 'none',
-                position: 'absolute',
-                top: (activeMark.line - 1) * ROW_H + 3,
-                left: chipLeft,
-                width: 14,
-                height: 14,
-                borderRadius: 4,
-                backgroundColor: colors.selected,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text style={styles.chipText}>{activeMark.index + 1}</Text>
-            </View>
-          ) : null}
         </View>
 
           {copyToast ? (
@@ -644,33 +637,28 @@ export function CodeView(): ReactNode {
             </View>
           ) : null}
       </ScrollView>
-      {edgeSelection ? (
+      {/* 只有一处调用的线不显示步进器：N=1 没有可循环的目标，见 callSiteMarks 的注释 */}
+      {edgeSelection && edgeSelection.count > 1 ? (
         <View style={styles.stepper} testID="callsite-stepper">
-          {edgeSelection.count > 1 ? (
-            <Pressable
-              testID="callsite-prev"
-              style={styles.stepBtn}
-              onPress={() => stepEdge(-1)}
-              accessibilityLabel="previous call site"
-            >
-              <Text style={styles.stepBtnText}>{'\u2039'}</Text>
-            </Pressable>
-          ) : null}
+          <Pressable
+            testID="callsite-prev"
+            style={styles.stepBtn}
+            onPress={() => stepEdge(-1)}
+            accessibilityLabel="previous call site"
+          >
+            <Text style={styles.stepBtnText}>{'\u2039'}</Text>
+          </Pressable>
           <Text style={styles.stepCount} testID="callsite-count">
-            {edgeSelection.count > 1
-              ? edgeSelection.index + 1 + '/' + edgeSelection.count
-              : '1/1'}
+            {edgeSelection.index + 1 + '/' + edgeSelection.count}
           </Text>
-          {edgeSelection.count > 1 ? (
-            <Pressable
-              testID="callsite-next"
-              style={styles.stepBtn}
-              onPress={() => stepEdge(1)}
-              accessibilityLabel="next call site"
-            >
-              <Text style={styles.stepBtnText}>{'\u203a'}</Text>
-            </Pressable>
-          ) : null}
+          <Pressable
+            testID="callsite-next"
+            style={styles.stepBtn}
+            onPress={() => stepEdge(1)}
+            accessibilityLabel="next call site"
+          >
+            <Text style={styles.stepBtnText}>{'\u203a'}</Text>
+          </Pressable>
           <Pressable
             testID="callsite-clear"
             style={styles.stepBtn}
@@ -726,6 +714,14 @@ const styles = StyleSheet.create({
     userSelect: 'text',
   },
   clickable: { textDecorationLine: 'underline', textDecorationColor: colors.underline },
+  chip: {
+    width: 14,
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: colors.selected,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   chipText: {
     color: colors.bg,
     fontFamily: fonts.mono,

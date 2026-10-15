@@ -17,7 +17,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { AppRoot } from '../src/components/AppRoot';
-import { FLASH_MS } from '../src/components/CodePane/CodeView';
+import { CodeRow, FLASH_MS } from '../src/components/CodePane/CodeView';
 import { DEFAULT_VIEWPORT, DRAG_SLOP } from '../src/components/GraphPane';
 import { layoutGraph } from '../src/graph/layout';
 import {
@@ -53,6 +53,7 @@ import {
   sampleProject,
   type SampleProject,
 } from './helpers/sampleProject';
+import { func } from './helpers/synth';
 
 jest.mock('react-native-svg', () => {
   const RN = require('react-native');
@@ -326,6 +327,41 @@ describe('代码区窗口化渲染', () => {
   });
 });
 
+describe('CodeRow：序号角标占掉 ƒ 的标记槽', () => {
+  const callee = func(M_PATH, 'callee', { defLine: 5, startLine: 5, endLine: 6 });
+
+  const renderRow = (chipIndex: number | null, defFunc: typeof callee | null) =>
+    render(
+      <CodeRow
+        line={5}
+        text="    callee()"
+        spans={undefined}
+        ranges={undefined}
+        defFunc={defFunc}
+        chipIndex={chipIndex}
+        inSelection={false}
+        onBodyPress={() => {}}
+        onTokenPress={() => {}}
+      />
+    );
+
+  it('角标在前、行号在后，同槽的 ƒ 让位', () => {
+    renderRow(2, callee);
+    const chip = screen.getByTestId('callsite-mark-active');
+    expect(chip.textContent).toBe('2');
+    expect(screen.queryByTestId('code-def-mark-5')).toBeNull();
+    const gutter = chip.parentElement?.parentElement;
+    expect(gutter?.firstElementChild?.contains(chip)).toBe(true);
+    expect(gutter?.lastElementChild?.textContent).toBe('5');
+  });
+
+  it('没有角标时 ƒ 回到原位', () => {
+    renderRow(null, callee);
+    expect(screen.queryByTestId('callsite-mark-active')).toBeNull();
+    expect(screen.queryByTestId('code-def-mark-5')).not.toBeNull();
+  });
+});
+
 describe('验收 3：点调用关系图的线 -> 定位到 A 调用 B 的那一行', () => {
   const countText = (): string => screen.getByTestId('callsite-count').textContent ?? '';
 
@@ -363,7 +399,16 @@ describe('验收 3：点调用关系图的线 -> 定位到 A 调用 B 的那一�
     tapGraphEdge(ID_CALLER, ID_CALLEE);
 
     expect(screen.getAllByTestId(/callsite-mark-\d/)).toHaveLength(3);
-    expect(screen.queryByTestId('callsite-mark-active')).not.toBeNull();
+    // 序号角标不在内容坐标的覆盖层里，而是渲染进当前那行的 sticky gutter —— 行号左边
+    const chip = screen.getByTestId('callsite-mark-active');
+    const row = screen.getByTestId('code-line-5');
+    expect(row.contains(chip)).toBe(true);
+    expect(chip.textContent).toBe('1');
+    const gutter = chip.parentElement?.parentElement; // chip -> 标记槽 -> gutter
+    expect(gutter).toBe(row.firstElementChild);
+    expect(gutter?.firstElementChild?.contains(chip)).toBe(true);
+    expect(gutter?.lastElementChild?.textContent).toBe('5');
+    expect(chip.parentElement?.nextElementSibling).toBe(gutter?.lastElementChild);
   });
 
   it('同一条线连着点四次：1/3 -> 2/3 -> 3/3 -> 绕回 1/3', () => {
@@ -417,15 +462,25 @@ describe('验收 3：点调用关系图的线 -> 定位到 A 调用 B 的那一�
     expect(screen.queryByTestId('callsite-mark-active')).toBeNull();
   });
 
-  it('只有一处调用的线：显示 1/1，不需要 ‹ › 两个按钮', () => {
-    preset(multiCallProject());
+  it('只有一处调用的线：步进器与标记全都不出现，只滚动 + 闪烁 + 底栏定位', () => {
+    preset(multiCallProject(), N_PATH);
     render(<AppRoot />);
 
     tapGraphEdge(ID_INDIRECT, ID_CALLEE);
 
-    expect(countText()).toBe('1/1');
+    // 选中状态仍然成立（index 恒 0 / count 恒 1），只是代码区不铺痕迹
+    expect(useAppStore.getState().edgeSelection).toMatchObject({ index: 0, count: 1 });
+    expect(screen.queryByTestId('callsite-stepper')).toBeNull();
     expect(screen.queryByTestId('callsite-prev')).toBeNull();
     expect(screen.queryByTestId('callsite-next')).toBeNull();
+    expect(screen.queryByTestId('callsite-clear')).toBeNull();
+    expect(screen.queryAllByTestId(/callsite-mark-\d/)).toHaveLength(0);
+    expect(screen.queryByTestId('callsite-mark-active')).toBeNull();
+    // 反馈改由别处承担：底栏写明 file:line（不带 k/N），代码区仍然闪一下
+    const info = screen.getByTestId('graph-edge-info').textContent ?? '';
+    expect(info).toContain('n.py:4');
+    expect(info).not.toContain('/');
+    expect(screen.queryByTestId('code-flash')).not.toBeNull();
   });
 
   it('点节点 / 点空白都会取消线的高亮：一次只有一个焦点', () => {

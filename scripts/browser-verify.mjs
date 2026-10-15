@@ -835,6 +835,23 @@ const HARNESS = `
     var marks = allByPrefix('callsite-mark-').map(function (el) {
       return { id: tid(el), left: el.style.left, top: el.style.top, width: el.style.width };
     });
+    // 序号角标渲染在行内的 sticky gutter 里（不是内容坐标的覆盖层），style.left 是空的，
+    // 所以位置只能量「相对所在行左缘」的矩形：行号槽宽 58，数字右对齐占 20..50，角标必须 &lt;= 20
+    var chip = byId('callsite-mark-active');
+    var chipRel = null;
+    if (chip && chip.closest) {
+      var chipRow = chip.closest('[data-testid^="code-line-"]');
+      if (chipRow) {
+        var chR = chip.getBoundingClientRect();
+        var rwR = chipRow.getBoundingClientRect();
+        chipRel = {
+          inRow: tid(chipRow),
+          text: (chip.textContent || '').trim(),
+          relLeft: Math.round(chR.left - rwR.left),
+          relRight: Math.round(chR.right - rwR.left)
+        };
+      }
+    }
     var sc = scrollEl();
     var canvas = byId('graph-canvas');
     return {
@@ -846,6 +863,7 @@ const HARNESS = `
       tip: txt(byId('graph-edge-tooltip')),
       cursor: canvas ? getComputedStyle(canvas).cursor : null,
       marks: marks,
+      chip: chipRel,
       flash: flashInfo(),
       line1: txt(byId('code-line-1')),
       scrollTop: sc ? sc.scrollTop : null
@@ -1166,7 +1184,8 @@ async function main() {
   // 图上的一条边是同一对函数之间全部调用的聚合（ADR-0002）：fixtures/multi.py 里
   // caller 在 6/7/8 三行各调一次 callee，屏幕上仍然只有一根线。这一组验的就是
   // 「一根线怎么承载 N 次调用」：点一次落到第 1 处、重复点向后绕回、N 处全部打点、
-  // 右下角步进器 ‹ › ✕、hover 提示，以及点线全程零网络上行（本地功能红线）。
+  // 右下角步进器 ‹ › ✕、hover 提示；只有一处调用的那根线（N=1）在代码区什么都不铺；
+  // 以及点线全程零网络上行（本地功能红线）。
   await clickTestId(cdp, 'scope-all');
   await sleep(250);
   await clickTestId(cdp, 'graph-fit');
@@ -1266,6 +1285,15 @@ async function main() {
     'I1 三个打点各自落在自己的调用列上（列 12 < 13 < 19 的可见证据）',
     i1Lefts.length === 3 && i1Lefts[0] < i1Lefts[1] && i1Lefts[1] < i1Lefts[2],
     JSON.stringify(i1.marks)
+  );
+  check(
+    'I1 序号角标在当前那行的行号左边（在 sticky 的行号槽里，不压代码文字）',
+    !!i1.chip &&
+      i1.chip.inRow === 'code-line-' + EDGE_LINES[0] &&
+      i1.chip.text === '1' &&
+      i1.chip.relLeft >= 0 &&
+      i1.chip.relRight <= 20,
+    JSON.stringify(i1.chip)
   );
 
   const i2 = await tapEdge();
@@ -1367,8 +1395,69 @@ async function main() {
     })
   );
 
+  // ---- I8：只有一处调用的线（N=1）—— 代码区一个标记都不铺 ----
+  // utils.py::load_config 只在第 54 行调了一次 parse_lines，图上是一根 weight=1 的聚合边。
+  // 没有可循环的目标，所以打点 / 角标 / ‹ › ✕ 步进器全部不出现，定位反馈交给
+  // 滚动 + 闪烁 + 底栏 file:line + 图上的高亮 —— 这一组钉的就是「不铺」这件事。
+  let n1Pt = null;
+  for (const f of [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8]) {
+    const cand = await evalJs(
+      cdp,
+      'window.__t.edgeProbe("utils.py::load_config","utils.py::parse_lines",' + f + ')'
+    );
+    if (cand && cand.onEdge) {
+      n1Pt = cand;
+      break;
+    }
+  }
   check(
-    'I8 点线/循环/步进/hover/清空全程零网络上行（这条功能只动本地状态）',
+    'I8 单调用边 load_config→parse_lines 也画出来了，线上取到命中点',
+    !!n1Pt,
+    n1Pt ? 'x=' + n1Pt.x.toFixed(1) + ' y=' + n1Pt.y.toFixed(1) + ' len=' + n1Pt.len : 'no'
+  );
+  if (!n1Pt) throw new Error('single-call edge not hittable: utils.py::load_config -> utils.py::parse_lines');
+  await realClick(cdp, n1Pt.x, n1Pt.y);
+  await sleep(300);
+  const i8 = await evalJs(cdp, 'window.__t.edgeState()');
+  note('edge state on the N=1 edge', i8);
+  check(
+    'I8 N=1 的线：步进器和标记（打点/角标/计数）一个都不出现',
+    i8.stepper === false && i8.count === '' && (i8.marks || []).length === 0 && !i8.chip,
+    JSON.stringify({ stepper: i8.stepper, count: i8.count, marks: (i8.marks || []).length, chip: i8.chip })
+  );
+  // 窗口化渲染：跳到第 54 行之后 code-line-1 早就不在渲染区间里了，所以「切到 utils.py」这件事
+  // 要用第 54 行自己渲染出来且写着 parse_lines 来证，不能看首行文本
+  const i8Line = await evalJs(cdp, 'window.__t.lineVisible(54)');
+  check(
+    'I8 N=1 的线照样定位：代码区切到 utils.py 第 54 行，闪烁正好压在那一行',
+    !!i8Line.rendered &&
+      !!i8Line.fullyVisible &&
+      (i8Line.text || '').indexOf('parse_lines') >= 0 &&
+      !!i8.flash &&
+      parseInt(i8.flash.top, 10) === (54 - 1) * ROW_H,
+    'line=' + JSON.stringify(i8Line) + ' flash=' + JSON.stringify(i8.flash)
+  );
+  check(
+    'I8 N=1 的线底栏只写 file:line，不带 1/1 这种次数',
+    i8.info.indexOf('utils.py:54') >= 0 && i8.info.indexOf('/') < 0,
+    'info=' + i8.info
+  );
+  // 收尾：点图上的 parse_lines 节点清掉边高亮，别把状态留给后面的组。
+  // 这里不用「点代码正文行」：刚滚过去定位，滚动动画可能还没停，量到的坐标会落到别的行上，
+  // 万一命中那一行的调用 token 反而会重新选中同一根边（假失败 / 假通过都可能）。
+  const n1Node = await evalJs(cdp, 'window.__t.findNode("utils.py::parse_lines")');
+  if (!n1Node) throw new Error('graph node not found for clearing the N=1 edge: utils.py::parse_lines');
+  await realClick(cdp, n1Node.x, n1Node.y);
+  await sleep(300);
+  const i8Clear = await evalJs(cdp, 'window.__t.edgeState()');
+  check(
+    'I8 点图上的节点就清掉这根单调用线的痕迹（一次只有一个焦点）',
+    i8Clear.info === '' && !i8Clear.stepper && !i8Clear.chip && (i8Clear.marks || []).length === 0,
+    JSON.stringify({ info: i8Clear.info, stepper: i8Clear.stepper, marks: (i8Clear.marks || []).length })
+  );
+
+  check(
+    'I9 点线/循环/步进/hover/清空/单调用线全程零网络上行（这条功能只动本地状态）',
     netRequests.size === reqsBeforeEdge,
     'before=' + reqsBeforeEdge + ' after=' + netRequests.size
   );

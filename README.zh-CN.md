@@ -324,6 +324,7 @@ checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 p
 | `npm run icons`                   | 从 `public/icon.svg` 重生成 ico / 180 / 192 / 512 栅格档  |
 | `npm run audit:egress`            | 静态扫描联系路径那三个文件：出现请求原语或未公开邮箱字面量就红（CI blocking） |
 | `npm run smoke`                   | 真 Chrome + CDP 自动化验收（先 `npm run export`）        |
+| `npm run serve:dist`              | 托管 `dist/` 并回放 `_headers`，服务一直挂着 —— 用浏览器手工核对生产 CSP 与缓存档（dev server 不套 `_headers`，在 dev 上验头等于没验）；不跑断言 |
 | `node scripts/browser-verify.mjs` | 同上，直接跑脚本                                        |
 
 ## 目录结构

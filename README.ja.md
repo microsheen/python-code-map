@@ -281,6 +281,7 @@ node scripts/browser-verify.mjs # 75 アサーション（うち 16 は E/F/G �
 | `npm run icons`                   | `public/icon.svg` から ico / 180 / 192 / 512 のラスタを再生成                                              |
 | `npm run audit:egress`            | 連絡経路の 3 ファイルを静的スキャン：リクエストプリミティブや未公開のメールリテラルがあれば赤（CI ブロッキング） |
 | `npm run smoke`                   | 実 Chrome + CDP の自動化受け入れ（先に `npm run export`）                                                  |
+| `npm run serve:dist`              | `dist/` を `_headers` 付きで配信したまま常駐させる — ブラウザで本番の CSP とキャッシュ設定を手で確認するためのもの（dev server は `_headers` を適用しないので、そちらでのヘッダ確認は無意味）；アサーションは実行しない |
 | `node scripts/browser-verify.mjs` | 同上、スクリプトを直接実行                                                                                 |
 
 ## ディレクトリ構成

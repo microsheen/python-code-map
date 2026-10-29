@@ -277,7 +277,7 @@ node scripts/browser-verify.mjs # 75 项断言（含 16 项 E/F/G 基线与契�
 | I 边 → 调用点 | 用真实鼠标点击 multi.py 里那条聚合折线 `caller → callee`：切文件、1/3 → 2/3 → 3/3 → 1/3 循环、`Shift` 反向逐步、三处调用点全打点且 x 严格递增、序号角标实测落在**行号左边**（量的是距所在行左缘 5..19px）、`‹ ›` 步进器与 `✕`、只有一处调用的那根线**家具一件不少**（步进器读 `1/1`、两枚箭头不画、那一处照样打点并在行号左边挂角标）并且照样滚到、闪在第 54 行、悬停浮层 + pointer 光标，整组**请求数一个都没多** |
 | 稳定性       | 控制台无 error、页面无未捕获异常                                                                        |
 | S 产物一致性 | 服务端返回的字节 == `dist/index.html` 的字节（sha256 相同）；响应头里真的带着 `_headers` 的 CSP；产物 HTML 里零绝对 URL |
-| E 默认行为基线 | 无拉取动作时：全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件 / 跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
+| E 请求与 CSP | 分两档（ADR-0006）。**E1–E5 是默认行为基线** —— 冒烟里没有任何拉取动作，所以它们必须成立：全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件。**E6–E8 是承诺** —— 与有没有拉取无关：跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
 | F 图标链路   | `<head>` 里真有注入的四个图标 link；每个 href 都能当 `<img>` 解码（同源 + CSP `img-src` + MIME 全对） |
 | G 反馈面板   | 顶栏入口开得出面板、且面板**真浮在最上面**（关闭按钮中心的命中测试就是它自己）；开→关整个来回**请求数一个都没多**；诊断块恰好 8 行、第 i 行是第 i 个白名单字段、`build` == 被测入口哈希前 8 位；计数与页面上真实渲染的数字自洽；`<a>` 数 == 门控期望且 Issues 锚点 `target`/`rel` 正确 |
 | H 主题       | 首访 = 默认主题（54 条变量逐条 == 源码调色板、`theme-color` 与壳层 `<style>` 同字面 hex、localStorage 无偏好键）；`Theme` 面板开得出且**真浮在最上面**、六行按 `THEME_ORDER`、预览块是各主题的字面 rgb（零 `var(`）；切到 GitHub Light 后 `<html>` 变量 / `app-root` 计算背景 / `theme-color` / `color-scheme` / localStorage 五处同时变，**请求总数一个都没多**；写在 SVG 表现属性上的 `fill="var(--cm-node-fill)"` 真浏览器算得出 rgb；刷新后不点任何东西仍是亮色且新文档零 CSP 违规；切回默认全部复原 |
@@ -307,7 +307,7 @@ checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 p
 图标配色只允许来自 `src/theme.ts` 的**默认主题**（`__tests__/icons.test.ts` 锁死这条不变量）。
 界面有 6 套主题，图标和品牌色没有：切主题时图标**不动**（品牌固定），只有地址栏的
 `theme-color` 跟随当前主题；headless Chrome 不抓 `<link rel="icon">`，所以冒烟里用 `<img>`
-主动把每个注入 href 拉一遍（F 组），请求同样进 E 组默认行为基线。
+主动把每个注入 href 拉一遍（F 组），这些请求同样被 E 组的基线断言 E1/E2/E4/E5 覆盖。
 
 ## 命令
 

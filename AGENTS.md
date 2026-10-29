@@ -10,6 +10,11 @@ Issues live in GitHub Issues on the public repo `microsheen/python-code-map` (gi
 
 Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
+### Dev log
+
+写 `log.md` 前读 `docs/agents/log.md`：标题里的数字最后写、历史读数不改写、`[实测]` 与推断分开。
+读它先 `Select-String -Pattern '^## ' log.md` 取轮次目录，别整读（1000+ 行）。
+
 ### Domain docs
 
 Single-context layout: one `CONTEXT.md` at root, ADRs in `docs/adr/`. See `docs/agents/domain.md`.

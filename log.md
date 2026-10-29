@@ -1122,3 +1122,94 @@
   （同上一条记录遗留②），网络恢复后补评论；② issue #3 仍**开着**，等下一次走 main 发布、按 ops §8 把生效 CSP
   逐 host 抓回来核对「声明 == 生效」之后才能关；③ `%TEMP%\cm-fix3` 又添 8 个 node 脚本（本轮全部文档/断言
   编辑都是脚本化做的，每处替换都断言「恰好命中一次」，避免手改漏改），照旧人工清。
+
+## 2026-10-30 retro 落地轮（lint 警告首次归零并闩上 --max-warnings=0 · 文档路径成新门 · 产物可手工托管 · CODING_STANDARDS 落地 · CI 日志通道补修 · 437 单测 · 75 项冒烟）
+
+- 本轮的性质：**改的是 agent 的作业环境，不是产品行为**。`/retro` 列了 9 条候选、按严重度排序，用户批了 6 条，
+  分 4 个提交落地（`b0be7ca` / `bf31c26` / `7726217` / `18eeac3`）。`src/` 动了 6 个文件，但只删死代码、删调试输出、
+  补 deps、加注解 —— 唯一进产物的行为改动见下面第 3 条的字节差。
+- **lint 从 12 条警告烧到 0，`lint` 脚本从此带 `--max-warnings=0`**（`b0be7ca`）。12 条的逐条出处不是回忆，
+  是 CI 日志原文（怎么读回来的见第 6 条）：7 条 `no-unused-vars`（`src/components/AppRoot.tsx` 的 `reset` selector，
+  `src/components/TopBar.tsx` 的 `Scope` / `GraphStats` / `MAX_FILES`，`src/graph/scope.ts` 的 `CallEdge` /
+  `CallSite` / `FuncSymbol`）、2 条 `no-console`（`src/components/CodePane/FileTabs.tsx` 63:7 与 113:3）、
+  2 条 `react-hooks/exhaustive-deps`（`src/components/GraphPane/index.tsx` 395:6 的 `onNodePress`、TopBar 114:6 的
+  `setCtxMenu`）、1 条 `unicode-bom`（`src/parser/locals.ts` 1:1）。
+  **更正 `b0be7ca` 的标题**（历史不改写，更正记在这里）：标题写「删 6 处死导入与死 selector」，实测是
+  **7 条 unused-vars 警告、分布在 5 处**。
+  两种修法要分清：能删的删（死导入、死 selector、BOM、调试 `console.log`）；删不掉的**就地写明理由再 disable** ——
+  GraphPane 那条：`onNodePress` 是组件体里的普通箭头函数、每次渲染都新建，但监听只在挂载时注册一次，而它捕获的
+  两个值都是稳定引用（`suppressPress` 是 ref、`selectFromGraph` 是 zustand action），新旧闭包行为等价，所以留空
+  deps 是有意的；TopBar 那条反过来 —— `setCtxMenu` 本来就是稳定 action，补进 deps 即可，不该 disable。
+  `no-console` 只放行 `warn` / `error`，所以那两句 `console.log` 是**必须删**而不是「顺手删」。删完 `src/` 里
+  `console.*` 一处不剩（grep 0 命中），产物里剩下的 6 处 `console.log` 全来自依赖。
+- **产物读数**：入口从上一轮的 `entry-7c71e4fa…` **1,431,448 B** 变成 `entry-a1e61c40…` **1,431,418 B**
+  （**−30 B**，入口 sha256 `6476171c35bd…f021`），`index.html` 仍 **1,562 B**、sha256 `d76a65d37a08…ec49`。
+  −30 B 是「少两句 console.log + 少一个死 selector + deps 多一个名字 + 去 BOM」的净值，**没有逐项拆到字节**（推断）；
+  实测到的是当轮产物里 `[FileTabs]` 字面量 **0 命中**。
+- **文档路径成了一道门**（`bf31c26`，`__tests__/docPaths.test.ts`，437 = 435 + 2）。动机：这个错犯过两次、
+  两次都靠人读出来（上一轮 ops 与 log 把那个承诺面测试文件的扩展名写成 `.ts`，实为 `.tsx`）。口径：扫描对象是
+  **已提交**的文档（`git ls-files` 取 `*.md` / `*.yml` / `public/_headers`，所以未入库的草稿不会把门弄红），
+  只查**带目录段**的路径字面量，解析顺序 仓库根 → `src/` → `public/`。实测：`bf31c26` 那棵树
+  **18 个文档 / 245 条字面量 / 0 落空**，`18eeac3` 上 **20 / 255 / 0**（用同一套逻辑复算过）。
+  两条断言：路径必须存在；**扫描器不许空转**（`checked > 200`）—— 正则一旦失配，上面那条会静默变绿，
+  而静默跳过的守卫比红灯更糟（同仓先例：`feedback.test.tsx` 的 `contactContract()`）。本轮又拿一条指向不存在
+  文件的假路径喂过它，确实红（1 failed / 1 passed）。抓不住的三类写在文件头注里：不带目录段的裸文件名、
+  锚点目录本身打错、**专名歧义**（F 组那种，归 standards 管）。
+- **`npm run serve:dist`**（`7726217`）：`scripts/browser-verify.mjs` 加 `--serve-only`，复用冒烟自己的
+  `startStaticServer()` / `headersFor()` 托管 `dist/` 并回放 `public/_headers`，服务常驻、不启 Chrome、不跑断言、
+  不写报告（门禁仍然是 `npm run smoke`）。为什么值得一条命令：**dev server 不套 `_headers`** ——
+  在 `npm run web` 上验响应头等于什么都没验。实测（`CODEMAP_PORT=8123`，直连 HTTP 抓回来的头，不是脚本打印的预览）：
+  12 条规则加载；`/` 与 `/index.html` 返回 `cache-control: public, max-age=0, must-revalidate` + 完整 CSP
+  （`connect-src 'self' https:`）+ `nosniff` / `no-referrer` / `X-Frame-Options: DENY` / permissions-policy / HSTS；
+  哈希入口返回 `public, max-age=31536000, immutable`。端口被占用时它复用别人的服务，并**明说 Ctrl+C 关不掉它**。
+  README 三语命令表各补一行。
+- **判断类规则终于有了归处**（`18eeac3`）：新增 `CODING_STANDARDS.md`（64 行，review 阶段读、实现阶段不必读）——
+  只收跨文件一致性、单一来源、专名先 grep、文案锁只钉承诺、断言过严时先让文案让路、声明与生效分开写、
+  数字来自实测输出、观测点先于结论、中文文档 / 英文 UI 字符串、`log.md` 纯追加、产物不进仓库；
+  文末两张表把「已经变成门的 6 条」与「还没变成门的 4 条」分开列 —— 前者是为了别重复造，后者是为了别以为已经守住了。
+  同时新增 `docs/agents/log.md`（54 行）写清本文件自己的规矩（先取轮次目录别整读、标题数字最后写、追加不改写、
+  `[实测]` 与推断分开），`AGENTS.md` 只加 5 行指针（它每轮都进上下文，只能放指针）。
+- **观测点这轮修好了一半，而且是往好的方向坏**：`api.github.com` 不是「不通」，是**按客户端 / 按连接**被重置 ——
+  `gh api` 依旧 `wsarecv … forcibly closed`，同一分钟 `Invoke-WebRequest` 直连同一 URL 返回 **200**；
+  带上 `gh auth token`（只读本地配置）的令牌走 `Invoke-RestMethod`，check-runs 与 job 日志都一次拿到
+  （run 40903582359 的 `checks` job：**49,012 B / 591 行**）。**于是上一轮记为「不可读」的 CI 日志本轮补读回来了**：
+  node `v24.22.1` / npm `11.19.0` / harness `11.19.1` / lockfileVersion `3`；lint `✖ 12 problems (0 errors, 12 warnings)`；
+  jest `21 suites / 435 tests`；`audit:egress` `scanned 3 file(s)`；CI 侧 `index.html` **1,562 B**、入口
+  `entry-4b5c7cf1…`、sha256 `f3e2bbcf…9291`、`dist` 工件 589,901 B；冒烟 `75/75`、E1 `总请求数=14`、E6 live == dist。
+  本机 `entry-7c71e4fa…` vs CI `entry-4b5c7cf1…`：同字节数、不同入口哈希 —— 这条差异**第六次**被量到
+  （上一轮因为日志读不到没记，本轮补记）。读法与它的边界写进了 `docs/agents/issue-tracker.md`。
+- **两条欠了上一轮的 issue 评论本轮补上了**（`gh` 被重置就用令牌走 `Invoke-RestMethod` POST）：
+  #9 记两条交接账 —— F 组重名（`scripts/browser-verify.mjs` 的 F1/F2 是图标链路，`docs/adr/0006-url-pull-egress.md`
+  「回归基线（F 组，随实现落地）」的 F 组是拉取面取证四条，#9 落地当天就撞名，建议改图标那组）、
+  以及 `src/components/FeedbackDialog.tsx` 的 intro 与三语 README 反馈段那两句「页面上没有 fetch」在拉取入口
+  上线当天就过期；#3 记状态复核 —— AC 仍是 6 条兑现、AC6 的「生效」半边仍欠，并补一条
+  `[实测 2026-10-30]`：`https://python-code-map.pages.dev/` 返回 `200 + server: cloudflare + cf-ray: …-LAX`，
+  生效 CSP 里仍是旧的 `connect-src 'self'`（**没有** `https:`）⇒ 放宽还没上线，符合「本票不发布」；
+  同一时刻本机打 apex 与 `www` 都是 **403 且响应里一个头都没有**（没有 `server`、没有 `cf-ray`）⇒ 是 ops §13 记的
+  那台中间设备，这两条 host 的生效值本轮**没读到**，不算通过也不算失败。
+- 门禁实测（本机，2026-10-30）：`npm run typecheck` 空输出；`npm run lint` **0 error / 0 warning**
+  （`--max-warnings=0` 下第一次归零；上一轮 0 error / 12 warning）；`npx jest` **22 suites / 437 tests**；
+  `npm run smoke` **75/75 PASS**、`failed: []`（E1 `总请求数=14` 全同源、E6 live == dist 同一个入口哈希、
+  E7 `210 个标记 x 14 个请求，零命中`、E8 `violations=[] preReload=0`）；`npm run audit:egress` →
+  `scanned 3 file(s)` clean。
+- **没改什么**：承诺面文案一条没动（`__tests__/promiseSurface.test.tsx` 49 条断言原样全绿）、
+  `public/_headers` 一个字节没动、没发布（deploy 认 `ref_name == 'main'`，本轮在 master 上）。
+- 本轮学到的规矩：**已经存在但没接线的检查，等于没有检查** —— eslint 的规则一直在、`.prettierrc.json` 也一直在，
+  但只要 `lint` 不带 `--max-warnings=0`，仓库就会长期停在「12 条基线警告」这种谁都不会再看的状态。
+  烧到 0 的那次提交必须**同时**把门闩上，不然下一轮又是 12 条。
+- 遗留：
+  ① **retro 的 9 条候选没有落盘**（只在会话里排过序）：批了 6 条，明确没批 2 条 —— `prettier` 接线
+  （有配置、有 `npm run format`，但没有 format 门；把 `format:check` 加进 CI 会一次性重排大量文件，是用户的取舍）、
+  全局 `AGENTS.md`（`C:\Users\xu6\.codex\AGENTS.md`）里那段 postman-cli 注入（与本仓无关却每轮进上下文，
+  删不删是全局配置的决定）；剩下 1 条现在已无从复核。教训：**候选清单要当场写进 log**，批与不批都留痕。
+  ② issue #3 仍**开着**：AC6 的「生效」半边要等下一次走 main 发布，之后按 `docs/ops-deployment.md` §8
+  逐 host 抓生效 CSP 核对「声明 == 生效」（apex 与 `www` 还得换一张网络，本机出口是 403）。
+  ③ CI 日志里那条平台警告本轮没处理：`Node.js 20 is deprecated … forced to run on Node.js 24:
+  actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4`，
+  `.github/workflows/ci-and-deploy.yml` 升 v5 是独立的一轮。
+  ④ `CODING_STANDARDS.md` 只有 review 阶段读得到，没有任何门保证它不与实现漂移 —— 尤其「还没变成门的 4 条」，
+  它们的存在本身就是「这里没人守」的声明；下一轮 review 要先核这两张表。
+  ⑤ 用 PowerShell 写含 markdown 的中文文本时，**双引号 here-string 会吃掉反引号**（`` `code` `` 变成 `code`），
+  本轮真犯了一次（issue-tracker 那段写操作的 bullet），改用单引号 here-string 重写才对。
+  ⑥ `%TEMP%\cm-retro`（本轮 node 脚本、两份 CI 日志、两条 issue 评论正文）与上一轮的 `%TEMP%\cm-fix3`
+  照旧只能人工清。

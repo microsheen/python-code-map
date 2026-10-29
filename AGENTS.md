@@ -4,7 +4,7 @@
 
 ### Issue tracker
 
-Issues live in GitHub Issues (GitHub Enterprise: `<internal-gh>`). See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues on the public repo `microsheen/python-code-map` (github.com; the enterprise instance and its repo have been retired and are no longer a remote). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

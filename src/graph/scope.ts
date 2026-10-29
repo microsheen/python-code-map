@@ -3,7 +3,7 @@
  * 纯函数，便于快照测试。
  */
 import { buildAdjacency } from './buildGraph';
-import type { CallEdge, CallGraph, CallSite, FuncId, FuncSymbol } from '../parser/types';
+import type { CallGraph, FuncId } from '../parser/types';
 
 export type Scope =
   | { kind: 'neighborhood'; funcId: FuncId; depth: number }

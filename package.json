@@ -20,7 +20,7 @@
     "postinstall": "node scripts/copy-wasm.mjs",
     "test": "jest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
     "verify": "npm run typecheck && npm run lint && npm test",
     "smoke": "node scripts/browser-verify.mjs",

@@ -60,7 +60,6 @@ export function FileTabs(): ReactNode {
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, path: string) => {
-      console.log('[FileTabs] contextmenu triggered for:', path, 'at', e.clientX, e.clientY);
       e.preventDefault();
       e.stopPropagation();
       setMenu({ x: e.clientX, y: e.clientY, path });
@@ -109,8 +108,6 @@ export function FileTabs(): ReactNode {
   );
 
   if (files.length === 0) return null;
-
-  console.log('[FileTabs] rendering', files.length, 'files, menu state:', menu);
 
   // 完全用原生 HTML，避免 RN 组件拦截事件
   return (

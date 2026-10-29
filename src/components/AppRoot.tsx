@@ -22,7 +22,6 @@ export function AppRoot(): ReactNode {
   const setCtxMenu = useAppStore((s) => s.setCtxMenu);
   const removeFile = useAppStore((s) => s.removeFile);
   const removeFiles = useAppStore((s) => s.removeFiles);
-  const reset = useAppStore((s) => s.reset);
   const files = useAppStore((s) => s.files);
   const [dragging, setDragging] = useState(false);
 

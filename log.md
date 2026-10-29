@@ -1091,3 +1091,34 @@
   网络通时补一条 issue 评论；③ review 指出 AC3「无旧宣称残留」原先只被一个字面守住，现已改成形状守卫，
   但「换个说法重新吹一遍全称宣称」仍然只能靠 review 与 ADR —— 这是文本匹配的固有边界，写在测试头注里；
   ④ `%TEMP%\cm-fix3`（本轮 6 个 node 编辑脚本）照旧只能人工清。
+
+## 2026-10-29 复审修正轮的 CI 实测 —— run 40903582359 两 job 全绿、deploy skipped；api.github.com 连不上时怎么读 CI 状态（观测点第二次自己坏掉）
+
+- CI run **`40903582359`**（push master 触发，被测 commit `e48822e`）：`checks` 与 `browser-smoke` 两个 job
+  **全绿**，`deploy` **skipped** —— 判据是 run 页面服务端渲染出来的图标标签：`aria-label="completed successfully: "`
+  命中 5 处、`aria-label="skipped: "` 恰好 1 处（就是 deploy）、`failure`/`cancelled` 标签 **0** 处；
+  commit 侧的状态汇总同一口径：`state=success`、`short_text="2 / 3 checks OK"`（三个 job 里两个通过、
+  一个按设计跳过），与上一轮 `40891371127`/`40890348338` 的读数形状完全一致。deploy 该跳过：发布专线认
+  `ref_name == 'main'`，本轮在 master 上，本票也不发布。
+- **观测点自己坏了，这是本轮真正的运维发现。** `api.github.com` 从本轮第一次调用起全程不通：`gh api` 连试 6 次
+  全是 `wsarecv: An existing connection was forcibly closed by the remote host`（TCP 能连上、TLS 之后被掐），
+  `gh run list` 同样打空。但 **`github.com` 本身是通的** —— `git push` 一次成功，HTML 页面 200。
+  所以按「先修观测点，再判断字节」的老规矩，没有把「读不到」当成「没过」，也没有当成「过了」，而是换了一条
+  不依赖 API 域名的读法，两条互为佐证：
+  ① `GET https://github.com/<owner>/<repo>/commits/deferred_commit_data/<sha>?original_branch=master`
+  （`Accept: application/json`）—— commits 页面延迟加载用的内部端点，直接返回 `statusCheckStatus.state` 与
+  `short_text`，一次能拿到整页 commit 的状态；
+  ② `GET https://github.com/<owner>/<repo>/actions/runs/<run-id>` 的 HTML —— job 图标是服务端渲染的，
+  `aria-label` 里就写着 `completed successfully` / `skipped` / `failure`，数一数就是逐 job 结论；
+  run 列表页 `/actions/workflows/<file>` 的 HTML 里能按出现顺序抓到全部 `/actions/runs/<id>`，最新那条即本轮。
+- 这条通道的**边界**也一并记下，免得下轮拿它当万能钥匙：它给的是「哪个 job 什么结论」，**给不了日志正文** ——
+  所以本轮 CI 侧的 node/npm 版本、jest 与冒烟的逐条读数没能像上一轮那样抄回来（那要 `gh run view --log`，
+  走的是 API 域名）。本机能测的部分都在上一条记录里：typecheck 空输出、lint 0 error / 12 warning、
+  jest 21 suites / 435 tests、冒烟 75/75、`audit:egress` scanned 3 file(s) clean。
+- 顺带一个反面样本，说明为什么不能拿词频当结论：run 页面 HTML 里 `success` 出现 15 次、`failure` 0 次，
+  但其中大部分是 CSS 类名与 SVG sprite 的 id（`color-fg-success` 之类），`conclusion` 这个键在 HTML 里
+  **一次都没有**。先确认「这个词是从哪个结构里出来的」，再拿它当读数 —— 数错观测点比没有观测点更危险。
+- 遗留：① `api.github.com` 不通导致「F 组重名」与「FeedbackDialog 那句到 #9 要重写」这两条账没法追加到 issue 上
+  （同上一条记录遗留②），网络恢复后补评论；② issue #3 仍**开着**，等下一次走 main 发布、按 ops §8 把生效 CSP
+  逐 host 抓回来核对「声明 == 生效」之后才能关；③ `%TEMP%\cm-fix3` 又添 8 个 node 脚本（本轮全部文档/断言
+  编辑都是脚本化做的，每处替换都断言「恰好命中一次」，避免手改漏改），照旧人工清。

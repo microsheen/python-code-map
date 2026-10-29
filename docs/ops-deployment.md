@@ -8,7 +8,7 @@
 
 | 承诺 | 怎么被证明 | 谁拦着 |
 | --- | --- | --- |
-| 源码不上行 | 真浏览器里逐个请求断言：全同源 / 全 GET / 零请求体 / URL 里不含任何用户内容标记 | `browser-verify.mjs` E1–E7（CI 必过） |
+| 代码内容不上行 | 真浏览器里逐个请求断言。**承诺**（与有没有拉取无关）：URL 里不含任何用户内容标记（E7）、生产 CSP 下零违规（E8）、跑的入口 JS 就是产物里那个文件（E6）。「全 GET、请求体恒空」这两条**性质**同样是承诺（拉取也只发 GET、请求体也恒空），只是冒烟里的 E2/E3 仅在无拉取动作时被跑到。**「全同源」不在承诺这一档** —— 它是默认行为基线：无拉取动作时必须成立 | `browser-verify.mjs` E1–E8（CI 必过；E1–E5 是基线，E6–E8 是承诺） |
 | 无第三方代码 | 产物 HTML 里**零个** `https?://`（含被剥掉的注释）；线上新增第三方引用按 counted finding 处理 | `polish-dist.mjs` + `check-deploy.mjs` |
 | 没有服务端存储 | 托管是 Direct Upload 的纯文件站点，没有 Functions / KV / D1 / DO | 选平台时就决定了 |
 | 会话只在你机器上 | 写本机 IndexedDB（`code-map` / `session` / `current`），Clear 即删 | ADR-0001 Amendment |
@@ -16,6 +16,18 @@
 
 第三条是"host 物理上没有写的能力"，比任何"我们不会滥用"的承诺都强。代价是必须能设响应头，
 所以 GitHub Pages 出局（它不能设 CSP）。
+
+**口径修订（ADR-0006，2026-10-29 · issue #3）**：本表第一条原先写作全称的「源码不上行」，证明栏里把
+「每个请求都同源」当承诺。URL 拉取（pull from URL）落地后二者不可同真，所以全称宣称被撤回，只留下能被证明的
+窄事实：**拉取只发出对用户所给 URL 的 GET、请求体恒空、代码内容从不被发往任何地方**。E1–E5 因此从
+「承诺证明」降级为「默认行为基线」—— 主冒烟里没有任何拉取动作，所以它们仍然必须全绿；拉取面另有一组断言
+（ADR-0006「回归基线」F 组，随实现落地）。`__tests__/promiseSurface.test.tsx` 把这条口径钉住：README 三语里
+被撤回的宣称零残留、窄事实一条不少、冒烟 E1–E5 的标签带着「默认行为基线」这个限定。
+
+`public/_headers` 的 CSP 也一并把 `connect-src` 从 `'self'` 放开到 `'self' https:`：任意主机直链让主机白名单
+名存实亡，只能放宽到协议粒度；`http:` 不写（https 页面里的明文请求浏览器本来就按混合内容拦死）。其余指令
+一条没动。**本轮不发布**（生产发布仍走 main 单提交覆盖专线），所以线上此刻生效的仍是旧的 `connect-src 'self'`；
+下一次发布之后必须按 §8 逐 host 把生效的 `content-security-policy` 抓回来核对「声明 == 生效」。
 
 ## 2. 发布管道
 
@@ -351,6 +363,12 @@ Rules → Cache / Transformation Rules 对 `/wasm/*` 那几个 URI 覆写 `Cache
 另一次返回 `219a02ccb69f…`；前导数字甚至不是字节数。它们只可以用来在**同平台的两个 host 之间**
 比较，永远不要拿来和本地构建产物比。
 
+**CSP 走的是同一条纪律。** 仓库里的 `public/_headers` 只是「声明的」策略：`connect-src` 从 `'self'`
+放开到 `'self' https:`（ADR-0006）之后，光读这个文件不算数 —— 发布之后必须按 §8 逐 host 把生效的
+`content-security-policy` 头抓回来逐字比对。上面那条 [实测] 说安全头在各 host 上一致，但「上次一致」
+不等于「这次一致」，所以每轮都重测：缓存档已经被 zone 的 Browser Cache TTL 改写过一次，
+这就是为什么本仓不信任何「应该不会被改」的推断。
+
 ## 6. 平台会改写你发出去的东西
 
 **[实测] Zone → Web Analytics 会往自定义域名的 HTML 里注入第三方脚本**
@@ -437,6 +455,11 @@ node <skill>/scripts/check-deploy.mjs \
 图标轮之后 `--paths` 还应带上 `/icon.svg` 与 `/favicon.ico`：这两个文件名固定无 hash，
 是"声明 == 生效"最容易漏验的两条（§5 的 zone TTL 覆写对它们同样成立），而且改 `_headers`
 的图标档之后只有逐路径核对才能发现线上没跟上。
+
+**改了 `_headers` 的那一轮，`--paths` 之外还要单独核对生效的 CSP。** 本轮（issue #3）把 `connect-src`
+从 `'self'` 放开到 `'self' https:`，但**不发布**，所以线上生效值此刻仍是旧的 `'self'`；
+下一次走 main 发布之后，必须逐 host 把 `content-security-policy` 抓回来和当轮 `dist/_headers` 逐字比对
+（§5「声明 ≠ 生效」对安全头同样成立，不能只比 `/` 一个路径）。
 
 退出码：`0` 没有 counted finding，`1` 至少一个，`2` 用法错。counted 桶包括：跨 host 字节不一致、
 HTML 里出现第三方引用、服务端字节与 `--dist` 不一致、counted 头不一致、**状态码跨 host 不一致**、

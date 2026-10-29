@@ -4,8 +4,14 @@
 # 回响应头，等于把线上 CSP 提前在冒烟里跑一遍），以及部署后的 check-deploy.mjs。
 # 不写死任何主机名：换域名时这个文件应当是零改动。
 
+# connect-src 是 'self' https: 而不是 'self'：用户显式拉取（pull from URL）要能取任意主机的
+# https 直链，主机白名单在这种能力面前名存实亡，所以放宽到协议粒度（ADR-0006 决策 2）。
+# http: 不写 —— https 页面里的明文请求浏览器本来就按混合内容拦死，写上去只是白留一个口子。
+# 代价也记在这里：页面一旦被注入第三方脚本，外泄不再被 connect-src 硬挡，防线只剩
+# npm run audit:egress 与冒烟 E/F 组（ADR-0006「后果」）。其余指令一条没动。
+
 /*
-  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self'; manifest-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   X-Frame-Options: DENY

@@ -230,7 +230,8 @@ const ROW_H = 20;
 /**
  * "用户内容"标记集合：fixture 文件名 + 其中每个 def/class 名 + 若干代码行片段。
  * 这些字符串只要出现在任何一条真实网络请求的 URL 里（原文或 percent-encoded），
- * 就说明浏览器把用户代码发到网上去了 —— 这是要害承诺，不是风格问题。
+ * 就说明浏览器把用户代码发到网上去了 —— 「代码内容从不被发往任何地方」是撤回全称宣称之后
+ * 仍然成立的那条窄事实（ADR-0006），不是风格问题。
  * 长度 < 5 的标记丢掉，免得偶然子串制造假阳性。
  */
 function userContentTokens() {
@@ -985,7 +986,7 @@ async function main() {
     if (p.entry && (p.entry.level === 'error')) console_.push('log: ' + String(p.entry.text).slice(0, 300));
   });
 
-  // ============ 承诺面取证：记下浏览器真实发出的每一个请求 ============
+  // ====== 默认行为基线取证：记下浏览器真实发出的每一个请求（E1–E5 只在无拉取动作时成立） ======
   const netRequests = new Map();
   cdp.on('Network.requestWillBeSent', (p) => {
     const rq = p.request || {};
@@ -1894,7 +1895,9 @@ async function main() {
     themeDump(h6),
   );
 
-  // ================= ACCEPTANCE 4: 承诺面 —— 浏览器里真实发生的一切 =================
+  // ================= ACCEPTANCE 4: 浏览器里真实发生的一切 =================
+  // E1–E5 是**默认行为基线**（ADR-0006）：本脚本不做任何拉取动作，所以「全同源」必须成立；
+  // 拉取面另有一组断言，不进这里。E6–E8 与有没有拉取无关，它们仍然是承诺。
   const httpReqs = [...netRequests.values()].filter((r) => /^https?:/i.test(r.url));
   const selfOrigin = new URL(APP_URL).origin;
   const originOf = (u) => {
@@ -1917,16 +1920,16 @@ async function main() {
   );
   report.network = httpReqs;
   const cross = httpReqs.filter((r) => originOf(r.url) !== selfOrigin);
-  check('E1 每一个浏览器请求都是同源', cross.length === 0, cross.map((r) => r.url).join(', ') || '总请求数=' + httpReqs.length);
+  check('E1 [默认行为基线] 每一个浏览器请求都是同源', cross.length === 0, cross.map((r) => r.url).join(', ') || '总请求数=' + httpReqs.length);
   const nonGet = httpReqs.filter((r) => r.method !== 'GET');
-  check('E2 每一个浏览器请求都是 GET', nonGet.length === 0, nonGet.map((r) => r.method + ' ' + r.url).join(', ') || httpReqs.length + ' 个全 GET');
+  check('E2 [默认行为基线] 每一个浏览器请求都是 GET', nonGet.length === 0, nonGet.map((r) => r.method + ' ' + r.url).join(', ') || httpReqs.length + ' 个全 GET');
   const bodies = httpReqs.filter((r) => r.hasPostData || r.postDataBytes > 0);
-  check('E3 零请求体（没有任何数据被送出浏览器）', bodies.length === 0, bodies.map((r) => r.method + ' ' + r.url + ' ' + r.postDataBytes + 'B').join(', ') || '0');
+  check('E3 [默认行为基线] 零请求体（没有任何数据被送出浏览器）', bodies.length === 0, bodies.map((r) => r.method + ' ' + r.url + ' ' + r.postDataBytes + 'B').join(', ') || '0');
   const bad = httpReqs.filter((r) => r.status && r.status >= 400);
-  check('E4 没有 4xx/5xx 响应', bad.length === 0, bad.map((r) => r.status + ' ' + r.url).join(', ') || '0');
+  check('E4 [默认行为基线] 没有 4xx/5xx 响应', bad.length === 0, bad.map((r) => r.status + ' ' + r.url).join(', ') || '0');
   const notAsset = httpReqs.filter((r) => r.status === 200 && !distFileFor(pathnameOf(r.url)));
   check(
-    'E5 每个 200 响应都对应 dist/ 里真实存在的文件（被测字节 == 上线字节）',
+    'E5 [默认行为基线] 每个 200 响应都对应 dist/ 里真实存在的文件（被测字节 == 上线字节）',
     notAsset.length === 0,
     notAsset.map((r) => pathnameOf(r.url)).join(', ') || 'ok',
   );

@@ -12,9 +12,12 @@ _仓库名、npm 包名、IndexedDB 库名都仍是 `code-map`：前两者只是
 
 上传一个或多个 `.py` 文件，在浏览器里看到它们的函数调用关系图，左边代码、右边图，两边点击互相定位。
 
-- **纯前端、零上行**：没有后端服务，没有账号，没有数据库，没有第三方脚本或统计。源码只在浏览器里
-  解析，不作为任何请求的一部分离开这台机器 —— 这不是口号，是真浏览器门禁里的逐条断言
-  （每个请求都是同源、都是 GET、请求体为空、URL 里没有你的文件名或代码片段）。
+- **纯前端、本地优先**：没有后端服务，没有账号，没有数据库，没有第三方脚本或统计。源码只在浏览器里
+  解析，应用不会发出任何你没有要求的请求：你从磁盘加进来的文件留在这台机器上，唯一的对外流量是
+  **你自己**显式从 URL 拉取文件。仍然能被证明的是刻意收窄的几条 —— 拉取只发出对你所给 URL 的 GET、
+  请求体恒空、**你的代码内容从不被发往任何地方**。原先那句全称的「零外发」宣称已由
+  [ADR-0006](docs/adr/0006-url-pull-egress.md) 撤回；它背后的断言原样保留，降级为真浏览器门禁在
+  无拉取动作时必须证明的**默认行为基线**。
 - **会话只存在你自己的机器上**：文件内容写入浏览器本地 IndexedDB（库 `code-map` /
   store `session` / key `current`），刷新页面可恢复；点 Clear 或清除站点数据即彻底删除，
   服务端永远看不到它。主题选择存在 localStorage 的 `code-map:theme`（全站只有这一个键），同样不出本机。
@@ -22,13 +25,14 @@ _仓库名、npm 包名、IndexedDB 库名都仍是 `code-map`：前两者只是
   `async def`、装饰器、相对导入都能正确识别。
 - **技术栈**：Expo SDK 57 + React Native Web + react-native-svg + dagre 布局 + zustand。
 
-五个关键设计决策记录在 ADR 里，改代码前建议先读：
+六个关键设计决策记录在 ADR 里，改代码前建议先读：
 
 - [ADR-0001 纯前端 + tree-sitter WASM，不引后端/Pyodide](docs/adr/0001-expo-rn-web-no-backend.md)
 - [ADR-0002 保守的调用解析与 reason 分类](docs/adr/0002-conservative-call-resolution.md)
 - [ADR-0003 反馈渠道只长成两枚 href](docs/adr/0003-feedback-channel-href-only.md)
 - [ADR-0004 界面主题用 CSS 自定义属性落地（六套可切换）](docs/adr/0004-css-variable-theming.md)
 - [ADR-0005 图上的一条线可以点 —— 聚合边的「第几处调用」循环定位](docs/adr/0005-clickable-edges-call-site-cycling.md)
+- [ADR-0006 撤回「零外发」全称宣称 —— 显式拉取是唯一由用户发起的外发](docs/adr/0006-url-pull-egress.md)
 
 ## 快速开始
 
@@ -153,7 +157,7 @@ npm run web          # 启动 dev server 并打开浏览器（默认 http://loca
 顶栏的 `Feedback` 打开一个只读面板。**页面对外只有两枚链接**：GitHub Issues 与邮件别名，
 两枚都是普通 `<a href>` —— 只有你点下去才会发生事。没有 `fetch`、没有 beacon、没有 `<form>`、
 没有 `window.open`、不写剪贴板。理由是：反馈是全站唯一一个天生要「往外搬信息」的功能，
-也就是「源码不上行」那条承诺唯一真正的反例风险，所以它被做成「页面上根本发不出东西」的形状。
+也就是「代码内容从不被发往任何地方」那条承诺唯一真正的反例风险，所以它被做成「页面上根本发不出东西」的形状。
 
 | 渠道 | 隐私 | 说明 |
 | --- | --- | --- |
@@ -254,7 +258,7 @@ Chromium 就能跑。
 
 ```bash
 npm run export                  # 先产出 dist/
-node scripts/browser-verify.mjs # 75 项断言（含 16 项承诺面 E/F/G、22 项边 → 调用点），全绿退出码 0
+node scripts/browser-verify.mjs # 75 项断言（含 16 项 E/F/G 基线与契约、22 项边 → 调用点），全绿退出码 0
 ```
 
 脚本自己起一个静态服务器托管 `dist/`，并把 `dist/_headers` 里的规则原样套到每个响应上
@@ -273,7 +277,7 @@ node scripts/browser-verify.mjs # 75 项断言（含 16 项承诺面 E/F/G、22 
 | I 边 → 调用点 | 用真实鼠标点击 multi.py 里那条聚合折线 `caller → callee`：切文件、1/3 → 2/3 → 3/3 → 1/3 循环、`Shift` 反向逐步、三处调用点全打点且 x 严格递增、序号角标实测落在**行号左边**（量的是距所在行左缘 5..19px）、`‹ ›` 步进器与 `✕`、只有一处调用的那根线**家具一件不少**（步进器读 `1/1`、两枚箭头不画、那一处照样打点并在行号左边挂角标）并且照样滚到、闪在第 54 行、悬停浮层 + pointer 光标，整组**请求数一个都没多** |
 | 稳定性       | 控制台无 error、页面无未捕获异常                                                                        |
 | S 产物一致性 | 服务端返回的字节 == `dist/index.html` 的字节（sha256 相同）；响应头里真的带着 `_headers` 的 CSP；产物 HTML 里零绝对 URL |
-| E 承诺面     | 全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件 / 跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
+| E 默认行为基线 | 无拉取动作时：全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件 / 跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
 | F 图标链路   | `<head>` 里真有注入的四个图标 link；每个 href 都能当 `<img>` 解码（同源 + CSP `img-src` + MIME 全对） |
 | G 反馈面板   | 顶栏入口开得出面板、且面板**真浮在最上面**（关闭按钮中心的命中测试就是它自己）；开→关整个来回**请求数一个都没多**；诊断块恰好 8 行、第 i 行是第 i 个白名单字段、`build` == 被测入口哈希前 8 位；计数与页面上真实渲染的数字自洽；`<a>` 数 == 门控期望且 Issues 锚点 `target`/`rel` 正确 |
 | H 主题       | 首访 = 默认主题（54 条变量逐条 == 源码调色板、`theme-color` 与壳层 `<style>` 同字面 hex、localStorage 无偏好键）；`Theme` 面板开得出且**真浮在最上面**、六行按 `THEME_ORDER`、预览块是各主题的字面 rgb（零 `var(`）；切到 GitHub Light 后 `<html>` 变量 / `app-root` 计算背景 / `theme-color` / `color-scheme` / localStorage 五处同时变，**请求总数一个都没多**；写在 SVG 表现属性上的 `fill="var(--cm-node-fill)"` 真浏览器算得出 rgb；刷新后不点任何东西仍是亮色且新文档零 CSP 违规；切回默认全部复原 |
@@ -303,7 +307,7 @@ checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 p
 图标配色只允许来自 `src/theme.ts` 的**默认主题**（`__tests__/icons.test.ts` 锁死这条不变量）。
 界面有 6 套主题，图标和品牌色没有：切主题时图标**不动**（品牌固定），只有地址栏的
 `theme-color` 跟随当前主题；headless Chrome 不抓 `<link rel="icon">`，所以冒烟里用 `<img>`
-主动把每个注入 href 拉一遍（F 组），请求同样进 E 组承诺面。
+主动把每个注入 href 拉一遍（F 组），请求同样进 E 组默认行为基线。
 
 ## 命令
 

@@ -392,6 +392,9 @@ export function GraphPane(): ReactNode {
         },
       });
     });
+    // 监听只在挂载时注册一次，deps 留空是有意的：onNodePress 捕获的两个值都是稳定引用
+    // （suppressPress 是 ref、selectFromGraph 是 zustand action），所以新旧闭包行为等价。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
 

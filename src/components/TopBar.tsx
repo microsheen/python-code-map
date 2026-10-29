@@ -12,10 +12,8 @@ import type { ScrollView as RNScrollView, ViewStyle } from 'react-native';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ALL_SCOPE, DEFAULT_DEPTH, fileScope, neighborhoodScope } from '../graph/scope';
-import type { Scope } from '../graph/scope';
 import { pickFiles } from '../platform/web/filePick';
-import type { GraphStats } from '../parser/types';
-import { useAppStore, MAX_FILES } from '../state/store';
+import { useAppStore } from '../state/store';
 import { FeedbackDialog } from './FeedbackDialog';
 import { colors, fileColor, fonts, spacing, THEMES, THEME_ORDER } from '../theme';
 import { useThemeStore } from '../state/themeStore';
@@ -111,7 +109,7 @@ export function TopBar(): ReactNode {
     const h = () => setCtxMenu(null);
     window.addEventListener('click', h);
     return () => window.removeEventListener('click', h);
-  }, [ctxMenu]);
+  }, [ctxMenu, setCtxMenu]);
 
   const busy = status === 'loading-wasm' || status === 'parsing';
   const canGoBack = navIndex > 0;

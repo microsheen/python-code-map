@@ -156,8 +156,10 @@ jobs:
           retention-days: 14
 
   browser-smoke:
-    # 真 headless Chrome 打在这份产物上，断言的是承诺面：同源 / 全 GET / 零请求体 /
-    # URL 里没有用户内容 / 每个 200 都对应 dist 里真实存在的文件 / 生产 CSP 下零违规。
+    # 真 headless Chrome 打在这份产物上。断言分两档（ADR-0006）：E1–E5 是**默认行为基线**
+    # —— 冒烟里没有任何拉取动作，所以全同源 / 全 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应
+    # dist 里真实存在的文件必须成立；E6–E8 与拉取与否无关，仍然是承诺：跑的入口 JS 就是 dist 里
+    # 那个文件 / URL 里没有用户内容 / 生产 CSP 下零违规。
     # 它只读 package.json + scripts + fixtures + dist + src/feedback/contact.ts（冒烟 G 组要拿
     # 源码里的常量核对面板渲染的地址与门控的链接数），不需要 node_modules。
     needs: checks

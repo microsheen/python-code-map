@@ -957,12 +957,12 @@
   机器」改成「纯前端、本地优先 / 应用不会发出任何你没有要求的请求」；留下来的窄事实是三条能被证明的：
   **拉取只发出对你所给 URL 的 GET、请求体恒空、代码内容从不被发往任何地方**。三份 README 一并补上 ADR-0006 的
   链接（「五个关键设计决策」→ 六个）。
-- 口径不许被改回来，所以它长成断言而不是 review 自觉：新增 `__tests__/promiseSurface.test.tsx`（45 条），逐字钉住
+- 口径不许被改回来，所以它长成断言而不是 review 自觉：新增 `__tests__/promiseSurface.test.tsx`（45 条，review 后 48 条），逐字钉住
   三语 README 的「撤回宣称零残留 + 窄事实一条不少」、`public/_headers` 的 CSP 指令、上传面板真正渲染出来的那句
   提示、以及冒烟 E1–E5 的标签必须带「默认行为基线」这个限定。同仓先例是 `audit-egress.mjs`（逐字扫，注释也算）
   与 `feedback.test.tsx` 的反向不变量（mailto: 只可能长在一个文件里）。已知的边界写在文件头注里：文本匹配抓得住
   「旧宣称复活」，抓不住「换个说法重新吹一遍全称宣称」，那一档仍然靠 review 与 ADR。jest 20 suites / 386 →
-  **21 suites / 431 tests**。
+  **21 suites / 434 tests**。
 - 本轮新造的承重词进了词表：`CONTEXT.md` 增补 **默认行为基线（default-behaviour baseline）** 与 **承诺（promise）**
   两条 —— 前者是 E1–E5 的身份（默认行为的下限，不是对外全称承诺），后者是与有没有拉取无关、任何情况下都必须
   成立的那几条（E6–E8 属于这一档）。一个词表里没有的词被当承重词用在 6 个文件里，就是 `docs/agents/domain.md`
@@ -980,7 +980,7 @@
   `Files you add stay in this browser and their contents are never sent anywhere; a request goes out only when you
   explicitly pull a file from a URL.`。旧那句是全称宣称；新那句在今天（拉取还不存在，所以外发为零）与 2/7 落地之后
   同样为真 —— 它约束的是上界，不是描述一个已经存在的按钮。
-- 门禁实测：`npm run verify` exit 0（typecheck 空输出、lint **0 error / 12 warning** 全是既有基线、431 全过）；
+- 门禁实测：`npm run verify` exit 0（typecheck 空输出、lint **0 error / 12 warning** 全是既有基线、434 全过）；
   `npm run export` → 入口 `entry-7c71e4fa…` **1,431,448 B**（比上一轮本机基线 +74 B，正是那句 hint 变长的量）、
   `index.html` **1,562 B**（连续第四轮同字节数）、sha256 `4ffaa705ba82…7289b`；`npm run smoke` → **75/75 PASS**、
   `failed: []`；`npm run audit:egress` → `scanned 3 file(s)` clean。本轮最要看的是 **E8 生产 CSP 下零违规**
@@ -1022,6 +1022,16 @@
   **不接受删除** —— `retained` 那 20 条被指为「文案锁而非契约、2/7 会被迫 churn」；AC 明确要求「保留窄事实」
   与「三语口径一致」，而窄事实是散文，除了字面锚点没有第二种断言方式，删掉就等于放弃这条 AC。改为在头注里写明
   它**是**故意的文案锁：有意改写文案时必须一并改锚点，那种红灯是提醒不是故障。
+- CI run `40890348338`（push master 触发）两个 job 全绿、`deploy` **skipped**（`ref_name != 'main'`，本票不发布）：
+  `checks` —— node v24.22.1、npm 钉到 **11.19.0**（harness 11.19.1）、lint **0 error / 12 warning** 全是既有基线、
+  jest **21 suites / 434 tests**、`audit-egress: scanned 3 file(s)` clean；`browser-smoke` —— **75/75**、`failed: []`，
+  E1 现场 `总请求数=14` 全同源、E8 `violations=[] preReload=0`（放宽 connect-src 之后 CI 侧同样零违规），
+  `[默认行为基线]` 这个新标签在 CI 日志里逐条可见 —— 门禁跑的就是本轮改过措辞的那份脚本。
+- **本机构建 ≠ CI 构建，第五次复现**：同一份源码，本机 `index.html` sha256 `4ffaa705ba82…7289b`、CI
+  `f3e2bbcf0adf…509291`，**两边都是 1,562 B**。这次连原因都指到了具体字节：入口文件名不同（本机
+  `entry-7c71e4fa…`、CI `entry-4b5c7cf1…`），两个哈希等长，所以字节数一模一样而摘要不同 —— 差异全部集中在
+  `index.html` 引的那一行脚本路径上。判据不变并且更硬了：**任何 `--dist` 只能指当轮 CI 产物**，指本机构建
+  必然在 `/` 上产生假阳性（ops §8 已记）；同时「字节数相同」不能作为「同一份产物」的证据，摘要才算。
 - 遗留：① 生效 CSP 的「声明 == 生效」核对欠着，随下一次 main 发布一起做（ops §8 已留模板与判据）；② 三语 README
   现在描述的是「拉取」这个还没上线的能力的**边界**，2/7 落地前用户在 UI 上找不到那个入口 —— 这是 issue #3 明确
   要求的顺序（先腾合法空间），不是漏改；③ F 组四条断言与 `audit:egress` 扩扫属于 7/7（issue #9），本轮没有预支；

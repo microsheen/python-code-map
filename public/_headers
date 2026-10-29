@@ -8,7 +8,9 @@
 # https 直链，主机白名单在这种能力面前名存实亡，所以放宽到协议粒度（ADR-0006 决策 2）。
 # http: 不写 —— https 页面里的明文请求浏览器本来就按混合内容拦死，写上去只是白留一个口子。
 # 代价也记在这里：页面一旦被注入第三方脚本，外泄不再被 connect-src 硬挡，防线只剩
-# npm run audit:egress 与冒烟 E/F 组（ADR-0006「后果」）。其余指令一条没动。
+# npm run audit:egress 与冒烟 E 组（E1–E5 默认行为基线 + E6–E8 承诺）。ADR-0006「后果」里
+# 那句「E/F 组」指的是决策 4 的**拉取面** F 组（随 issue #9 落地），不是本脚本现在的 F 组（图标链路）
+# —— 两个 F 同名，#9 落地时必须先给其中一个改名。其余指令一条没动。
 
 /*
   Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self'; manifest-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'none'

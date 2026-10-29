@@ -4,7 +4,7 @@
  * 这一轮只改口径不改行为：README 三语不再宣称「零外发 / 每个请求都同源」，换成
  * local-first + 仅显式拉取才发请求；能被证明的窄事实（拉取只发出对用户所给 URL 的 GET、
  * 请求体恒空、代码内容从不被发往任何地方）原样保留；CSP 的 connect-src 从 'self'
- * 放开到 'self' https:（任意主机直链让主机白名单名存实亡，http 明文由混合内容天然禁止）。
+ * 放开到 'self' https:（理由不在这里重述：源头是 ADR-0006 决策 2，完整版写在 public/_headers 注释里）。
  *
  * 为什么这些断言长成文本匹配的样子：口径是对外承诺，承诺最怕的不是写错，是**被改回来
  * 而没人发现**。同仓先例是 audit-egress.mjs（逐字扫，注释也算）与 feedback.test.tsx 的
@@ -20,6 +20,9 @@
  *   - retained 是**故意的文案锁**：AC 要求「保留窄事实」与「三语口径一致」，而窄事实是散文，
  *     除了字面锚点没有第二种断言方式。代价是有意改写文案时必须一并改这里的锚点 ——
  *     那种红灯是提醒，不是故障。别为了让它变绿就把锚点删掉。
+ *     锁的**边界**同样要划：锚点只钉「三条窄事实 + 两档标签」这五个字面。风格性的句子、ADR 链接
+ *     这类**不是承诺本身**的东西不进列表 —— 链接被删是文档问题，而锚点越多，有意改一次文案就要
+ *     连带改越多地方，锁会退化成噪声（review 提过，采纳）。
  *
  * 已知边界：文本匹配抓得住「旧宣称复活」与「窄事实被顺手删掉」，抓不住换个说法重新吹一遍
  * 全称宣称 —— 那一档靠 review 与 ADR-0006。
@@ -27,7 +30,8 @@
  * 三个接缝：
  *   1. public/_headers           —— 上线响应头唯一的源（dist/ 只是它的拷贝，且被 gitignore）
  *   2. <UploadPanel/>            —— 用户真正读到的那句提示
- *   3. README 三语 + browser-verify 的 E1–E5 标签 —— 对外口径与门禁自己的措辞
+ *   3. README 三语 + browser-verify 的 E 组标签 —— 对外口径与门禁自己的措辞
+ *      （E1–E5 基线 / E6–E8 承诺，两档都得在：只写一档就等于把另一档说没了）
  * 漏什么：Pages 边缘实际下发了什么。那是部署后 check-deploy 探针的事，本票不发布。
  */
 import fs from 'node:fs';
@@ -88,8 +92,9 @@ describe("public/_headers：connect-src 放开到协议粒度（ADR-0006 决策 
     expect(csp['frame-ancestors']).toBe("'none'");
   });
 
-  it('CSP 里不写死任何主机名：换域名时这个文件应当是零改动', () => {
-    expect(cspLine()).not.toMatch(/[A-Za-z0-9-]+\.(com|dev|net|org|io)\b/);
+  it('CSP 里不写死任何主机名（任何「标签.TLD」形状都算，不枚举 TLD）：换域名时这个文件应当是零改动', () => {
+    // 上一版枚举 com|dev|net|org|io，.cn/.app/.xyz 全漏；换成形状判断，新 TLD 不用改断言。
+    expect(cspLine()).not.toMatch(/[A-Za-z0-9-]+\.[A-Za-z]{2,}/);
   });
 });
 
@@ -113,21 +118,36 @@ describe('上传面板提示：新口径，旧宣称零残留', () => {
     expect(text).toContain('explicitly pull');
   });
 
-  it('整个 src/ 里也没有把旧宣称挪个地方藏着', () => {
-    const hits = sourceFiles(path.join(ROOT, 'src'))
-      .filter((f) => fs.readFileSync(f, 'utf8').match(/never leaves the browser/i))
-      .map((f) => path.relative(ROOT, f).split(path.sep).join('/'));
-    expect(hits).toEqual([]);
+  /**
+   * 上一版标题写「整个 src/」，正则却只扫 /never leaves the browser/ —— 标题比断言宽，正是本轮
+   * review 抓到的那种「门绿着、缺口在门的视野外」。FeedbackDialog 里那句
+   * "nothing leaves the browser until you do" 是**限定式**的（外发以用户动作为条件），今天为真、
+   * 也不属于被撤回的那一档，不该一刀切禁掉；该禁的是不带任何限定的同款说法。所以改成：扫全部
+   * /leaves the browser/，要求每一处都带着用户动作限定。
+   * 记账给 #9：拉取落地后 FeedbackDialog 那句「页面对外只有你点的 href」不再为真，要一并重写。
+   */
+  it('整个 src/ 里没有不带限定的「东西不会离开浏览器」式全称宣称', () => {
+    const unqualified = sourceFiles(path.join(ROOT, 'src')).flatMap((f) =>
+      (fs.readFileSync(f, 'utf8').match(/[^\n]*leaves the browser[^\n]*/gi) ?? [])
+        .filter((line) => !/until you do/i.test(line))
+        .map((line) => path.relative(ROOT, f).split(path.sep).join('/') + ': ' + line.trim()),
+    );
+    expect(unqualified).toEqual([]);
   });
 });
 
 /**
  * 三语口径。retracted 是被 ADR-0006 撤回的全称宣称与旧标签，一条都不许留；
- * retained 是必须还在的窄事实与新标签，一条都不许顺手删掉（见文件头注：这是文案锁）。
+ * retained 是必须还在的三条窄事实与两档标签，一条都不许顺手删掉（见文件头注：这是文案锁）。
  *
  * retracted 的第三类值得单说：反馈章节原先把「源码不上行」当成那条承诺的名字来引用。
  * 本轮已经把 ops §1 同一行改名成「代码内容不上行」，README 若不改就两处对不上 —— 而且
  * 这类「同一个旧词在别处还活着」的残留，正是只盖住自己刚改那几行的断言最容易漏的。
+ *
+ * retracted 的最后一类是**本轮自己犯过的错**：README 三语的 E 行原先整行贴上「默认行为基线」，
+ * 把 E6–E8（入口 JS 就是产物那个文件 / URL 里没有用户内容 / 生产 CSP 下零违规）一起降了级 ——
+ * 与 AC5「冒烟 E1–E5 措辞更新为默认行为基线」正相反，也与 CONTEXT.md、ops §1、CI 注释、
+ * browser-verify.mjs 的标签全对不上。所以那三个旧行标签进 retracted：再出现即回归。
  */
 const READMES = [
   {
@@ -139,25 +159,32 @@ const READMES = [
       'promise surface',
       'promise-surface',
       'your source never goes upstream',
+      '| E default-behaviour baseline |',
     ],
     retained: [
-      'docs/adr/0006-url-pull-egress.md',
       'a GET to exactly the URL you typed',
+      'every request body is empty',
       'your code contents are never sent anywhere',
-      'E default-behaviour baseline',
-      'with no pull in play',
+      'E1–E5 are the default-behaviour baseline',
+      'E6–E8 are promises',
     ],
   },
   {
     file: 'README.zh-CN.md',
-    retracted: ['零上行', '不作为任何请求的一部分离开这台机器', '每个请求都是同源', '承诺面', '源码不上行'],
+    retracted: [
+      '零上行',
+      '不作为任何请求的一部分离开这台机器',
+      '每个请求都是同源',
+      '承诺面',
+      '源码不上行',
+      '| E 默认行为基线 |',
+    ],
     retained: [
-      'docs/adr/0006-url-pull-egress.md',
       '拉取只发出对你所给 URL 的 GET',
       '请求体恒空',
       '代码内容从不被发往任何地方',
-      'E 默认行为基线',
-      '无拉取动作时',
+      'E1–E5 是默认行为基线',
+      'E6–E8 是承诺',
     ],
   },
   {
@@ -168,14 +195,14 @@ const READMES = [
       'すべてのリクエストが同一オリジン、すべて GET',
       '約束の表面',
       'あなたのソースコードは上流に行かない',
+      '| E 既定動作のベースライン |',
     ],
     retained: [
-      'docs/adr/0006-url-pull-egress.md',
       'あなたが入力した URL への GET のみ',
       'リクエストボディは常に空',
       'コードの内容はどこにも送信されません',
-      'E 既定動作のベースライン',
-      'プル動作がないとき',
+      'E1–E5 は既定動作のベースライン',
+      'E6–E8 は約束',
     ],
   },
 ];

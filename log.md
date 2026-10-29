@@ -1213,3 +1213,35 @@
   本轮真犯了一次（issue-tracker 那段写操作的 bullet），改用单引号 here-string 重写才对。
   ⑥ `%TEMP%\cm-retro`（本轮 node 脚本、两份 CI 日志、两条 issue 评论正文）与上一轮的 `%TEMP%\cm-fix3`
   照旧只能人工清。
+## 2026-10-30 retro 落地轮的 CI 实测 —— run 40918264838 两 job 全绿、deploy skipped；CI 侧 lint 也第一次 0 警告；日志正文这轮全程读得到（观测点第三次出问题，但这次是修好了）
+
+- CI run **`40918264838`**（`push` 触发、branch `master`、被测 commit `18eeac3`、attempt 1、`conclusion=success`）：
+  `checks` ✅（job `123604206302`，17:07:25Z → 17:08:06Z，**41 s**）、`browser-smoke` ✅（job `123604611927`，
+  17:08:09Z → 17:08:53Z，**44 s**）、`deploy` **skipped** —— 发布专线认 `ref_name == 'main'`，本轮在 master 上，
+  本票也不发布。这次读数来自 `GET /commits/<sha>/check-runs` 的 `conclusion` 字段（success / success / skipped），
+  **不是数 HTML 图标** —— API 读得通就走首选那条路，备胎只在它坏时用。
+- `checks` job 逐条（日志正文 **46,087 B / 564 行**，`GET /actions/jobs/123604206302/logs` 一次取回）：
+  `node=v24.22.1 npm=11.19.0 harness=11.19.1 lockfileVersion=3`（与上一轮同一组，工具链钉住了）；
+  `npm run verify` 那步里 `eslint . --max-warnings=0` **一行输出都没有** ⇒ CI 侧也是 0 error / 0 warning，
+  这是**第一次**（上一轮 CI 日志里是 `✖ 12 problems (0 errors, 12 warnings)`），也就是说本轮那个新旗标
+  真的在 CI 里跑到了、而不是只在本机生效；jest **22 suites / 437 tests**（与本机逐字相同）；
+  `audit-egress: scanned 3 file(s)` clean；步骤 1–12 与三个 post 步骤全 success。
+- `browser-smoke` job（日志 **45,334 B / 339 行**）：`75/75`、`failed: []`、E1 `总请求数=14`、
+  E7 `210 个标记 x 14 个请求，零命中`。CI 侧产物 `index.html` **1,562 B**、入口 `entry-8f02fc08…`、
+  sha256 `1756663863246b42…5408267`；`dist` 工件 **589,895 B**（上一轮 589,901 B，**−6 B**）、
+  digest `dc553532…8262cc`。本机同一棵树是 `entry-a1e61c40…` / `d76a65d37a08…10ec49` ——
+  **同字节数、不同入口哈希，这条差异第七次被量到**（根因仍是入口哈希写进了 index.html，见 ops §8）。
+- 推送本身这轮抖了 6 次：`git push` 连着 6 次 `Recv failure: Connection was reset`，**第 7 次**才推上去；
+  而同一时段 API 侧（`Invoke-RestMethod` 带 `gh auth token` 的令牌）读 check-runs、取 job 日志、
+  给 issue #9 与 #3 发评论**全部一次成功**。⇒ `github.com` 的 git 端点与 `api.github.com` 是**分开抖**的，
+  不能拿一个的成败推断另一个；推送要写成重试循环，别一次失败就记「推不上去」。已写进
+  `docs/agents/issue-tracker.md`。
+- 还有一条平台警告本轮没处理（原文抄在这里，免得下轮再考古）：`Node.js 20 is deprecated. The following actions
+  target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4,
+  actions/upload-artifact@v4`（`.github/workflows/ci-and-deploy.yml`；同一 workflow 里的 `download-artifact@v4`
+  没被点名）。升 v5 是独立的一轮，记在上一条记录的遗留 ③。
+- 本轮学到的规矩：**观测点坏了先换客户端，再换域名**。上一轮把「`gh` 打空」升级成「API 域名不通、日志正文拿不到」，
+  于是整整一轮的 CI 读数只记了「不可读」；本轮同一个域名、同一个令牌、换个 HTTP 客户端就全读回来了，
+  连上一轮那份日志也补读回来（node/npm 版本、12 条警告的逐条出处、CI 侧入口哈希）。降级读法
+  （`deferred_commit_data` 与 run 页面 `aria-label`）留着当备胎，但别把它当成唯一路径 —— 它给不了日志正文，
+  而日志正文里才有能用来更正自己记忆的原文。

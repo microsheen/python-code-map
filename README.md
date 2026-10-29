@@ -280,6 +280,7 @@ Screenshots (`codemap-shots/01-initial.png` … `06-deep-crossfile.png`, `11-edg
 | `npm run icons`                   | regenerate the ico / 180 / 192 / 512 rasters from `public/icon.svg`                                              |
 | `npm run audit:egress`            | statically scan the three contact-path files: any request primitive or unpublished email literal turns it red (CI blocking) |
 | `npm run smoke`                   | real Chrome + CDP automation acceptance (run `npm run export` first)                                             |
+| `npm run serve:dist`              | serve `dist/` with `_headers` replayed and keep it running — for checking the production CSP and cache headers by hand in a browser (the dev server does not apply `_headers`, so header checks there prove nothing); runs no assertions |
 | `node scripts/browser-verify.mjs` | same thing, running the script directly                                                                          |
 
 ## Directory layout

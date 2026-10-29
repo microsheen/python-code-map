@@ -9,6 +9,7 @@
  * 用法：
  *   npm run export                 # 先产出 dist/
  *   node scripts/browser-verify.mjs
+ *   npm run serve:dist             # 只托管 dist/（回放 _headers）不跑断言，用浏览器手工看产物
  * 可选环境变量：CODEMAP_PORT（静态服务端口，默认 8099，被占用则复用已有服务）、
  * CODEMAP_CDP_PORT（Chrome 调试端口，默认 9333）、CHROME_PATH（浏览器可执行文件）。
  * 截图与 JSON 报告写到系统临时目录（codemap-shots / codemap-verify-report.json）。
@@ -26,6 +27,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
 const APP_PORT = Number(process.env.CODEMAP_PORT || 8099);
 const APP_URL = 'http://127.0.0.1:' + APP_PORT + '/';
+/** --serve-only：只托管 dist/（回放 _headers），不启 Chrome、不跑断言，服务一直挂着。 */
+const SERVE_ONLY = process.argv.includes('--serve-only');
 let PORT = Number(process.env.CODEMAP_CDP_PORT || 9333);
 const TMP = os.tmpdir();
 let PROFILE = path.join(TMP, 'cdp-codemap-profile');
@@ -1971,6 +1974,43 @@ async function main() {
 let EXIT = 0;
 const REPORT_PATH = path.join(TMP, 'codemap-verify-report.json');
 
+/**
+ * --serve-only（npm run serve:dist）：用浏览器手工看**产物**。
+ *
+ * 为什么要有这个模式：dev server（npm run web）不套 public/_headers，所以在 dev 上既看不到生产
+ * CSP、也看不到缓存档 —— 任何关于响应头的手工验证在 dev 上都是无效的。这里复用冒烟自己的
+ * startStaticServer() 与 headersFor()，手工看到的头与门禁用的是同一套语义，不会漂。
+ * 它不跑断言、不启浏览器、不写报告：门禁仍然是 npm run smoke。
+ */
+async function serveOnly() {
+  if (!fs.existsSync(path.join(DIST, 'index.html'))) {
+    console.log('dist/index.html 不存在，请先运行 npm run export 产出静态站点');
+    process.exit(1);
+  }
+  const srv = await startStaticServer();
+  console.log('[serve-only] ' + APP_URL + (srv.reused ? '  （端口已被占用：复用的是别人起的服务，Ctrl+C 不会关掉它）' : ''));
+  console.log('[serve-only] dist = ' + DIST);
+  console.log('[serve-only] _headers 规则 ' + HEADER_RULES.length + ' 条：' + HEADER_RULES.map((r) => r.pattern).join(' '));
+  const samples = ['/', '/index.html', distIndex().entry, '/wasm/tree-sitter.wasm', '/icon.svg'].filter(Boolean);
+  for (const p of samples) {
+    const file = distFileFor(p);
+    const rel = file ? '/' + path.relative(DIST, file).split(path.sep).join('/') : null;
+    const h = headersFor(p, rel).headers;
+    console.log('  ' + p);
+    console.log('    cache-control: ' + (h['cache-control'] || 'no-store（服务器默认，无规则命中）'));
+    console.log('    content-security-policy: ' + (h['content-security-policy'] || '(这条路径没有)'));
+  }
+  const stop = () => {
+    if (srv.server) { try { srv.server.close(); } catch { /* ignore */ } }
+    process.exit(0);
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  // 复用别人的端口时自己没握着 server 句柄，事件循环会空掉 —— 显式挂着。
+  if (!srv.server) setInterval(() => {}, 1 << 30);
+  console.log('[serve-only] 服务已起，Ctrl+C 结束。CSP 相关的手工实验请在这个端口上做。');
+}
+
 async function run() {
   try {
     await main();
@@ -2003,6 +2043,13 @@ async function run() {
   }
 }
 
-run();
+if (SERVE_ONLY) {
+  serveOnly().catch((e) => {
+    console.log('[FATAL] ' + String((e && e.stack) || e));
+    process.exit(1);
+  });
+} else {
+  run();
+}
 
 

@@ -24,6 +24,7 @@
     "format": "prettier --write .",
     "verify": "npm run typecheck && npm run lint && npm test",
     "smoke": "node scripts/browser-verify.mjs",
+    "serve:dist": "node scripts/browser-verify.mjs --serve-only",
     "audit:egress": "node scripts/audit-egress.mjs --files=src/feedback/contact.ts,src/components/FeedbackDialog.tsx,src/platform/web/buildStamp.ts --require-href",
     "icons": "node scripts/build-icons.mjs"
   },

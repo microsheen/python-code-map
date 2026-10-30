@@ -1115,7 +1115,7 @@ function contactContract() {
 
 /**
  * 拉取的契约同样从源码里读（理由同 contactContract）：覆盖用的全局量名字一旦被改，
- * 冒烟这边抄的那份就会静默失效 —— 覆盖不生效时请求会打到 pull-stub.invalid 上去然后失败，
+ * 抄下来的那份就会静默失效 —— 覆盖不生效时请求会打到 pull-stub.invalid 上去然后失败，
  * 看起来像「拉取功能坏了」，其实是门自己没跟上。读不到就抛。
  */
 function pullContract() {

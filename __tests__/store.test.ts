@@ -13,6 +13,7 @@ import {
 } from '../src/graph/scope';
 import type { PythonParser } from '../src/parser/treeSitter';
 import type { PickedFile } from '../src/parser/types';
+import { MAX_FILE_SIZE, oversizeMessage } from '../src/parser/analyze';
 import {
   DEFAULT_SPLIT,
   IDENTITY_VIEW,
@@ -313,6 +314,17 @@ describe('loadFiles / addFiles / removeFile', () => {
     reset();
     await s().loadFiles([py('a.py', 'x = 1\n'), py('b.py', 'y = 2\n')], NULL_PARSER);
     expect(s().progress).toEqual({ done: 2, total: 2 });
+  });
+
+  it('本地上传按 UTF-8 实际字节卡 1MB：字符数没超、字节数超了的中文文件同样被跳过', async () => {
+    // 一个汉字 3 字节：字符数 ≈ 35 万（远不到 1M），UTF-8 字节数刚过 1MB。
+    // 拉取与上传共用 oversizeMessageOf 这一份判据，不存在「只卡拉取、放行上传」的口径。
+    reset();
+    const chinese = '中'.repeat(Math.floor(MAX_FILE_SIZE / 3) + 1);
+    await s().loadFiles([py('big.py', chinese), py('ok.py', 'def f():\n    pass\n')], NULL_PARSER);
+    expect(s().files.map((f) => f.path)).toEqual(['big.py', 'ok.py']); // 降级，不丢文件
+    const big = s().files.find((f) => f.path === 'big.py');
+    expect(big?.error).toBe(oversizeMessage());
   });
 
   it('addFiles 按路径合并，同路径后者覆盖前者', async () => {

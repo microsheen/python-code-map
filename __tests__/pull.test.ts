@@ -189,17 +189,20 @@ describe('多行粘贴：一行一个批次', () => {
 describe('错误分类：四类文案互不相同', () => {
   const url = 'https://example.com/libs/tool.py';
 
-  it('服务端答了错误状态码 -> http，文案里带上状态码与主机', () => {
+  it('4xx -> http，带上状态码与主机，并把用户引向链接（这时改链接才有用）', () => {
     const r = classifyFailure({ type: 'status', status: 404, rateLimited: false }, url);
     expect(r.kind).toBe('http');
     expect(r.message).toMatch(/404/);
     expect(r.message).toMatch(/example\.com/);
+    expect(r.message).toMatch(/moved|link may be wrong/i);
   });
 
-  it('5xx 同样归 http（不是「网络不可达」—— 服务器明明答话了）', () => {
-    expect(classifyFailure({ type: 'status', status: 503, rateLimited: false }, url).kind).toBe(
-      'http'
-    );
+  it('5xx 同样归 http（服务器明明答话了），但文案指向服务端、不让用户去改链接', () => {
+    const r = classifyFailure({ type: 'status', status: 503, rateLimited: false }, url);
+    expect(r.kind).toBe('http');
+    expect(r.message).toMatch(/503/);
+    expect(r.message).toMatch(/server error|try again later/i);
+    expect(r.message).not.toMatch(/moved|link may be wrong/i);
   });
 
   it('限速单独一类，文案里明确让用户稍后再试', () => {

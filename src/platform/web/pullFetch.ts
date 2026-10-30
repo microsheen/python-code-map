@@ -1,5 +1,6 @@
 /**
- * 拉取的传输外壳：全站**唯一**一处 fetch（platform/web 的「唯一触点」惯例，同 filePick / persist）。
+ * 拉取的传输外壳：全站**唯一**的外发 fetch（platform/web 的「唯一触点」惯例，同 filePick / persist）。
+ * 页面里另一处 fetch 在 src/parser/treeSitter.ts：它取同源 wasm 资产，不是外发点 —— 这两处别混。
  *
  * 这一层刻意做得很薄：把 PullRequest 交给 fetch，把 fetch 的结果/异常翻译成 PullOutcome，
  * 不做任何策略判断 —— 该不该发这条请求是 classifyUrl 的事，失败算哪一类是 classifyFailure 的事。

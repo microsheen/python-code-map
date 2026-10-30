@@ -92,6 +92,14 @@ export function classifyFailure(obs: PullFailureObservation, url: string): PullF
       message: `HTTP ${obs.status} from ${host} — rate limited, try again later`,
     };
   }
+  // 5xx 是对方答话了但答的是「我这边出错」—— 叫用户去改链接是错建议（ADR-0006「文案避免被误读成
+  // 站点坏了」的反方向）。4xx 才是「文件不在这儿 / 地址不对」，这时指向链接才有用。
+  if (obs.status >= 500) {
+    return {
+      kind: 'http',
+      message: `HTTP ${obs.status} from ${host} — the host answered with a server error; try again later`,
+    };
+  }
   return {
     kind: 'http',
     message: `HTTP ${obs.status} from ${host} — the file may have moved or the link may be wrong`,

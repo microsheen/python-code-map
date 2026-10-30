@@ -1403,3 +1403,41 @@ issue #4 关票后紧接的两轴 review（fixpoint `eb0df1f` → `4580fe5`）�
   ⑤ `src/components/CodePane/FileTabs.tsx` 死文件待删；⑥ workflow actions 升 v5；⑦ **#11** 20 文件上限与
   「逐批独立成败」的语义待拍板；⑧ 三条 review 判断项（承诺节选重复 / `mergeFiles` 的 `meta` 过宽 /
   `PullBatch.ref` 无读取点，后者等 #5）。#7 已补一条评论：PR1 只读了 origins、`batches` 只有 jsdom 证据。
+
+## 2026-10-30 #10 文案轮（超限提示改英文 · warning 分隔符跟着改 · 解析失败那几句仍待扫 · 505 单测 · 88 项冒烟）
+
+issue #10 说的就是一句用户可见文案：`oversizeMessage()` 返回「文件超过 1MB，已跳过」，与 CODING_STANDARDS
+「用户可见的界面字符串用英文」不符。#4 当时沿用它是 AC 要求（「沿用现有超限提示文案」），所以改文案单独成轮。
+
+- **改了三处，一起看才是一句完整的话。** ① `src/parser/analyze.ts` 的 `oversizeMessage()` →
+  `File is over 1 MB — skipped`；② `src/state/store.ts` 的 warning 行分隔符 `：` → `: ` —— 它是同一行：
+  不换的话用户看到的是「big.py：File is over 1 MB — skipped」，半句中文半句英文比原来更糟；
+  ③ 头注写清「#4 为什么沿用中文 / #10 为什么单独成轮」，免得下一轮又把它当成顺手可改的东西。
+- **断言换成反向不变量。** `__tests__/pull.test.ts` 原来那条「沿用现有那一条、说的是 1MB」换成
+  「点出 1 MB 且整句没有 CJK」（`not.toMatch(/[\u4e00-\u9fff]/)`）—— 盯字面量只能防一次，盯「不许是中文」
+  才防得住下一句被写回去。这条文案不在承诺面文案锁里（它不是窄事实），所以放宽/收紧都不动 `promiseSurface`。
+- **没改的（判据）**：`src/parser/analyze.ts` 里还有三句用户可见的中文 ——
+  「解析失败：tree-sitter 返回空树」「存在 N 处语法错误，已尽力解析（结果可能不完整）」「解析异常：…」。
+  它们走的是同一条 `warnings` 通道、同一个口径问题，但那是更大的一片（要逐一决定英文措辞、还要改读它们的断言），
+  本票不夹带，记在遗留 ⑧。另外三语 README 是 #3，超限**语义**（整段拒收）是 #11 —— 两件都不在这轮。
+- 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning（零输出）；
+  jest **25 suites / 505 tests**（条数不变：改的是同一条里的断言）；smoke **88/88**（`EXIT=0`，P 组 13 项全在）。
+  本机产物：入口 `entry-33f8664d868ab94701c87ff4b0e42dc4.js`（1,441,807 B，比上一版 **−24 B**）、
+  `index.html` 1,562 B / sha256 `8cbe6a91fafa373ccbb270ec397c31c0e6e79b237245245a3abdf3c193b6ddfb`。
+- CI：run **`41015720965`**（`push`、branch `master`、被测 commit `3479253`、attempt 1、`conclusion=success`）：
+  `checks` ✅（job `123931485322`，06:43:14Z → 06:44:20Z，**66 s**）、`browser-smoke` ✅（job `123931837667`，
+  06:44:22Z → 06:45:01Z，**39 s**）、`deploy` **skipped**。CI 侧 jest **25 suites / 505 tests**
+  （`Time: 11.208 s`，与本机逐字相同）、`eslint . --max-warnings=0` 零输出（**连着第五轮**）、
+  `audit-egress: scanned 3 file(s)`、smoke **88/88** 且 P 组 13 项全在、E1 `总请求数=17`、E7 `210 × 17，零命中`。
+  CI 产物：入口 `entry-7c94ffbcba2de902d0076869574be095.js`、`index.html` 1,562 B / sha256
+  `fd710c5dc0efb229a3d20a48b11c5c1e72d3843b7cd19989d0a52282b6bd2ce9`、`dist` 工件 **Final size 593,339 B**
+  （上一轮 593,337 B，**+2 B**；Artifact ID `12959014216`，zip 摘要 `81b464c5…8513e9a`）。
+- **同字节数、不同入口哈希，第十次被量到**（CI `7c94ffbc…` vs 本机 `33f8664d…`，两边 `index.html` 都是 1,562 B）。
+- 本轮学到的规矩：**改一句 UI 文案要先看它被拼进哪个容器。** 这句英文单独看没问题，接上 `warnings` 那句
+  `name：error` 就成了半中半西 —— 一条文案的「完整一句话」可能跨两个文件，改之前先把拼装点 grep 出来。
+  另一半：把口径写成**反向不变量**（「不许有 CJK」）比钉住当前字面量耐久，钉字面量只能守一次。
+- 遗留：① #9（P3/P4 + `audit:egress` 扩扫）；② #8 顶栏常驻拉取入口；③ #3 README 三语；
+  ④ `src/components/CodePane/FileTabs.tsx` 死文件待删；⑤ workflow actions 升 v5；⑥ **#11** 20 文件上限的
+  「逐批独立成败」语义（等 #6 一起看）；⑦ 三条 review 判断项（承诺节选重复 / `mergeFiles` 的 `meta` 过宽 /
+  `PullBatch.ref` 无读取点，后者等 #5）；⑧ **新**：解析层三句中文 UI 文案（解析失败 / 语法错误 / 解析异常）
+  与这条口径同源，待扫 —— 要动的话建议单独一轮，连断言一起改。

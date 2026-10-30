@@ -1302,3 +1302,56 @@ web 侧唯一 fetch 触点 `src/platform/web/pullFetch.ts`（15s AbortController
 - 遗留：① #9（P3/P4 + audit:egress 扩扫 + 真 GitHub 人工抽测的流程）；② #8 顶栏常驻拉取入口；
   ③ #3 README 三语；④ #10 超限文案改英文；⑤ `src/components/CodePane/FileTabs.tsx` 死文件待删；
   ⑥ CI 读数下一轮补。
+
+## 2026-10-30 拉取 2/7 落地轮的 CI 实测 —— run 41009496566 三 job 全绿、deploy skipped；两条 act(...) 警告在 CI 日志里归零（日志随之瘦 55 行）；CI 与本机 jest 同为 25 suites / 504 tests；只改测试文件的那一发提交让 CI 产物内容逐项相同、而工件 zip 摘要变了（504 单测 · 88 项冒烟）
+
+- CI run **`41009496566`**（`push` 触发、branch `master`、被测 commit `0deb13b`、attempt 1、`conclusion=success`，
+  05:37:52Z → 05:39:29Z）：`checks` ✅（job `123911923009`，05:37:54Z → 05:38:47Z，**53 s**，15 步全 success）、
+  `browser-smoke` ✅（job `123912184029`，05:38:49Z → 05:39:29Z，**40 s**，9 步全 success）、`deploy` **skipped**
+  （job `123912376649`，0 步）—— 发布专线认 `ref_name == 'main'`，本轮在 master 上，本票也不发布。
+  上一轮同一个 workflow（run `41008330164`、commit `77d7f6a`）是 checks 63 s / smoke 34 s，本轮 53 s / 40 s，同一量级。
+  [实测] 2026-10-30：结论读 `GET /commits/<sha>/check-runs` 的 `conclusion`，时长读 `GET /actions/runs/{id}/jobs` 的
+  `started_at`/`completed_at`，正文读 `GET /actions/jobs/{id}/logs`（checks 48,179 B / 588 行、smoke 51,228 B / 365 行），
+  三条通道本轮全部一次取回，没启用任何备胎读法。
+- **本轮真正的改动只有一处：act(...) 警告归零。** 上一轮 CI checks 日志里那 2 条
+  `An update to UploadPanel inside a test was not wrapped in act(...)`（栈指 `src/components/UploadPanel/index.tsx:43`
+  的 `setDraft`、`:44` 的 `setPullOpen`）来自 `onSubmitPull` 里 `pullFromText(text).then(...)` 的收尾微任务 ——
+  `fireEvent.click` 那圈同步 act 罩不住它。把点击裹进 `await act(async () => { ... })` 之后：CI checks 日志 grep
+  这个串 **0 命中**（上一轮 2 条），本机全量 `npx jest` 也 **0 命中**（上一轮 2 条）。顺带量到它的成本 ——
+  checks 日志 **52,756 B / 643 行 → 48,179 B / 588 行**（−4,577 B / −55 行），即一条 act 警告连栈约 **2.3 KB / 27.5 行**。
+  警告不会让 jest 变红，但它在日志里挤掉的是别的读数。
+- 门禁实测（CI 与本机并排）：CI jest **25 suites / 504 tests**（`Time: 8.104 s`；上一轮 503、`11.887 s`），
+  与本机 `npm run verify` 逐字相同（本机同一轮：`tsc --noEmit` 0 错、`eslint . --max-warnings=0` 0 error / 0 warning、
+  jest 25 suites / 504 tests）。**+1 条**是本轮新加的「确认之后粘贴框自己收起来」—— 与既有那条「取消按钮把粘贴框
+  收起来」对称，此前没人量，冒烟也只读 `pull-input` 的值、从不读 `pull-box`。CI 侧 `> eslint . --max-warnings=0`
+  仍然一行输出都没有：**连着第三轮零输出**（retro 轮首次归零、上一轮第二次）。`audit-egress: scanned 3 file(s)` clean，
+  CI 与本机同（范围未扩，扩到 `pullFetch.ts` 是 #9）。
+- CI smoke **88/88**、`failed: []`、P 组 **13 项**全在（P0t、P0、PU1、PU2、PU3、PU4、PU4b、PU5、P1、P2、P2b、PR1、PR2），
+  E1 `总请求数=17`、E3 `0`、E7 `210 个标记 x 17 个请求，零命中`、egress accounting `pull-phase requests excluded: 3;
+  baseline requests: 17`；本机拿同一份 dist 跑 `npm run smoke` 也是 **88/88**（`EXIT=0`，报告写在
+  `%TEMP%\codemap-verify-report.json`），两边逐项一致。
+- 产物：CI `index.html` sha256 **`706455aaf4c62030c59f96babf52b02d6fc1a6fd6f86f3a4750ea7d57dd68477`（1,562 B）**、
+  入口 **`entry-89bf478d9776f37f88e7d949790434f6.js`**、`empty-module-c130aa4a24444d1f82b9852322e7f3e9.js`（38 B）、
+  `Web Bundled … node_modules/expo-router/entry.js (838 modules)`、`dist` 工件 **Final size 593,315 B**
+  （Artifact ID `12956534442`）—— 与上一轮（commit `77d7f6a`，Artifact ID `12956153865`）**逐项相同**。
+  本轮只动了 `__tests__/pullUi.test.tsx`，这正好反过来证明测试文件不进 bundle。本机同一棵树仍是
+  `entry-675e439bbca8f7894b0a2e465d5f9092.js`（1,441,695 B）/ `index.html` sha256
+  `0c102f9dc4ed42721f1bcfdf418f5bea79127f1a80b609747a03a878e515c4b7`（同为 1,562 B）；本机 dist 是上一轮建的、
+  本轮 `src/` 一字未改，所以这份本机产物对 `0deb13b` 依然有效。**同字节数、不同入口哈希，这条差异第八次被量到**
+  （根因仍是入口哈希写进了 index.html，见 ops §8）。
+- **新判据：工件 zip 摘要不能当产物指纹。** 两轮 `dist` 的 `Final size` 同为 593,315 B、内容摘要逐项相同，而
+  `SHA256 digest of uploaded artifact zip` 从 `7d23d6e94336945559bc2e4197ac3381b30c91b362a3281e9f586e777f8e06e8`
+  变成 `a3856f54fb033469ed7fac8ad2bee539fe7ad8d856e63d5cdeff70046e747d1b` ⇒ zip 容器里带了时间戳一类元数据。
+  要比产物就比 `index.html` sha256 / 入口文件名 / 模块数 / Final size，别拿 zip 摘要说「产物变了」。
+- 推送：本轮 `git push origin master` **第 1 次就上去**（上一轮连抖 6 次、第 7 次才成）；同一时段 API 侧读
+  check-runs、取 jobs、拉两份日志、以及给 issue #4 发评论全部一次成功。⇒ 那条抖动是间歇的，
+  不能因为这回一把过就把重试循环拆掉。
+- 平台警告照旧没处理（原文抄在这里免得下轮考古）：`Node.js 20 is deprecated. The following actions target Node.js 20
+  but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4`
+  （本轮 checks 日志 1 命中）。升 v5 是独立的一轮。
+- 本轮学到的规矩：**「绿着但吵」的测试输出要当门看待。** act(...) 警告不改变结论，却精确指出了断言写在了状态更新
+  落地之前；顺着它补 `await act(...)`，才暴露出「确认成功之后粘贴框收起」这个此前没人量的行为。另一条：
+  **只改测试文件 ⇒ 产物内容必须逐项相同**，这是一条能反过来用的判据（本轮用它证明了 `__tests__` 不进 bundle）。
+- 遗留：① #9（P3 静默期 / P4 刷新范围 + `audit:egress` 扩扫到 `pullFetch.ts` + 真 GitHub 人工抽测流程）；
+  ② #8 顶栏常驻拉取入口；③ #3 README 三语；④ #10 超限文案改英文；⑤ `src/components/CodePane/FileTabs.tsx`
+  死文件待删；⑥ workflow actions 升 v5（Node 20 deprecation）。上一轮遗留 ⑥「CI 读数下一轮补」本轮关闭。

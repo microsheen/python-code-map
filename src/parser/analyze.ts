@@ -42,12 +42,11 @@ export function byteLengthOf(text: string): number {
 }
 
 /**
- * 超限文案，只此一处：本地上传与拉取两条路径共用同一句（issue #4「沿用现有超限提示文案」）。
- * 这句是中文而仓库口径要求 UI 字符串用英文 —— 它是本票之前就存在的文案，沿用比顺手改写诚实；
- * 要改口径请单独一轮，别夹在功能票里。
+ * 超限文案，只此一处：本地上传与拉取两条路径共用同一句。
+ * 英文（issue #10：UI 字符串不走中文）。#4 当时沿用中文是为了不夹带文案改动，改写单独成了一轮。
  */
 export function oversizeMessage(): string {
-  return `文件超过 ${Math.round(MAX_FILE_SIZE / 1024 / 1024)}MB，已跳过`;
+  return `File is over ${Math.round(MAX_FILE_SIZE / 1024 / 1024)} MB — skipped`;
 }
 
 /**

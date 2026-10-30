@@ -275,7 +275,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
           failed.length > 0 && failed.length === result.files.length
             ? 'All files failed to parse. Please check that the files are valid Python text.'
             : null,
-        warnings: failed.map((f) => `${f.name}：${f.error ?? 'Unknown error'}`),
+        warnings: failed.map((f) => `${f.name}: ${f.error ?? 'Unknown error'}`),
         // preserveView：没有任何新内容进来的那种合并（拉取全失败）不重置用户的
         // 选择/范围/视图 —— 重置在那种情况下是纯损失，不是「有新内容要看」。
         ...(opts?.preserveView
@@ -418,8 +418,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
           const pulledAt = Date.now();
           if (outcome.ok) {
             // 超 1MB 的文件不进会话（更不该把几 MB 正文写进 IndexedDB），但占一个带红点的位置，
-            // 文案沿用解析层那一句：「按实际字节校验」+「沿用现有超限提示文案」两条一起满足。
-          // 这句文案是中文、与「英文 UI 字符串」口径不符 —— 那是既有问题，挂在 issue #10。
+            // 文案与上传路径共用解析层那一句（#10 之后是英文）：一处判据、一句话。
             const over = oversizeMessageOf(outcome.text);
             incoming.push(
               over

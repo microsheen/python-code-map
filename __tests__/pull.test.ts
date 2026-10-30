@@ -320,8 +320,9 @@ describe('单文件上限按实际字节校验（不是字符数）', () => {
     expect(oversizeMessageOf('中'.repeat(chars))).toBe(oversizeMessage());
   });
 
-  it('超限文案沿用现有那一条（不新造一句），并且说的是 1MB', () => {
-    expect(oversizeMessage()).toMatch(/1MB/);
+  it('超限文案点出上限（1 MB）且是英文 —— UI 字符串不走中文（issue #10）', () => {
+    expect(oversizeMessage()).toMatch(/1\s?MB/);
+    expect(oversizeMessage()).not.toMatch(/[\u4e00-\u9fff]/);
   });
 });
 /**

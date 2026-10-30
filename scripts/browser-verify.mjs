@@ -37,7 +37,9 @@ const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-  process.env.LOCALAPPDATA ? process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe' : null,
+  process.env.LOCALAPPDATA
+    ? process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe'
+    : null,
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/usr/bin/google-chrome',
   '/usr/bin/google-chrome-stable',
@@ -71,6 +73,15 @@ const MIME = {
  * dist/ 路径解析：唯一一处。静态服务器与"每个被请求的资产都必须真实存在于 dist/"这条断言
  * 共用它 —— 也就是说服务器根本没有能力端出 dist/ 以外的东西。
  */
+/** URL → pathname：解析不了就原样返回（那种东西也不可能在 dist/ 里有对应文件）。 */
+function pathnameOf(u) {
+  try {
+    return new URL(u).pathname;
+  } catch {
+    return u;
+  }
+}
+
 function distFileFor(pathname) {
   const decoded = decodeURIComponent(pathname);
   const p = decoded.endsWith('/') ? decoded + 'index.html' : decoded;
@@ -143,6 +154,34 @@ function startStaticServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const pathname = new URL(req.url, 'http://localhost').pathname;
+      // 拉取桩：先于 dist 解析。服务端自己记一笔方法与 content-length —— 这是「全 GET、请求体恒空」
+      // 的第二个观测点，独立于 CDP 的 Network 事件（两个观测点同时说谎的概率低得多）。
+      if (pathname.startsWith(PULL_STUB_PREFIX)) {
+        const rel = decodeURIComponent(pathname.slice(PULL_STUB_PREFIX.length));
+        pullStubHits.push({
+          method: req.method,
+          path: pathname,
+          contentLength: req.headers['content-length'] ?? null,
+          transferEncoding: req.headers['transfer-encoding'] ?? null,
+        });
+        const body = Object.prototype.hasOwnProperty.call(PULL_STUB_FILES, rel)
+          ? PULL_STUB_FILES[rel]
+          : null;
+        if (body === null) {
+          res.writeHead(404, {
+            'content-type': 'text/plain; charset=utf-8',
+            'cache-control': 'no-store',
+          });
+          res.end('not found');
+          return;
+        }
+        res.writeHead(200, {
+          'content-type': 'text/plain; charset=utf-8',
+          'cache-control': 'no-store',
+        });
+        res.end(body);
+        return;
+      }
       const file = distFileFor(pathname);
       if (!file) {
         // Chrome 会自己去要 /favicon.ico，dist 里没有；回 204 免得污染控制台错误列表
@@ -176,7 +215,8 @@ function startStaticServer() {
   });
 }
 
-const ENTRY_SCRIPT_RE = /<script[^>]+src="([^"]*\/_expo\/static\/js\/web\/entry-[0-9a-f]+\.js)"[^>]*>/;
+const ENTRY_SCRIPT_RE =
+  /<script[^>]+src="([^"]*\/_expo\/static\/js\/web\/entry-[0-9a-f]+\.js)"[^>]*>/;
 const ABS_URL_RE = /https?:\/\/[^\s"'<>)\]]+/gi;
 
 function sha256(buf) {
@@ -200,7 +240,9 @@ async function probeAppUrl() {
   try {
     res = await fetch(APP_URL, { cache: 'no-store' });
   } catch (e) {
-    throw new Error('访问 ' + APP_URL + ' 失败：' + e.message + '（端口 ' + APP_PORT + ' 上没有可用服务）');
+    throw new Error(
+      '访问 ' + APP_URL + ' 失败：' + e.message + '（端口 ' + APP_PORT + ' 上没有可用服务）'
+    );
   }
   if (!res.ok) throw new Error(APP_URL + ' 返回 HTTP ' + res.status);
   const text = await res.text();
@@ -208,8 +250,10 @@ async function probeAppUrl() {
   const m = text.match(ENTRY_SCRIPT_RE);
   if (!m) {
     throw new Error(
-      APP_URL + ' 返回的 HTML 里没有本应用的 Metro 入口脚本标签：端口 ' + APP_PORT +
-        ' 上可能不是这个服务，或者它是旧产物。用 CODEMAP_PORT 换个端口再跑',
+      APP_URL +
+        ' 返回的 HTML 里没有本应用的 Metro 入口脚本标签：端口 ' +
+        APP_PORT +
+        ' 上可能不是这个服务，或者它是旧产物。用 CODEMAP_PORT 换个端口再跑'
     );
   }
   return {
@@ -220,6 +264,38 @@ async function probeAppUrl() {
     html: text,
   };
 }
+
+/**
+ * 拉取用的本地同源桩（ADR-0006 决策 4：拉取面取证走本地同源桩，CI 不依赖外网与 GitHub 限速）。
+ *
+ * 三件事在这里一次说清：
+ *   1. 桩挂在 dist 之外的前缀下，所以它**永远不可能**被 E5「每个 200 都对应 dist 里真实存在的文件」
+ *      当成资产 —— 那一条是「被测字节 == 上线字节」的锚点，不能为了桩去放宽它。桩请求另记一组
+ *      （pullIds），E1–E5/E7 只看「不含拉取动作」的那一段，正是 ADR-0006 给 E 组的定义。
+ *   2. 桩文件名与其中的 def 名刻意避开 fixtures 里的每一个 def/class 名：E7 的「用户内容」标记
+ *      集合是从 fixtures 抠出来的，撞上就会自己打自己。
+ *   3. 用户粘的那条 URL 用的是 .invalid（RFC 2606 保留 TLD，永不解析）：万一 base 覆盖没生效，
+ *      请求只会失败，绝不会打到某台真主机上去。
+ */
+const PULL_STUB_PREFIX = '/__pull-stub__/';
+const PULL_STUB_HOST = 'pull-stub.invalid';
+const PULL_STUB_PATH = 'probe/zz_pull_probe.py';
+const PULL_STUB_FILES = {
+  [PULL_STUB_PATH]: [
+    'def zz_pull_probe():',
+    '    return zz_pull_helper()',
+    '',
+    'def zz_pull_helper():',
+    '    return 42',
+    '',
+  ].join('\n'),
+};
+/** 用户会粘进面板的那条直链（https + .py 结尾，符合分流规则） */
+const PULL_STUB_URL = 'https://' + PULL_STUB_HOST + '/' + PULL_STUB_PATH;
+/** 会话里应当出现的路径：host + URL 路径（src/pull/urls.ts 的 pulledPathFor） */
+const PULL_STUB_SESSION_PATH = PULL_STUB_HOST + '/' + PULL_STUB_PATH;
+/** 桩侧自己的记账：与 CDP 的网络记录互为第二个观测点（方法、有没有请求体） */
+const pullStubHits = [];
 
 const FIXTURES = ['main.py', 'shapes.py', 'utils.py', 'multi.py'];
 const TARGET_A = { id: 'shapes.py::Shape.area', defLine: 14, label: 'Shape.area' };
@@ -263,7 +339,9 @@ function note(name, value) {
 
 function check(name, pass, detail) {
   report.checks.push({ name, pass: !!pass, detail: detail === undefined ? null : String(detail) });
-  console.log((pass ? '[PASS] ' : '[FAIL] ') + name + (detail === undefined ? '' : '  -- ' + detail));
+  console.log(
+    (pass ? '[PASS] ' : '[FAIL] ') + name + (detail === undefined ? '' : '  -- ' + detail)
+  );
   return !!pass;
 }
 
@@ -275,7 +353,9 @@ async function waitForTarget(timeoutMs) {
       const list = await r.json();
       const page = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
       if (page) return page.webSocketDebuggerUrl;
-    } catch { /* not up yet */ }
+    } catch {
+      /* not up yet */
+    }
     await sleep(250);
   }
   throw new Error('CDP target never appeared on port ' + PORT);
@@ -289,7 +369,11 @@ class CDP {
     this.listeners = new Map();
     ws.addEventListener('message', (ev) => {
       let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
       if (msg.id !== undefined) {
         const p = this.pending.get(msg.id);
         if (!p) return;
@@ -316,7 +400,10 @@ class CDP {
       this.pending.set(id, { resolve, reject, method });
       this.ws.send(JSON.stringify({ id, method, params: params || {} }));
       setTimeout(() => {
-        if (this.pending.has(id)) { this.pending.delete(id); reject(new Error('CDP timeout: ' + method)); }
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          reject(new Error('CDP timeout: ' + method));
+        }
       }, 60000);
     });
   }
@@ -356,11 +443,32 @@ async function shot(cdp, name) {
 async function realClick(cdp, x, y) {
   const cx = Math.round(x * 100) / 100;
   const cy = Math.round(y * 100) / 100;
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: cx, y: cy, button: 'none', buttons: 0, clickCount: 0 });
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: cx,
+    y: cy,
+    button: 'none',
+    buttons: 0,
+    clickCount: 0,
+  });
   await sleep(70);
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', buttons: 1, clickCount: 1 });
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: cx,
+    y: cy,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  });
   await sleep(50);
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', buttons: 0, clickCount: 1 });
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: cx,
+    y: cy,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  });
 }
 
 async function focusElement(cdp, id) {
@@ -372,7 +480,9 @@ async function focusElement(cdp, id) {
     if (!box) throw new Error('element lost after scrolling: ' + id);
   }
   if (!(box.x > 0 && box.x < 1600 && box.y > 0 && box.y < 1000)) {
-    throw new Error('element not clickable (outside 1600x1000 viewport): ' + id + ' ' + JSON.stringify(box));
+    throw new Error(
+      'element not clickable (outside 1600x1000 viewport): ' + id + ' ' + JSON.stringify(box)
+    );
   }
   return box;
 }
@@ -382,6 +492,22 @@ async function clickTestId(cdp, id) {
   if (!box) throw new Error('element not found: ' + id);
   await realClick(cdp, box.x, box.y);
   return box;
+}
+
+/**
+ * 真键盘输入：先真点一下拿焦点，再用 CDP 的 Input.insertText 把整段文本插进去。
+ *
+ * 为什么不用 el.value = ...：粘贴框是 React 受控组件，直接改 value 不触发 onChange，
+ * store 收到的还是空串 —— 那样断言绿着，测的却不是用户那条路径。insertText 走的是
+ * 浏览器真实的文本输入通路，onChange 与用户敲键盘时一模一样。
+ */
+async function typeIntoTestId(cdp, id, text) {
+  const box = await focusElement(cdp, id);
+  await realClick(cdp, box.x, box.y);
+  await cdp.send('Input.insertText', { text });
+  await sleep(120);
+  // 读回来核一遍：插入通路要是没通，后面每一条断言都会红得莫名其妙，先在这里说清楚
+  return evalJs(cdp, 'window.__t.valueOf(' + JSON.stringify(id) + ')');
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +533,11 @@ async function pickCdpPort() {
     }
   }
   throw new Error(
-    'CDP 端口 ' + PORT + '..' + (PORT + 7) + ' 全被占用。关掉残留的 headless Chrome，或用 CODEMAP_CDP_PORT 指定一个空闲端口。',
+    'CDP 端口 ' +
+      PORT +
+      '..' +
+      (PORT + 7) +
+      ' 全被占用。关掉残留的 headless Chrome，或用 CODEMAP_CDP_PORT 指定一个空闲端口。'
   );
 }
 
@@ -416,8 +546,19 @@ function prepareProfile() {
     fs.rmSync(PROFILE, { recursive: true, force: true });
   } catch (e) {
     const alt = PROFILE + '-' + process.pid;
-    note('profile locked', (e.code || 'ERR') + '：' + path.basename(PROFILE) + ' 被旧 Chrome 占着 -> 用 ' + path.basename(alt));
-    try { fs.rmSync(alt, { recursive: true, force: true }); } catch { /* ignore */ }
+    note(
+      'profile locked',
+      (e.code || 'ERR') +
+        '：' +
+        path.basename(PROFILE) +
+        ' 被旧 Chrome 占着 -> 用 ' +
+        path.basename(alt)
+    );
+    try {
+      fs.rmSync(alt, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
     PROFILE = alt;
   }
 }
@@ -444,7 +585,9 @@ async function launch(flag) {
   ];
   const chrome = spawn(CHROME, args, { stdio: ['ignore', 'ignore', 'pipe'] });
   let buf = '';
-  chrome.stderr.on('data', (d) => { buf += d.toString(); });
+  chrome.stderr.on('data', (d) => {
+    buf += d.toString();
+  });
   const handle = { chrome, stderr: () => buf };
   globalThis.PROC = handle;
   return handle;
@@ -472,7 +615,11 @@ function themeContract() {
   const dflt = /export const DEFAULT_THEME[^=]*=\s*'([^']+)'/.exec(themeSrc);
   if (!dflt) die('DEFAULT_THEME');
   if (!ids.includes(dflt[1])) die('DEFAULT_THEME 不在 THEME_ORDER 里: ' + dflt[1]);
-  const isHex = (v) => typeof v === 'string' && v.charAt(0) === '#' && v.length === 7 && /^[0-9a-fA-F]{6}$/.test(v.slice(1));
+  const isHex = (v) =>
+    typeof v === 'string' &&
+    v.charAt(0) === '#' &&
+    v.length === 7 &&
+    /^[0-9a-fA-F]{6}$/.test(v.slice(1));
   const kebab = (k) => k.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
   const palettes = {};
   for (const id of ids) {
@@ -512,7 +659,8 @@ function themeContract() {
   const meta = /\{ name: 'theme-color', content: '([^']+)' \}/.exec(headSrc);
   if (!meta) die('theme-color meta');
   const defaultBg = palettes[dflt[1]].bg;
-  if (shell[1].indexOf('--cm-bg:' + defaultBg) < 0) die('壳层底色的 --cm-bg != 默认主题 bg: ' + shell[1]);
+  if (shell[1].indexOf('--cm-bg:' + defaultBg) < 0)
+    die('壳层底色的 --cm-bg != 默认主题 bg: ' + shell[1]);
   if (meta[1] !== defaultBg) die('theme-color != 默认主题 bg: ' + meta[1]);
   return {
     prefKey: prefKey[1],
@@ -713,6 +861,43 @@ const HARNESS = `
       empty: !!byId('upload-panel')
     };
   }
+  // 文件标签上的拉取来源：标识文字、data-pull-url、data-pull-at、以及悬浮 title。
+  // 这四个都是用户/辅助技术真能读到的东西，断言只认它们，不认组件内部状态。
+  // 返回 funcId 本身（去掉 graph-node- 前缀），与 store/图那边的口径一致。
+  function nodeIds() {
+    return allByPrefix('graph-node-').map(function (el) {
+      return tid(el).replace('graph-node-', '');
+    });
+  }
+  function valueOf(id) {
+    var el = byId(id);
+    if (!el) return null;
+    return el.value !== undefined && el.value !== null ? el.value : (el.textContent || '');
+  }
+  // 「文件标签」就是顶栏那排 chips：CodePane/FileTabs.tsx 已从组件树上摘掉（下面两处
+  // "FileTabs removed" 注释记着这件事），读它等于什么都读不到。data-* 挂在 chip 外层的
+  // web 包装 div 上（RN-web 的 Pressable 不转发 data-*），所以从 parentNode 上读；标识自成
+  // 一个命名空间（chip- 与 pull-origin- 不相交），路径以 pull- 开头也不会撞名。
+  function pullTabs() {
+    var chips = allByPrefix('chip-');
+    var out = [];
+    for (var i = 0; i < chips.length; i++) {
+      var t = tid(chips[i]);
+      if (t.indexOf('chip-remove-') === 0) continue;
+      if (t.indexOf('chip-scroll-') === 0) continue;
+      if (t.indexOf('chip-tooltip-') === 0) continue;
+      var p = t.replace('chip-', '');
+      var host = chips[i].parentNode;
+      var marker = byId('pull-origin-' + p);
+      out.push({
+        path: p,
+        marker: marker ? txt(marker) : null,
+        url: host && host.getAttribute ? host.getAttribute('data-pull-url') : null,
+        at: host && host.getAttribute ? host.getAttribute('data-pull-at') : null
+      });
+    }
+    return out;
+  }
   function themeState(prefKey) {
     var inline = document.documentElement.style;
     var vars = {};
@@ -881,7 +1066,8 @@ const HARNESS = `
     lineVisible: lineVisible, centerOf: centerOf, ensureCenter: ensureCenter,
     tokenInfo: tokenInfo, drop: drop, probe: probe,
     stats: stats, activeTab: activeTab, scrollEl: scrollEl,
-    themeState: themeState, themePanel: themePanel, topmostInPanel: topmostInPanel
+    themeState: themeState, themePanel: themePanel, topmostInPanel: topmostInPanel,
+    pullTabs: pullTabs, valueOf: valueOf, nodeIds: nodeIds
   };
   return 'harness-ok';
 })()
@@ -897,10 +1083,14 @@ async function poll(cdp, expr, ok, timeoutMs, label) {
     try {
       last = await evalJs(cdp, expr);
       if (ok(last)) return { ok: true, value: last, ms: Date.now() - t0 };
-    } catch (e) { last = 'ERR ' + e.message; }
+    } catch (e) {
+      last = 'ERR ' + e.message;
+    }
     await sleep(250);
   }
-  throw new Error('timeout waiting for ' + (label || expr) + ' last=' + JSON.stringify(last).slice(0, 400));
+  throw new Error(
+    'timeout waiting for ' + (label || expr) + ' last=' + JSON.stringify(last).slice(0, 400)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -923,6 +1113,23 @@ function contactContract() {
   return { alias, issuesUrl: issues[1], fieldNames: names };
 }
 
+/**
+ * 拉取的契约同样从源码里读（理由同 contactContract）：覆盖用的全局量名字一旦被改，
+ * 冒烟这边抄的那份就会静默失效 —— 覆盖不生效时请求会打到 pull-stub.invalid 上去然后失败，
+ * 看起来像「拉取功能坏了」，其实是门自己没跟上。读不到就抛。
+ */
+function pullContract() {
+  const fetchFile = path.join(ROOT, 'src/platform/web/pullFetch.ts');
+  const fetchSrc = fs.readFileSync(fetchFile, 'utf8');
+  const baseKey = /export const PULL_BASE_OVERRIDE_KEY = '([^']+)';/.exec(fetchSrc);
+  if (!baseKey) throw new Error('读不到 PULL_BASE_OVERRIDE_KEY（契约被改掉？）: ' + fetchFile);
+  const urlFile = path.join(ROOT, 'src/pull/urls.ts');
+  const urlSrc = fs.readFileSync(urlFile, 'utf8');
+  const timeout = /export const PULL_TIMEOUT_MS = (\d+);/.exec(urlSrc);
+  if (!timeout) throw new Error('读不到 PULL_TIMEOUT_MS（契约被改掉？）: ' + urlFile);
+  return { baseKey: baseKey[1], timeoutMs: Number(timeout[1]) };
+}
+
 async function main() {
   if (!fs.existsSync(path.join(DIST, 'index.html'))) {
     throw new Error('dist/index.html 不存在，请先运行 npm run export 产出静态站点');
@@ -935,25 +1142,27 @@ async function main() {
   note(
     'header rules loaded',
     HEADER_RULES.length
-      ? HEADER_RULES.map((r) => r.pattern + ' -> ' + r.headers.map((h) => h[0]).join(',')).join(' | ')
-      : '(没有 dist/_headers，本地冒烟将跑在无 CSP 下)',
+      ? HEADER_RULES.map((r) => r.pattern + ' -> ' + r.headers.map((h) => h[0]).join(',')).join(
+          ' | '
+        )
+      : '(没有 dist/_headers，本地冒烟将跑在无 CSP 下)'
   );
   const servedIndex = await probeAppUrl();
   note('app url probe', APP_URL + ' html=' + servedIndex.bytes + 'B entry=' + servedIndex.entry);
   check(
     'S1 本地服务端出来的就是当前 dist/ 的字节',
     servedIndex.sha256 === expectIndex.sha256 && servedIndex.entry === expectIndex.entry,
-    'served sha=' + servedIndex.sha256.slice(0, 16) + ' dist sha=' + expectIndex.sha256.slice(0, 16),
+    'served sha=' + servedIndex.sha256.slice(0, 16) + ' dist sha=' + expectIndex.sha256.slice(0, 16)
   );
   check(
     'S2 _headers 真的生效了（响应里带 CSP）',
     !!servedIndex.headers['content-security-policy'],
-    servedIndex.headers['content-security-policy'] || '响应里没有 content-security-policy',
+    servedIndex.headers['content-security-policy'] || '响应里没有 content-security-policy'
   );
   check(
     'S3 上线 HTML 字节里零绝对 URL（含注释）',
     (servedIndex.html.match(ABS_URL_RE) || []).length === 0,
-    (servedIndex.html.match(ABS_URL_RE) || []).join(' ') || '0 个',
+    (servedIndex.html.match(ABS_URL_RE) || []).join(' ') || '0 个'
   );
 
   await pickCdpPort();
@@ -979,14 +1188,22 @@ async function main() {
   const exceptions = [];
   cdp.on('Runtime.consoleAPICalled', (p) => {
     if (p.type === 'error' || p.type === 'warning') {
-      console_.push(p.type + ': ' + p.args.map((a) => String(a.value ?? a.description ?? a.type)).join(' ').slice(0, 300));
+      console_.push(
+        p.type +
+          ': ' +
+          p.args
+            .map((a) => String(a.value ?? a.description ?? a.type))
+            .join(' ')
+            .slice(0, 300)
+      );
     }
   });
   cdp.on('Runtime.exceptionThrown', (p) => {
     exceptions.push(JSON.stringify(p.exceptionDetails).slice(0, 500));
   });
   cdp.on('Log.entryAdded', (p) => {
-    if (p.entry && (p.entry.level === 'error')) console_.push('log: ' + String(p.entry.text).slice(0, 300));
+    if (p.entry && p.entry.level === 'error')
+      console_.push('log: ' + String(p.entry.text).slice(0, 300));
   });
 
   // ====== 默认行为基线取证：记下浏览器真实发出的每一个请求（E1–E5 只在无拉取动作时成立） ======
@@ -1014,32 +1231,268 @@ async function main() {
   await cdp.send('Network.enable');
   await cdp.send('Runtime.enable');
   await cdp.send('Log.enable');
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 1600,
+    height: 1000,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
   // CSP 违规不会在控制台留下稳定文本，自己在文档创建前装好计数器
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
     source:
       "window.__cspViolations=[];window.addEventListener('securitypolicyviolation',function(e){" +
       'window.__cspViolations.push({blocked:e.blockedURI,directive:e.violatedDirective,original:e.originalURL});});',
   });
+  // 拉取的 base URL 覆盖（ADR-0006 决策 4）。闸门在产品侧：只有页面自己的源是回环时才认
+  // （src/platform/web/pullFetch.ts 的 isLoopbackOrigin），所以线上域名永远拿不到这个能力 ——
+  // 拿不到就意味着请求按用户给的那条 URL 原样发出。冒烟跑在 127.0.0.1 上，于是
+  // 「用户粘的 https 直链」被引到上面那个本地同源桩，CI 不依赖外网、也不吃 GitHub 限速。
+  const pull = pullContract();
+  const pullBase = APP_URL.replace(/\/$/, '') + PULL_STUB_PREFIX;
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: 'window.' + pull.baseKey + ' = ' + JSON.stringify(pullBase) + ';',
+  });
+  note(
+    'pull base override',
+    pullBase + ' (key=' + pull.baseKey + ', timeout=' + pull.timeoutMs + 'ms)'
+  );
+  // 超时也是契约的一部分：spec 要求单请求 15s，读出来却不断言等于没读。
+  check(
+    'P0t 源码里的单请求超时就是 spec 的 15s（pullContract 从 src/pull/urls.ts 读出来）',
+    pull.timeoutMs === 15000,
+    'timeout=' + pull.timeoutMs + 'ms'
+  );
   await cdp.send('Page.navigate', { url: APP_URL });
 
-  await poll(cdp, 'document.querySelector(\'[data-testid="app-root"]\') || document.querySelector(\'[testid="app-root"]\') ? 1 : 0', (v) => v === 1, 45000, 'app-root');
+  await poll(
+    cdp,
+    'document.querySelector(\'[data-testid="app-root"]\') || document.querySelector(\'[testid="app-root"]\') ? 1 : 0',
+    (v) => v === 1,
+    45000,
+    'app-root'
+  );
   note('boot', 'app-root rendered');
 
   const harness = await evalJs(cdp, HARNESS);
   note('harness', harness);
+
+  // ================= P：拉取面取证（ADR-0006 决策 4 的前两条 · issue #4） =================
+  // 为什么排在最前面：这一段要的是**空态**（Pull from URL 入口长在上传面板上），而下面一上来
+  // 就要往会话里塞 fixtures。跑完点 Clear 回到空态，既有流程一行都不用改。
+  // 请求记账也在这里分家：E1–E5 是「不含拉取动作」的默认行为基线，桩请求另算一组（pullIds）。
+  const idsBeforePull = new Set(netRequests.keys());
+  const st0 = await evalJs(cdp, 'window.__t.stats()');
+  check(
+    'P0 起手是空态：上传面板在、会话里一个文件都没有（拉取入口就长在这个面板上）',
+    !!st0.empty && st0.tabs.tabs.length === 0 && st0.nodes === 0,
+    JSON.stringify({ empty: st0.empty, tabs: st0.tabs, nodes: st0.nodes })
+  );
+
+  await clickTestId(cdp, 'upload-pull');
+  const inputValue = await evalJs(cdp, 'window.__t.valueOf("pull-input")');
+  check(
+    'PU1 点开 Pull from URL 才出现粘贴框（点开之前不采集任何输入、也不发任何请求）',
+    inputValue === '',
+    'value=' + JSON.stringify(inputValue) + ' requests=' + (netRequests.size - idsBeforePull.size)
+  );
+
+  const typed = await typeIntoTestId(cdp, 'pull-input', PULL_STUB_URL);
+  note('typed into pull-input', typed);
+  await shot(cdp, 'pull-01-form.png');
+  check('PU2 粘进去的就是用户给的那条 https 直链', typed === PULL_STUB_URL, String(typed));
+
+  await clickTestId(cdp, 'pull-submit');
+  const afterPull = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), nodes: window.__t.nodeIds(), stats: window.__t.stats(),' +
+      ' issues: window.__t.valueOf("topbar-pull-issues"), line1: window.__t.valueOf("code-line-1") })',
+    (v) => !!v && (v.tabs.some((t) => t.path === PULL_STUB_SESSION_PATH) || !!v.issues),
+    30000,
+    'pulled file tab'
+  ).then((r) => r.value);
+  note('after pull', afterPull);
+  await shot(cdp, 'pull-02-pulled.png');
+
+  const tab = afterPull.tabs.find((t) => t.path === PULL_STUB_SESSION_PATH) || null;
+  check(
+    'PU3 一条 https 直链拉进来：文件进了会话、出现在文件标签上，而且没有任何报错条',
+    !!tab && !afterPull.issues,
+    'tab=' + JSON.stringify(tab) + ' issues=' + JSON.stringify(afterPull.issues)
+  );
+  check(
+    'PU4 标签上看得见「拉取文件」标识，来源 URL 与拉取时刻作为元数据读得出来',
+    !!tab &&
+      tab.marker === 'pulled' &&
+      tab.url === PULL_STUB_URL &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(tab.at || ''),
+    JSON.stringify(tab && { marker: tab.marker, url: tab.url, at: tab.at })
+  );
+
+  // data-* 只有开发者工具看得见，所以另走一步用户那条路：悬浮 chip，读那条提示。
+  const chipBox = await evalJs(cdp, 'window.__t.centerOf("chip-' + PULL_STUB_SESSION_PATH + '")');
+  if (!chipBox) throw new Error('chip not found for hover: ' + PULL_STUB_SESSION_PATH);
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: Math.round(chipBox.x),
+    y: Math.round(chipBox.y),
+    button: 'none',
+    buttons: 0,
+    clickCount: 0,
+  });
+  await sleep(250);
+  const chipTip = await evalJs(
+    cdp,
+    'window.__t.valueOf("chip-tooltip-' + PULL_STUB_SESSION_PATH + '")'
+  );
+  note('chip tooltip on hover', chipTip);
+  await shot(cdp, 'pull-03-tooltip.png');
+  check(
+    'PU4b 悬浮文件标签就能读到来源（提示里路径、URL、拉取时刻三样都在）',
+    typeof chipTip === 'string' &&
+      chipTip.indexOf(PULL_STUB_SESSION_PATH) >= 0 &&
+      chipTip.indexOf(PULL_STUB_URL) >= 0 &&
+      !!tab &&
+      chipTip.indexOf(tab.at) >= 0,
+    JSON.stringify(chipTip)
+  );
+  // 鼠标移到中性角落：提示不能留在后面的断言与截图里
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: 2,
+    y: 2,
+    button: 'none',
+    buttons: 0,
+    clickCount: 0,
+  });
+  await sleep(120);
+  check(
+    'PU5 拉进来的文件参与调用图，与本地文件同为一等公民（图里有它的函数、代码区显示它的正文）',
+    afterPull.nodes.indexOf(PULL_STUB_SESSION_PATH + '::zz_pull_probe') >= 0 &&
+      afterPull.nodes.indexOf(PULL_STUB_SESSION_PATH + '::zz_pull_helper') >= 0 &&
+      (afterPull.line1 || '').indexOf('def zz_pull_probe') >= 0,
+    'nodes=' + JSON.stringify(afterPull.nodes) + ' line1=' + JSON.stringify(afterPull.line1)
+  );
+
+  // ---- 取证：这一段真实发出去的请求，CDP 与桩各记一本账 ----
+  const pullIds = new Set([...netRequests.keys()].filter((id) => !idsBeforePull.has(id)));
+  const pullReqs = [...pullIds].map((id) => netRequests.get(id)).filter(Boolean);
+  note(
+    'pull requests (cdp)',
+    pullReqs.map(
+      (r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED:' + (r.failed || '?'))
+    )
+  );
+  note('pull requests (stub side)', pullStubHits);
+  report.pullNetwork = pullReqs;
+  report.pullStubHits = pullStubHits;
+
+  // 这个窗口里除了桩请求还会混进应用自己的资产：拉取是本会话里第一次解析，
+  // 而解析器 wasm 是懒加载的（/wasm/tree-sitter*.wasm），于是它落在这个窗口而不是启动窗口里。
+  // 判据与 E5 同一个：pathname 在 dist/ 里有对应文件 = 应用资产，其余必须能由用户输入推导。
+  const assetReqs = pullReqs.filter((r) => !!distFileFor(pathnameOf(r.url)));
+  const faceReqs = pullReqs.filter((r) => !distFileFor(pathnameOf(r.url)));
+  note(
+    'pull-window app assets (懒加载 wasm 等，不属于拉取面)',
+    assetReqs.map((r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED'))
+  );
+
+  const stubPathname = new URL(PULL_STUB_URL).pathname;
+  const expectedWire = pullBase.replace(/\/$/, '') + stubPathname;
+  check(
+    'P1 拉取期间全程 GET、请求体恒空（CDP 侧与桩侧两个观测点都得这么说）',
+    pullReqs.length > 0 &&
+      pullReqs.every((r) => r.method === 'GET' && !r.hasPostData && r.postDataBytes === 0) &&
+      pullStubHits.length > 0 &&
+      pullStubHits.every(
+        (h) => h.method === 'GET' && h.contentLength === null && h.transferEncoding === null
+      ),
+    JSON.stringify({
+      cdp: pullReqs.map((r) => r.method + ' body=' + r.postDataBytes + 'B'),
+      stub: pullStubHits,
+    })
+  );
+  check(
+    'P2 拉取面发出的 URL 只有一条，而且能由用户输入确定性推导：base 前缀 + 用户给的那条 pathname',
+    faceReqs.length === 1 &&
+      faceReqs[0].url === expectedWire &&
+      pullStubHits.length === 1 &&
+      pullStubHits[0].path === PULL_STUB_PREFIX.replace(/\/$/, '') + stubPathname,
+    'face=' +
+      faceReqs.map((r) => r.url).join(', ') +
+      ' assets=' +
+      assetReqs.map((r) => pathnameOf(r.url)).join(', ') +
+      ' expected=' +
+      expectedWire
+  );
+  check(
+    'P2b 桩答的是 200（拉取走的是真 HTTP 往返，不是被 service worker 或缓存糊过去的）',
+    faceReqs.length === 1 && faceReqs[0].status === 200,
+    JSON.stringify(faceReqs.map((r) => r.status))
+  );
+
+  // ---- PR：重开页面后拉取的东西还在（AC「重开页面后内容仍在」的冒烟版） ----
+  // jsdom 单测已经验过快照往返，但「真浏览器 + 真 IndexedDB」只有这里能验。
+  const stubHitsBeforeReload = pullStubHits.length;
+  await cdp.send('Page.reload', {});
+  await poll(
+    cdp,
+    'document.querySelector(\'[data-testid="app-root"]\') || document.querySelector(\'[testid="app-root"]\') ? 1 : 0',
+    (v) => v === 1,
+    45000,
+    'PR fresh document + app-root'
+  );
+  await evalJs(cdp, HARNESS);
+  const afterReload = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), nodes: window.__t.nodeIds() })',
+    (v) => !!v && v.tabs.some((t) => t.path === PULL_STUB_SESSION_PATH),
+    30000,
+    'pulled file restored after reload'
+  ).then((r) => r.value);
+  const rtab = afterReload.tabs.find((t) => t.path === PULL_STUB_SESSION_PATH) || null;
+  note('after reload', afterReload);
+  await shot(cdp, 'pull-04-restored.png');
+  check(
+    'PR1 重开页面拉取文件仍在：标签、标识、来源元数据都读得回来（会话快照带上了它们）',
+    !!rtab &&
+      rtab.marker === 'pulled' &&
+      rtab.url === PULL_STUB_URL &&
+      !!tab &&
+      rtab.at === tab.at &&
+      afterReload.nodes.indexOf(PULL_STUB_SESSION_PATH + '::zz_pull_probe') >= 0,
+    JSON.stringify(rtab)
+  );
+  check(
+    'PR2 还原快照不发任何拉取请求：桩在刷新前后的命中数一个都没多（用户故事 10）',
+    pullStubHits.length === stubHitsBeforeReload,
+    'before=' + stubHitsBeforeReload + ' after=' + pullStubHits.length
+  );
+
+  // 回到空态：走产品自己的 Clear（连 IndexedDB 一起清），不是测试偷偷改状态
+  await clickTestId(cdp, 'topbar-reset');
+  await poll(cdp, 'window.__t.stats()', (v) => !!v && v.empty, 15000, 'empty again after Clear');
+  note('after Clear', 'back to the empty upload panel');
 
   const probe0 = await evalJs(cdp, 'window.__t.probe()');
   note('probe(before upload)', probe0);
   await shot(cdp, '01-initial.png');
 
   // ---- upload via a synthetic drop (the handler lives on window) ----
-  const defs = FIXTURES.map((f) => ({ name: f, content: fs.readFileSync(path.join(ROOT, 'fixtures', f), 'utf8') }));
+  const defs = FIXTURES.map((f) => ({
+    name: f,
+    content: fs.readFileSync(path.join(ROOT, 'fixtures', f), 'utf8'),
+  }));
   const dropped = await evalJs(cdp, 'window.__t.drop(' + JSON.stringify(defs) + ')');
   note('files dropped', dropped);
 
   const t0 = Date.now();
-  const st = await poll(cdp, 'window.__t.stats()', (s) => s.nodes > 0 || !!s.error, 60000, 'graph nodes').then((r) => r.value);
+  const st = await poll(
+    cdp,
+    'window.__t.stats()',
+    (s) => s.nodes > 0 || !!s.error,
+    60000,
+    'graph nodes'
+  ).then((r) => r.value);
   note('parse wall ms', Date.now() - t0);
   note('stats after upload', st);
   check('no fatal error bar', !st.error, st.error || 'none');
@@ -1060,18 +1513,31 @@ async function main() {
   const boxA = await evalJs(cdp, 'window.__t.findNode(' + JSON.stringify(TARGET_A.id) + ')');
   note('node box ' + TARGET_A.id, boxA);
   if (!boxA) throw new Error('graph node not found: ' + TARGET_A.id);
-  check('node center inside viewport', boxA.x > 0 && boxA.x < 1600 && boxA.y > 0 && boxA.y < 1000, JSON.stringify({ x: boxA.x, y: boxA.y }));
+  check(
+    'node center inside viewport',
+    boxA.x > 0 && boxA.x < 1600 && boxA.y > 0 && boxA.y < 1000,
+    JSON.stringify({ x: boxA.x, y: boxA.y })
+  );
 
   await realClick(cdp, boxA.x, boxA.y);
   const traceA = [];
   const clickAt = Date.now();
   while (Date.now() - clickAt < 1800) {
     const s = await evalJs(cdp, 'window.__t.sample()');
-    traceA.push({ dt: Date.now() - clickAt, op: s.flash ? s.flash.opacity : null, has: !!s.flash, top: s.scrollTop, sel: s.selInfo });
+    traceA.push({
+      dt: Date.now() - clickAt,
+      op: s.flash ? s.flash.opacity : null,
+      has: !!s.flash,
+      top: s.scrollTop,
+      sel: s.selInfo,
+    });
     await sleep(90);
   }
   report.samples.push({ name: 'graph->code ' + TARGET_A.id, trace: traceA });
-  note('flash trace (dt, opacity, scrollTop)', traceA.map((t) => t.dt + 'ms:' + (t.has ? t.op.toFixed(3) : '-') + ':' + t.top).join(' '));
+  note(
+    'flash trace (dt, opacity, scrollTop)',
+    traceA.map((t) => t.dt + 'ms:' + (t.has ? t.op.toFixed(3) : '-') + ':' + t.top).join(' ')
+  );
 
   const afterA = await evalJs(cdp, 'window.__t.sample()');
   const lineA = await evalJs(cdp, 'window.__t.lineVisible(' + TARGET_A.defLine + ')');
@@ -1079,19 +1545,51 @@ async function main() {
   await shot(cdp, '03-after-graph-click.png');
 
   // FileTabs removed, active chip detection unreliable
-  check('A1 selection info names the function', afterA.selInfo.indexOf(TARGET_A.label) >= 0, afterA.selInfo);
+  check(
+    'A1 selection info names the function',
+    afterA.selInfo.indexOf(TARGET_A.label) >= 0,
+    afterA.selInfo
+  );
   check('A1 selection band present', !!afterA.band, JSON.stringify(afterA.band));
-  check('A1 band starts at def line', afterA.band && parseInt(afterA.band.top, 10) === (TARGET_A.defLine - 1) * ROW_H, 'top=' + (afterA.band && afterA.band.top) + ' expected=' + ((TARGET_A.defLine - 1) * ROW_H));
-  check('A1 def line rendered and fully visible', lineA.rendered && lineA.fullyVisible, JSON.stringify(lineA));
-  check('A1 def line text is the def', lineA.text && lineA.text.indexOf('def area') >= 0, lineA.text);
+  check(
+    'A1 band starts at def line',
+    afterA.band && parseInt(afterA.band.top, 10) === (TARGET_A.defLine - 1) * ROW_H,
+    'top=' + (afterA.band && afterA.band.top) + ' expected=' + (TARGET_A.defLine - 1) * ROW_H
+  );
+  check(
+    'A1 def line rendered and fully visible',
+    lineA.rendered && lineA.fullyVisible,
+    JSON.stringify(lineA)
+  );
+  check(
+    'A1 def line text is the def',
+    lineA.text && lineA.text.indexOf('def area') >= 0,
+    lineA.text
+  );
 
   const flashSeen = traceA.filter((t) => t.has);
-  check('A1 flash overlay appeared', flashSeen.length > 0, 'samples with flash=' + flashSeen.length + '/' + traceA.length);
+  check(
+    'A1 flash overlay appeared',
+    flashSeen.length > 0,
+    'samples with flash=' + flashSeen.length + '/' + traceA.length
+  );
   const firstOp = flashSeen.length ? flashSeen[0].op : -1;
-  check('A1 flash starts near peak opacity', firstOp > 0.35 && firstOp <= 0.9, 'first sampled opacity=' + firstOp);
+  check(
+    'A1 flash starts near peak opacity',
+    firstOp > 0.35 && firstOp <= 0.9,
+    'first sampled opacity=' + firstOp
+  );
   const lastOp = flashSeen.length ? flashSeen[flashSeen.length - 1].op : -1;
-  check('A1 flash fades out', flashSeen.length > 2 && lastOp < firstOp, 'first=' + firstOp + ' last=' + lastOp);
-  check('A1 flash unmounted after FLASH_MS', !afterA.flash, 'flash=' + JSON.stringify(afterA.flash));
+  check(
+    'A1 flash fades out',
+    flashSeen.length > 2 && lastOp < firstOp,
+    'first=' + firstOp + ' last=' + lastOp
+  );
+  check(
+    'A1 flash unmounted after FLASH_MS',
+    !afterA.flash,
+    'flash=' + JSON.stringify(afterA.flash)
+  );
 
   // ---- repeat click on the same node: nonce must retrigger the flash ----
   const boxA2 = await evalJs(cdp, 'window.__t.findNode(' + JSON.stringify(TARGET_A.id) + ')');
@@ -1116,7 +1614,12 @@ async function main() {
   const tb = Date.now();
   while (Date.now() - tb < 900) {
     const s = await evalJs(cdp, 'window.__t.sample()');
-    traceB.push({ dt: Date.now() - tb, has: !!s.flash, op: s.flash ? s.flash.opacity : null, sel: s.selInfo });
+    traceB.push({
+      dt: Date.now() - tb,
+      has: !!s.flash,
+      op: s.flash ? s.flash.opacity : null,
+      sel: s.selInfo,
+    });
     await sleep(90);
   }
   report.samples.push({ name: 'code->graph total_area', trace: traceB });
@@ -1126,13 +1629,32 @@ async function main() {
   note('code->graph', { selInfo: afterB.selInfo, nodeBefore, nodeAfter, canvas });
   await shot(cdp, '05-after-code-click.png');
 
-  check('B1 selection info names total_area', afterB.selInfo.indexOf('total_area') >= 0, afterB.selInfo);
-  check('B1 code -> graph does NOT flash', !traceB.some((t) => t.has) && !afterB.flash, JSON.stringify(afterB.flash));
+  check(
+    'B1 selection info names total_area',
+    afterB.selInfo.indexOf('total_area') >= 0,
+    afterB.selInfo
+  );
+  check(
+    'B1 code -> graph does NOT flash',
+    !traceB.some((t) => t.has) && !afterB.flash,
+    JSON.stringify(afterB.flash)
+  );
   check('B1 selection band still drawn', !!afterB.band, JSON.stringify(afterB.band));
   const dx = nodeAfter && canvas ? Math.abs(nodeAfter.x - canvas.x) : 99999;
   const dy = nodeAfter && canvas ? Math.abs(nodeAfter.y - canvas.y) : 99999;
-  check('B1 target node centered in the graph viewport', dx < 40 && dy < 40, 'dx=' + dx.toFixed(1) + ' dy=' + dy.toFixed(1));
-  check('B1 target node gets the selected stroke', nodeAfter && nodeAfter.strokeWidth && parseFloat(nodeAfter.strokeWidth) >= 2.5, 'strokeWidth=' + (nodeAfter && nodeAfter.strokeWidth) + ' stroke=' + (nodeAfter && nodeAfter.stroke));
+  check(
+    'B1 target node centered in the graph viewport',
+    dx < 40 && dy < 40,
+    'dx=' + dx.toFixed(1) + ' dy=' + dy.toFixed(1)
+  );
+  check(
+    'B1 target node gets the selected stroke',
+    nodeAfter && nodeAfter.strokeWidth && parseFloat(nodeAfter.strokeWidth) >= 2.5,
+    'strokeWidth=' +
+      (nodeAfter && nodeAfter.strokeWidth) +
+      ' stroke=' +
+      (nodeAfter && nodeAfter.stroke)
+  );
 
   // ================= deep cross-file jump (must really scroll) =================
   await clickTestId(cdp, 'graph-fit');
@@ -1146,25 +1668,57 @@ async function main() {
   const tc = Date.now();
   while (Date.now() - tc < 900) {
     const s = await evalJs(cdp, 'window.__t.sample()');
-    traceC.push({ dt: Date.now() - tc, has: !!s.flash, op: s.flash ? s.flash.opacity : null, top: s.scrollTop });
+    traceC.push({
+      dt: Date.now() - tc,
+      has: !!s.flash,
+      op: s.flash ? s.flash.opacity : null,
+      top: s.scrollTop,
+    });
     await sleep(90);
   }
   report.samples.push({ name: 'graph->code deep ' + TARGET_B.id, trace: traceC });
   const afterC = await evalJs(cdp, 'window.__t.sample()');
   const lineC = await evalJs(cdp, 'window.__t.lineVisible(' + TARGET_B.defLine + ')');
-  note('deep cross-file', { pre: preC, after: afterC, line: lineC, trace: traceC.map((t) => t.dt + 'ms:' + (t.has ? t.op.toFixed(3) : '-') + ':' + t.top).join(' ') });
+  note('deep cross-file', {
+    pre: preC,
+    after: afterC,
+    line: lineC,
+    trace: traceC
+      .map((t) => t.dt + 'ms:' + (t.has ? t.op.toFixed(3) : '-') + ':' + t.top)
+      .join(' '),
+  });
   await shot(cdp, '06-deep-crossfile.png');
 
   // FileTabs removed, active chip detection unreliable
-  check('C1 really scrolled down', afterC.scrollTop > 500, 'scrollTop=' + afterC.scrollTop + ' (was ' + preC.scrollTop + ')');
-  check('C1 def line 95 rendered and fully visible', lineC.rendered && lineC.fullyVisible, JSON.stringify(lineC));
-  check('C1 band sits on line 95', afterC.band && parseInt(afterC.band.top, 10) === (TARGET_B.defLine - 1) * ROW_H, JSON.stringify(afterC.band));
-  check('C1 flash appeared on the deep cross-file jump', traceC.some((t) => t.has), 'flashSamples=' + traceC.filter((t) => t.has).length);
+  check(
+    'C1 really scrolled down',
+    afterC.scrollTop > 500,
+    'scrollTop=' + afterC.scrollTop + ' (was ' + preC.scrollTop + ')'
+  );
+  check(
+    'C1 def line 95 rendered and fully visible',
+    lineC.rendered && lineC.fullyVisible,
+    JSON.stringify(lineC)
+  );
+  check(
+    'C1 band sits on line 95',
+    afterC.band && parseInt(afterC.band.top, 10) === (TARGET_B.defLine - 1) * ROW_H,
+    JSON.stringify(afterC.band)
+  );
+  check(
+    'C1 flash appeared on the deep cross-file jump',
+    traceC.some((t) => t.has),
+    'flashSamples=' + traceC.filter((t) => t.has).length
+  );
 
   // ================= call-site token selects the callee (informational) =================
   // utils.py:54 is `return parse_lines(read_text(path))`; the first call token is parse_lines
   const linesNow = await evalJs(cdp, 'window.__t.renderedLines()');
-  note('rendered code lines (windowed)', { count: linesNow.length, first: linesNow[0], last: linesNow[linesNow.length - 1] });
+  note('rendered code lines (windowed)', {
+    count: linesNow.length,
+    first: linesNow[0],
+    last: linesNow[linesNow.length - 1],
+  });
   const callTok = await evalJs(cdp, 'window.__t.tokenInfo("code-token-call-54")');
   note('call token code-token-call-54', callTok);
   if (!callTok) throw new Error('missing code-token-call-54');
@@ -1174,7 +1728,11 @@ async function main() {
   await sleep(500);
   const selAfterD = (await evalJs(cdp, 'window.__t.sample()')).selInfo;
   note('call token click', { token: callTok.text, selBefore: selBeforeD, selAfter: selAfterD });
-  check('D1 clicking a call site selects the callee', selAfterD.indexOf('parse_lines') >= 0, 'selBefore=' + selBeforeD + ' selAfter=' + selAfterD);
+  check(
+    'D1 clicking a call site selects the callee',
+    selAfterD.indexOf('parse_lines') >= 0,
+    'selBefore=' + selBeforeD + ' selAfter=' + selAfterD
+  );
 
   // utils.py:53 is the docstring inside load_config -> body click selects the enclosing function
   const bodyBox = await focusElement(cdp, 'code-line-53');
@@ -1182,8 +1740,16 @@ async function main() {
   await sleep(500);
   const afterD2 = await evalJs(cdp, 'window.__t.sample()');
   note('body line click (utils.py:53)', { selInfo: afterD2.selInfo, band: afterD2.band });
-  check('D2 clicking a body line selects the enclosing function', afterD2.selInfo.indexOf('load_config') >= 0, afterD2.selInfo);
-  check('D3 body click moves the selection band to load_config', afterD2.band && parseInt(afterD2.band.top, 10) === (52 - 1) * ROW_H, JSON.stringify(afterD2.band));
+  check(
+    'D2 clicking a body line selects the enclosing function',
+    afterD2.selInfo.indexOf('load_config') >= 0,
+    afterD2.selInfo
+  );
+  check(
+    'D3 body click moves the selection band to load_config',
+    afterD2.band && parseInt(afterD2.band.top, 10) === (52 - 1) * ROW_H,
+    JSON.stringify(afterD2.band)
+  );
 
   // ================= I：点「调用关系图的线」→ 定位到 A 调用 B 的那一行 =================
   // 图上的一条边是同一对函数之间全部调用的聚合（ADR-0002）：fixtures/multi.py 里
@@ -1420,7 +1986,10 @@ async function main() {
     !!n1Pt,
     n1Pt ? 'x=' + n1Pt.x.toFixed(1) + ' y=' + n1Pt.y.toFixed(1) + ' len=' + n1Pt.len : 'no'
   );
-  if (!n1Pt) throw new Error('single-call edge not hittable: utils.py::load_config -> utils.py::parse_lines');
+  if (!n1Pt)
+    throw new Error(
+      'single-call edge not hittable: utils.py::load_config -> utils.py::parse_lines'
+    );
   await realClick(cdp, n1Pt.x, n1Pt.y);
   await sleep(300);
   const i8 = await evalJs(cdp, 'window.__t.edgeState()');
@@ -1437,7 +2006,7 @@ async function main() {
       count: i8.count,
       hasClear: i8.hasClear,
       hasPrev: i8.hasPrev,
-      hasNext: i8.hasNext
+      hasNext: i8.hasNext,
     })
   );
   check(
@@ -1471,7 +2040,8 @@ async function main() {
   // 这里不用「点代码正文行」：刚滚过去定位，滚动动画可能还没停，量到的坐标会落到别的行上，
   // 万一命中那一行的调用 token 反而会重新选中同一根边（假失败 / 假通过都可能）。
   const n1Node = await evalJs(cdp, 'window.__t.findNode("utils.py::parse_lines")');
-  if (!n1Node) throw new Error('graph node not found for clearing the N=1 edge: utils.py::parse_lines');
+  if (!n1Node)
+    throw new Error('graph node not found for clearing the N=1 edge: utils.py::parse_lines');
   await realClick(cdp, n1Node.x, n1Node.y);
   await sleep(300);
   const i8Clear = await evalJs(cdp, 'window.__t.edgeState()');
@@ -1486,7 +2056,7 @@ async function main() {
       info: i8Clear.info,
       stepper: i8Clear.stepper,
       marks: (i8Clear.marks || []).length,
-      hasClear: i8Clear.hasClear
+      hasClear: i8Clear.hasClear,
     })
   );
 
@@ -1520,20 +2090,20 @@ async function main() {
       '}' +
       'return { links: links, results: results };' +
       '})()',
-    true,
+    true
   );
   note('icon link probe', iconProbe);
   check(
     'F1 <head> 里真有注入的四个图标 link（svg 主档 + ico 兜底 + 192 + apple-touch）',
     JSON.stringify(iconProbe.links) ===
       JSON.stringify(['/icon.svg', '/favicon.ico', '/icon-192.png', '/apple-touch-icon.png']),
-    JSON.stringify(iconProbe.links),
+    JSON.stringify(iconProbe.links)
   );
   const iconBroken = (iconProbe.results || []).filter((r) => !r.loaded);
   check(
     'F2 每个注入 href 都能当 <img> 解码（同源 + CSP img-src + MIME 全对）',
     iconBroken.length === 0,
-    iconBroken.map((r) => r.href).join(', ') || 'ok',
+    iconBroken.map((r) => r.href).join(', ') || 'ok'
   );
 
   // ---- G：反馈面板 —— 页面上唯一「往外搬信息」的功能，它的对外动作只有 href ----
@@ -1550,7 +2120,7 @@ async function main() {
     'window.__t.stats()',
     (s) => s && s.nodes > 0 && s.edges > 0,
     10000,
-    'G4 page counts after scope=all',
+    'G4 page counts after scope=all'
   ).then((r) => r.value);
   const chipCount = await evalJs(
     cdp,
@@ -1558,14 +2128,14 @@ async function main() {
       'var els = Array.prototype.slice.call(document.querySelectorAll(\'[data-testid^="chip-"]\'));' +
       'var n = 0;' +
       'for (var i = 0; i < els.length; i++) {' +
-      'var t = els[i].getAttribute(\'data-testid\');' +
-      'if (t.indexOf(\'chip-remove-\') === 0) continue;' +
-      'if (t.indexOf(\'chip-scroll-\') === 0) continue;' +
-      'if (t.indexOf(\'chip-tooltip-\') === 0) continue;' +
+      "var t = els[i].getAttribute('data-testid');" +
+      "if (t.indexOf('chip-remove-') === 0) continue;" +
+      "if (t.indexOf('chip-scroll-') === 0) continue;" +
+      "if (t.indexOf('chip-tooltip-') === 0) continue;" +
       'n += 1;' +
       '}' +
       'return n;' +
-      '})()',
+      '})()'
   );
   // 黄条是「有告警」在页面上的唯一可见形态（TopBar 只在 warnings.length > 0 时渲染它）：
   // 拿它当告警计数的对端证据，比解析它的文案可靠 —— 文案是给人读的，不是数字。
@@ -1580,7 +2150,7 @@ async function main() {
     '!!window.__t.byId("feedback-dialog")',
     (v) => v === true,
     5000,
-    'G1 feedback dialog',
+    'G1 feedback dialog'
   )
     .then(() => true)
     .catch(() => false);
@@ -1607,7 +2177,7 @@ async function main() {
           'email: em ? (em.textContent || "").trim() : null,' +
           'text: (d.textContent || "").replace(/\\s+/g, " ").trim()' +
           '};' +
-          '})()',
+          '})()'
       )
     : null;
   // 面板还必须真的「浮在最上面」：RNW 的 View 基础样式带 z-index:0，每一个 View 都是
@@ -1630,7 +2200,7 @@ async function main() {
           'hit: e ? e.tagName + "#" + (e.getAttribute("data-testid") || e.id || "") : "none",' +
           'inside: !!(e && (e === c || c.contains(e)))' +
           '};' +
-          '})()',
+          '})()'
       )
     : null;
   await shot(cdp, '07-feedback-panel.png');
@@ -1644,10 +2214,10 @@ async function main() {
               '!window.__t.byId("feedback-dialog")',
               (v) => v === true,
               5000,
-              'G6 feedback dialog closed',
+              'G6 feedback dialog closed'
             )
               .then(() => true)
-              .catch(() => false),
+              .catch(() => false)
           )
           .catch(() => false)
       : false;
@@ -1664,18 +2234,29 @@ async function main() {
   const noRawSpace = (h) => typeof h === 'string' && h === h.trim() && !/\s/.test(h);
   const wantAnchors = contact.alias ? 2 : 1;
 
-  check('G1 点顶栏 Feedback 真的开出了面板（就绪判据=元素存在，不是文本前缀）', openedG1 && !!fb, 'opened=' + openedG1 + ' read=' + !!fb);
+  check(
+    'G1 点顶栏 Feedback 真的开出了面板（就绪判据=元素存在，不是文本前缀）',
+    openedG1 && !!fb,
+    'opened=' + openedG1 + ' read=' + !!fb
+  );
   check(
     'G2 开→关整个来回 netRequests 一个都没多（打开反馈面板不发出任何东西）',
     netRequests.size === reqsBeforeFeedback,
-    'before=' + reqsBeforeFeedback + ' after=' + netRequests.size,
+    'before=' + reqsBeforeFeedback + ' after=' + netRequests.size
   );
   check(
-    'G3 诊断块恰好 ' + contact.fieldNames.length + ' 行、第 i 行是第 i 个白名单字段、build 钉在被测字节上',
+    'G3 诊断块恰好 ' +
+      contact.fieldNames.length +
+      ' 行、第 i 行是第 i 个白名单字段、build 钉在被测字节上',
     fbLines.length === contact.fieldNames.length &&
       fbLines.every((l, i) => l.indexOf(contact.fieldNames[i] + '=') === 0) &&
       fbFields.build === entryHash.slice(0, 8),
-    'lines=' + JSON.stringify(fbLines).slice(0, 420) + ' build=' + fbFields.build + ' expect=' + entryHash.slice(0, 8),
+    'lines=' +
+      JSON.stringify(fbLines).slice(0, 420) +
+      ' build=' +
+      fbFields.build +
+      ' expect=' +
+      entryHash.slice(0, 8)
   );
   check(
     'G4 诊断计数与页面上真实渲染的数字自洽（不新立基线），persisted 只断言取值域',
@@ -1684,15 +2265,24 @@ async function main() {
       Number(fbFields.edges) === pageCounts.edges &&
       pageCounts.nodes > 0 &&
       Number(fbFields.unresolved) >= 0 &&
-      (Number(fbFields.warnings) > 0) === warnBarVisible &&
+      Number(fbFields.warnings) > 0 === warnBarVisible &&
       ['yes', 'no', 'unknown'].indexOf(fbFields.persisted) >= 0,
     'diag=' +
-      [fbFields.files, fbFields.funcs, fbFields.edges, fbFields.unresolved, fbFields.warnings, fbFields.persisted].join('/') +
+      [
+        fbFields.files,
+        fbFields.funcs,
+        fbFields.edges,
+        fbFields.unresolved,
+        fbFields.warnings,
+        fbFields.persisted,
+      ].join('/') +
       ' page=' +
-      [chipCount, pageCounts.nodes, pageCounts.edges, '?', 'bar=' + warnBarVisible].join('/'),
+      [chipCount, pageCounts.nodes, pageCounts.edges, '?', 'bar=' + warnBarVisible].join('/')
   );
   check(
-    'G5 面板里的 <a> 数 == 门控期望(' + wantAnchors + ')、零 <li>、Issues 锚点 href 形状正确' +
+    'G5 面板里的 <a> 数 == 门控期望(' +
+      wantAnchors +
+      ')、零 <li>、Issues 锚点 href 形状正确' +
       (contact.alias ? '、mailto 指向门控常量' : '、门控关闭时零邮件痕迹'),
     !!fb &&
       fb.anchors.length === wantAnchors &&
@@ -1713,15 +2303,22 @@ async function main() {
         : !mailAnchor && fb.email === null && fb.text.indexOf('@') < 0),
     'anchors=' +
       (fb ? JSON.stringify(fb.anchors.map((a) => [a.tid, a.target, a.rel])) : 'null') +
-      ' lis=' + (fb ? fb.lis : 'null') +
-      ' email=' + (fb ? fb.email : 'null') +
-      ' alias=' + contact.alias +
-      ' hrefHead=' + (issuesAnchor ? String(issuesAnchor.href).slice(0, 90) : 'null'),
+      ' lis=' +
+      (fb ? fb.lis : 'null') +
+      ' email=' +
+      (fb ? fb.email : 'null') +
+      ' alias=' +
+      contact.alias +
+      ' hrefHead=' +
+      (issuesAnchor ? String(issuesAnchor.href).slice(0, 90) : 'null')
   );
   check(
     'G6 面板浮在最上面（关闭按钮中心命中自己）、点 feedback-close 后面板从 DOM 消失',
     !!closeHit && closeHit.inside === true && closedG6 === true,
-    'hit=' + (closeHit ? closeHit.hit + '@' + closeHit.x + ',' + closeHit.y : 'null') + ' closed=' + closedG6,
+    'hit=' +
+      (closeHit ? closeHit.hit + '@' + closeHit.x + ',' + closeHit.y : 'null') +
+      ' closed=' +
+      closedG6
   );
 
   // ================= H：6 套可切换主题 —— CSS 变量在真浏览器里切得动、也留得住 =================
@@ -1745,14 +2342,33 @@ async function main() {
   const themeDump = (s) =>
     s === null || s === undefined
       ? 'null'
-      : 'vars=' + s.varCount + ' bg=' + s.vars['--cm-bg'] + ' rootBg=' + s.rootBg +
-        ' meta=' + s.metaContent + 'x' + s.metaCount + ' scheme=' + s.colorSchemeComputed +
-        ' pref=' + JSON.stringify(s.pref) + (s.prefErr ? ' prefErr=' + s.prefErr : '') +
-        ' shell=' + JSON.stringify(s.shellStyle);
+      : 'vars=' +
+        s.varCount +
+        ' bg=' +
+        s.vars['--cm-bg'] +
+        ' rootBg=' +
+        s.rootBg +
+        ' meta=' +
+        s.metaContent +
+        'x' +
+        s.metaCount +
+        ' scheme=' +
+        s.colorSchemeComputed +
+        ' pref=' +
+        JSON.stringify(s.pref) +
+        (s.prefErr ? ' prefErr=' + s.prefErr : '') +
+        ' shell=' +
+        JSON.stringify(s.shellStyle);
   const openThemePanel = async () => {
     if (await evalJs(cdp, 'window.__t.byId("theme-panel") ? 1 : 0')) return true;
     await clickTestId(cdp, 'topbar-theme');
-    return poll(cdp, 'window.__t.byId("theme-panel") ? 1 : 0', (v) => v === 1, 4000, 'theme panel open')
+    return poll(
+      cdp,
+      'window.__t.byId("theme-panel") ? 1 : 0',
+      (v) => v === 1,
+      4000,
+      'theme panel open'
+    )
       .then(() => true)
       .catch(() => false);
   };
@@ -1761,9 +2377,15 @@ async function main() {
     if (!opened) return null;
     return clickTestId(cdp, 'theme-option-' + id)
       .then(() =>
-        poll(cdp, THEME_STATE_EXPR, (s) => s.vars['--cm-bg'] === THEME.palettes[id].bg, 6000, 'theme ' + id + ' applied')
+        poll(
+          cdp,
+          THEME_STATE_EXPR,
+          (s) => s.vars['--cm-bg'] === THEME.palettes[id].bg,
+          6000,
+          'theme ' + id + ' applied'
+        )
           .then((r) => r.value)
-          .catch(() => null),
+          .catch(() => null)
       )
       .catch(() => null);
   };
@@ -1773,7 +2395,9 @@ async function main() {
   // 它必须与默认主题同字面值，否则首帧是一帧白屏而不是默认深色。
   const h1 = await readThemeState();
   check(
-    'H1 首访 = 默认主题：' + THEME.varCount + ' 条变量逐条 == 源码调色板，meta 与壳层底色同字面 hex，localStorage 无偏好键',
+    'H1 首访 = 默认主题：' +
+      THEME.varCount +
+      ' 条变量逐条 == 源码调色板，meta 与壳层底色同字面 hex，localStorage 无偏好键',
     varsEqual(h1, dfltTheme) &&
       h1.metaContent === dfltTheme.bg &&
       h1.metaCount === 1 &&
@@ -1782,13 +2406,15 @@ async function main() {
       h1.rootBg === hexToRgb(dfltTheme.bg) &&
       h1.pref === null &&
       h1.prefErr === null,
-    themeDump(h1),
+    themeDump(h1)
   );
 
   // ---- H2 面板：开得到、在最上面、六行齐、预览块是「别的主题」的字面色 ----
   const panelOpenH2 = await openThemePanel();
   const h2 = panelOpenH2 ? await evalJs(cdp, 'window.__t.themePanel()') : null;
-  const h2hit = panelOpenH2 ? await evalJs(cdp, 'window.__t.topmostInPanel("theme-option-' + THEME.ids[1] + '")') : null;
+  const h2hit = panelOpenH2
+    ? await evalJs(cdp, 'window.__t.topmostInPanel("theme-option-' + THEME.ids[1] + '")')
+    : null;
   await shot(cdp, '08-theme-panel.png');
   const swatchBlob = h2 ? squeeze(h2.swatchCss) : '';
   const lightBgRgbSq = squeeze(hexToRgb(lightTheme.bg));
@@ -1796,9 +2422,13 @@ async function main() {
     open: !!panelOpenH2,
     panel: !!h2,
     // 页面上拿到的是 data-testid（带 theme-option- 前缀），契约里的 ids 是裸 id，比之前要补前缀
-    rows: !!h2 && JSON.stringify(h2.rows) === JSON.stringify(THEME.ids.map((id) => 'theme-option-' + id)) &&
+    rows:
+      !!h2 &&
+      JSON.stringify(h2.rows) === JSON.stringify(THEME.ids.map((id) => 'theme-option-' + id)) &&
       h2.rows.length === THEME.ids.length,
-    labels: !!h2 && THEME.ids.every((id, i) => String(h2.labels[i]).indexOf(THEME.palettes[id].label) >= 0),
+    labels:
+      !!h2 &&
+      THEME.ids.every((id, i) => String(h2.labels[i]).indexOf(THEME.palettes[id].label) >= 0),
     tick: !!h2 && h2.checked.length === 1 && h2.checked[0] === 'theme-option-' + THEME.defaultId,
     aria: !!h2 && h2.aria.filter((a) => String(a).endsWith('(current)')).length === 1,
     noVar: swatchBlob.indexOf('var(') < 0,
@@ -1809,15 +2439,27 @@ async function main() {
   check(
     'H2 Theme 面板点得开、浮在最上面、六行按 THEME_ORDER：预览块是各主题字面 rgb（零 var(），只有当前项打勾',
     Object.keys(h2Cond).every((k) => h2Cond[k] === true),
-    'failed=[' + Object.keys(h2Cond).filter((k) => h2Cond[k] !== true).join(',') + ']' +
-      ' rows=' + JSON.stringify(h2 && h2.rows) +
-      ' checked=' + JSON.stringify(h2 && h2.checked) +
-      ' labels=' + JSON.stringify(h2 && h2.labels) +
-      ' aria=' + JSON.stringify(h2 && h2.aria) +
-      ' swatchLen=' + swatchBlob.length +
-      ' wantRgb=' + lightBgRgbSq +
-      ' swatchHead=' + swatchBlob.slice(0, 120) +
-      ' hit=' + (h2hit ? h2hit.hit + '@' + h2hit.x + ',' + h2hit.y : 'null'),
+    'failed=[' +
+      Object.keys(h2Cond)
+        .filter((k) => h2Cond[k] !== true)
+        .join(',') +
+      ']' +
+      ' rows=' +
+      JSON.stringify(h2 && h2.rows) +
+      ' checked=' +
+      JSON.stringify(h2 && h2.checked) +
+      ' labels=' +
+      JSON.stringify(h2 && h2.labels) +
+      ' aria=' +
+      JSON.stringify(h2 && h2.aria) +
+      ' swatchLen=' +
+      swatchBlob.length +
+      ' wantRgb=' +
+      lightBgRgbSq +
+      ' swatchHead=' +
+      swatchBlob.slice(0, 120) +
+      ' hit=' +
+      (h2hit ? h2hit.hit + '@' + h2hit.x + ',' + h2hit.y : 'null')
   );
 
   // ---- H3 切到 GitHub Light：五处同时变亮，而且一个请求都没多 ----
@@ -1835,7 +2477,13 @@ async function main() {
       h3.pref === lightTheme.id &&
       panelClosedH3 === 0 &&
       netRequests.size === reqsBeforeSwitch,
-    themeDump(h3) + ' reqs=' + reqsBeforeSwitch + '->' + netRequests.size + ' panelClosed=' + (panelClosedH3 === 0),
+    themeDump(h3) +
+      ' reqs=' +
+      reqsBeforeSwitch +
+      '->' +
+      netRequests.size +
+      ' panelClosed=' +
+      (panelClosedH3 === 0)
   );
 
   // ---- H4 命门：fill="var(--cm-node-fill)" 写在 SVG 表现属性上，真浏览器解得出 rgb ----
@@ -1844,7 +2492,7 @@ async function main() {
   const lightRgbSet = new Set(
     Object.keys(lightTheme.vars)
       .filter((k) => lightTheme.vars[k].charAt(0) === '#')
-      .map((k) => hexToRgb(lightTheme.vars[k])),
+      .map((k) => hexToRgb(lightTheme.vars[k]))
   );
   const nodeCountH4 = await evalJs(cdp, 'window.__t.allByPrefix("graph-node-").length');
   check(
@@ -1854,7 +2502,12 @@ async function main() {
       /^rgb/.test(String(h3.nodeFillComputed)) &&
       String(h3.nodeFillComputed).indexOf('var(') < 0 &&
       lightRgbSet.has(h3.nodeFillComputed),
-    'nodes=' + nodeCountH4 + ' attr=' + (h3 ? h3.nodeFillAttr : 'null') + ' computed=' + (h3 ? h3.nodeFillComputed : 'null'),
+    'nodes=' +
+      nodeCountH4 +
+      ' attr=' +
+      (h3 ? h3.nodeFillAttr : 'null') +
+      ' computed=' +
+      (h3 ? h3.nodeFillComputed : 'null')
   );
   // 留一张亮色截图：计算值对不代表人眼看着也对（对比度靠 theme.test.ts 的门禁，观感靠这张图）
   await shot(cdp, '09-theme-light.png');
@@ -1868,7 +2521,7 @@ async function main() {
     '(window.__beforeReload ? 0 : (document.querySelector(\'[data-testid="app-root"]\') || document.querySelector(\'[testid="app-root"]\') ? 1 : 0))',
     (v) => v === 1,
     45000,
-    'H5 fresh document + app-root',
+    'H5 fresh document + app-root'
   );
   await evalJs(cdp, HARNESS);
   const h5 = await readThemeState();
@@ -1881,27 +2534,38 @@ async function main() {
       h5.colorSchemeComputed === lightTheme.scheme &&
       h5.pref === lightTheme.id &&
       h5viol.length === 0,
-    themeDump(h5) + ' violations=' + JSON.stringify(h5viol).slice(0, 240),
+    themeDump(h5) + ' violations=' + JSON.stringify(h5viol).slice(0, 240)
   );
 
   // ---- H6 切回默认：颜色/meta/color-scheme 复原，偏好写回默认值 ----
   const h6 = await pickTheme(THEME.defaultId);
   await shot(cdp, '10-theme-default-restored.png');
   check(
-    'H6 切回 ' + THEME.defaultId + '：变量 / 计算背景 / meta / color-scheme 全部复原成源码默认值，偏好也写回默认',
+    'H6 切回 ' +
+      THEME.defaultId +
+      '：变量 / 计算背景 / meta / color-scheme 全部复原成源码默认值，偏好也写回默认',
     varsEqual(h6, dfltTheme) &&
       h6.rootBg === hexToRgb(dfltTheme.bg) &&
       h6.metaContent === dfltTheme.bg &&
       h6.colorSchemeInline === dfltTheme.scheme &&
       h6.colorSchemeComputed === dfltTheme.scheme &&
       h6.pref === dfltTheme.id,
-    themeDump(h6),
+    themeDump(h6)
   );
 
   // ================= ACCEPTANCE 4: 浏览器里真实发生的一切 =================
   // E1–E5 是**默认行为基线**（ADR-0006）：本脚本不做任何拉取动作，所以「全同源」必须成立；
   // 拉取面另有一组断言，不进这里。E6–E8 与有没有拉取无关，它们仍然是承诺。
-  const httpReqs = [...netRequests.values()].filter((r) => /^https?:/i.test(r.url));
+  // 桩请求（上面 P 组那一段）不算进来：E1–E5 的定义就是「不含拉取动作」的默认行为基线
+  // （ADR-0006 决策 4）。它们已经在 P 组里被单独、更严地审过一遍了。
+  const httpReqs = [...netRequests.entries()]
+    .filter(([id]) => !pullIds.has(id))
+    .map(([, r]) => r)
+    .filter((r) => /^https?:/i.test(r.url));
+  note(
+    'egress accounting',
+    'pull-phase requests excluded: ' + pullIds.size + '; baseline requests: ' + httpReqs.length
+  );
   const selfOrigin = new URL(APP_URL).origin;
   const originOf = (u) => {
     try {
@@ -1910,49 +2574,66 @@ async function main() {
       return null;
     }
   };
-  const pathnameOf = (u) => {
-    try {
-      return new URL(u).pathname;
-    } catch {
-      return u;
-    }
-  };
   note(
     'browser requests',
-    httpReqs.map((r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED:' + (r.failed || '?'))),
+    httpReqs.map(
+      (r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED:' + (r.failed || '?'))
+    )
   );
   report.network = httpReqs;
   const cross = httpReqs.filter((r) => originOf(r.url) !== selfOrigin);
-  check('E1 [默认行为基线] 每一个浏览器请求都是同源', cross.length === 0, cross.map((r) => r.url).join(', ') || '总请求数=' + httpReqs.length);
+  check(
+    'E1 [默认行为基线] 每一个浏览器请求都是同源',
+    cross.length === 0,
+    cross.map((r) => r.url).join(', ') || '总请求数=' + httpReqs.length
+  );
   const nonGet = httpReqs.filter((r) => r.method !== 'GET');
-  check('E2 [默认行为基线] 每一个浏览器请求都是 GET', nonGet.length === 0, nonGet.map((r) => r.method + ' ' + r.url).join(', ') || httpReqs.length + ' 个全 GET');
+  check(
+    'E2 [默认行为基线] 每一个浏览器请求都是 GET',
+    nonGet.length === 0,
+    nonGet.map((r) => r.method + ' ' + r.url).join(', ') || httpReqs.length + ' 个全 GET'
+  );
   const bodies = httpReqs.filter((r) => r.hasPostData || r.postDataBytes > 0);
-  check('E3 [默认行为基线] 零请求体（没有任何数据被送出浏览器）', bodies.length === 0, bodies.map((r) => r.method + ' ' + r.url + ' ' + r.postDataBytes + 'B').join(', ') || '0');
+  check(
+    'E3 [默认行为基线] 零请求体（没有任何数据被送出浏览器）',
+    bodies.length === 0,
+    bodies.map((r) => r.method + ' ' + r.url + ' ' + r.postDataBytes + 'B').join(', ') || '0'
+  );
   const bad = httpReqs.filter((r) => r.status && r.status >= 400);
-  check('E4 [默认行为基线] 没有 4xx/5xx 响应', bad.length === 0, bad.map((r) => r.status + ' ' + r.url).join(', ') || '0');
+  check(
+    'E4 [默认行为基线] 没有 4xx/5xx 响应',
+    bad.length === 0,
+    bad.map((r) => r.status + ' ' + r.url).join(', ') || '0'
+  );
   const notAsset = httpReqs.filter((r) => r.status === 200 && !distFileFor(pathnameOf(r.url)));
   check(
     'E5 [默认行为基线] 每个 200 响应都对应 dist/ 里真实存在的文件（被测字节 == 上线字节）',
     notAsset.length === 0,
-    notAsset.map((r) => pathnameOf(r.url)).join(', ') || 'ok',
+    notAsset.map((r) => pathnameOf(r.url)).join(', ') || 'ok'
   );
   const liveEntry = await evalJs(
     cdp,
-    'Array.prototype.slice.call(document.getElementsByTagName("script")).map(function(s){return s.getAttribute("src")}).filter(function(u){return u && u.indexOf("/entry-") > -1})[0] || null',
+    'Array.prototype.slice.call(document.getElementsByTagName("script")).map(function(s){return s.getAttribute("src")}).filter(function(u){return u && u.indexOf("/entry-") > -1})[0] || null'
   );
-  check('E6 页面里执行的入口 JS 就是 dist 的那个文件', liveEntry === expectIndex.entry, 'live=' + liveEntry + ' dist=' + expectIndex.entry);
+  check(
+    'E6 页面里执行的入口 JS 就是 dist 的那个文件',
+    liveEntry === expectIndex.entry,
+    'live=' + liveEntry + ' dist=' + expectIndex.entry
+  );
   const tokens = userContentTokens();
   const leaks = [];
   for (const r of httpReqs) {
     if (distFileFor(pathnameOf(r.url))) continue; // 真资产路径本身不算泄露
     for (const t of tokens) {
-      if (r.url.indexOf(t) >= 0 || r.url.indexOf(encodeURIComponent(t)) >= 0) leaks.push(t + ' -> ' + r.url);
+      if (r.url.indexOf(t) >= 0 || r.url.indexOf(encodeURIComponent(t)) >= 0)
+        leaks.push(t + ' -> ' + r.url);
     }
   }
   check(
     'E7 URL 里没有用户内容（文件名/函数名/代码片段）',
     leaks.length === 0,
-    leaks.slice(0, 5).join(' | ') || tokens.length + ' 个标记 x ' + httpReqs.length + ' 个请求，零命中',
+    leaks.slice(0, 5).join(' | ') ||
+      tokens.length + ' 个标记 x ' + httpReqs.length + ' 个请求，零命中'
   );
   // H5 会刷新页面，而计数器是 addScriptToEvaluateOnNewDocument 装的 —— 新文档从 0 开始，
   // 所以刷新前那份必须单独取一次，两个文档都为零才算「生产 CSP 下零违规」。
@@ -1960,14 +2641,20 @@ async function main() {
   check(
     'E8 生产 CSP 下零违规（刷新前 + 刷新后两个文档都算）',
     cspViolations.length === 0 && cspBeforeReload === 0,
-    JSON.stringify(cspViolations).slice(0, 600) + ' preReload=' + cspBeforeReload,
+    JSON.stringify(cspViolations).slice(0, 600) + ' preReload=' + cspBeforeReload
   );
 
   // note() 只是打印；真正的错误要变成一条断言，否则 CI 里没人会去看日志
-  const consoleErrors = console_.filter((c) => c.indexOf('error:') === 0 || c.indexOf('log:') === 0);
+  const consoleErrors = console_.filter(
+    (c) => c.indexOf('error:') === 0 || c.indexOf('log:') === 0
+  );
   note('console errors/warnings', console_.slice(0, 30));
   note('page exceptions', exceptions.slice(0, 10));
-  check('no console errors', consoleErrors.length === 0, consoleErrors.slice(0, 5).join(' | ') || '0');
+  check(
+    'no console errors',
+    consoleErrors.length === 0,
+    consoleErrors.slice(0, 5).join(' | ') || '0'
+  );
   check('no uncaught page exceptions', exceptions.length === 0, String(exceptions.length));
 }
 
@@ -1988,20 +2675,45 @@ async function serveOnly() {
     process.exit(1);
   }
   const srv = await startStaticServer();
-  console.log('[serve-only] ' + APP_URL + (srv.reused ? '  （端口已被占用：复用的是别人起的服务，Ctrl+C 不会关掉它）' : ''));
+  console.log(
+    '[serve-only] ' +
+      APP_URL +
+      (srv.reused ? '  （端口已被占用：复用的是别人起的服务，Ctrl+C 不会关掉它）' : '')
+  );
   console.log('[serve-only] dist = ' + DIST);
-  console.log('[serve-only] _headers 规则 ' + HEADER_RULES.length + ' 条：' + HEADER_RULES.map((r) => r.pattern).join(' '));
-  const samples = ['/', '/index.html', distIndex().entry, '/wasm/tree-sitter.wasm', '/icon.svg'].filter(Boolean);
+  console.log(
+    '[serve-only] _headers 规则 ' +
+      HEADER_RULES.length +
+      ' 条：' +
+      HEADER_RULES.map((r) => r.pattern).join(' ')
+  );
+  const samples = [
+    '/',
+    '/index.html',
+    distIndex().entry,
+    '/wasm/tree-sitter.wasm',
+    '/icon.svg',
+  ].filter(Boolean);
   for (const p of samples) {
     const file = distFileFor(p);
     const rel = file ? '/' + path.relative(DIST, file).split(path.sep).join('/') : null;
     const h = headersFor(p, rel).headers;
     console.log('  ' + p);
-    console.log('    cache-control: ' + (h['cache-control'] || 'no-store（服务器默认，无规则命中）'));
-    console.log('    content-security-policy: ' + (h['content-security-policy'] || '(这条路径没有)'));
+    console.log(
+      '    cache-control: ' + (h['cache-control'] || 'no-store（服务器默认，无规则命中）')
+    );
+    console.log(
+      '    content-security-policy: ' + (h['content-security-policy'] || '(这条路径没有)')
+    );
   }
   const stop = () => {
-    if (srv.server) { try { srv.server.close(); } catch { /* ignore */ } }
+    if (srv.server) {
+      try {
+        srv.server.close();
+      } catch {
+        /* ignore */
+      }
+    }
     process.exit(0);
   };
   process.on('SIGINT', stop);
@@ -2019,13 +2731,35 @@ async function run() {
     console.log('[FATAL] ' + report.fatal);
     EXIT = 1;
   } finally {
-    if (globalThis.CDP) { try { await globalThis.CDP.send('Browser.close'); } catch { /* ignore */ } }
+    if (globalThis.CDP) {
+      try {
+        await globalThis.CDP.send('Browser.close');
+      } catch {
+        /* ignore */
+      }
+    }
     const h = globalThis.PROC;
-    if (h) { try { h.chrome.kill('SIGKILL'); } catch { /* ignore */ } }
+    if (h) {
+      try {
+        h.chrome.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
+    }
     const srv = globalThis.SRV;
-    if (srv && srv.server) { try { srv.server.close(); } catch { /* ignore */ } }
+    if (srv && srv.server) {
+      try {
+        srv.server.close();
+      } catch {
+        /* ignore */
+      }
+    }
     await sleep(1200);
-    try { fs.rmSync(PROFILE, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(PROFILE, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
     const failed = report.checks.filter((c) => !c.pass);
     report.summary = {
       total: report.checks.length,
@@ -2034,7 +2768,11 @@ async function run() {
     };
     report.finishedAt = new Date().toISOString();
     report.shotsDir = SHOTS;
-    try { fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2)); } catch { /* ignore */ }
+    try {
+      fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
+    } catch {
+      /* ignore */
+    }
     console.log('\n==== SUMMARY ====');
     console.log(JSON.stringify(report.summary, null, 2));
     console.log('report: ' + REPORT_PATH);
@@ -2051,5 +2789,3 @@ if (SERVE_ONLY) {
 } else {
   run();
 }
-
-

@@ -32,12 +32,22 @@ const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewS
  * 正确，但 elementFromPoint 在那个点上返回的是 svg#graph-svg，截图里看不见面板，
  * 点关闭也点到图上。
  *
- * 只改 zIndex，不改 position：chipTooltip 的绝对定位锚点保持不动；绘制先后也不变
+ * 只改 zIndex，不改 position；绘制先后也不变
  * （z-index:0 与 auto 在同一个绘制步骤里，仍按 DOM 顺序），被放开的只有顶栏子树里
  * 带 z-index 的那几个覆盖层（chipTooltip 与反馈遮罩）—— 它们本来就该浮在全页之上。
+ * chipTooltip 后来改成 position:fixed + 悬浮时量到的 chip 锚点（见下方 hoveredChip）：
+ * chips 那一行是 overflow:hidden，绝对定位挂在行内会被裁掉，提示在真浏览器里根本不出现。
  * RN 的类型里 zIndex 只承认 number，'auto' 是合法 CSS 值，按 SCROLL_X 的先例 cast。
  */
 const Z_INDEX_AUTO = 'auto' as unknown as number;
+
+/** RN 的类型不认 position:'fixed'，但 RNW 在 web 上就是 CSS；按 SCROLL_X / Z_INDEX_AUTO 的先例 cast。 */
+const POSITION_FIXED = 'fixed' as unknown as 'absolute';
+
+/** 拉取时刻的展示形态：ISO 串。标签的 data-pull-at 与悬浮提示共用一个格式化。 */
+function pulledAtIso(pulledAt: number): string {
+  return new Date(pulledAt).toISOString();
+}
 
 /** 文件 chips 的着色下标：与 GraphPane 用同一份 files 顺序，保证颜色一致。 */
 export function colorIndexOfFile(
@@ -83,6 +93,10 @@ export function TopBar(): ReactNode {
   const status = useAppStore((s) => s.status);
   const error = useAppStore((s) => s.error);
   const warnings = useAppStore((s) => s.warnings);
+  const pullIssues = useAppStore((s) => s.pullIssues);
+  // 拉取文件的来源（CONTEXT.md：来源 = 它被拉取的 URL 与拉取时刻）。本地文件不在这个表里，
+  // 所以「有没有来源」就是 chip 上那个标识的唯一判据。
+  const origins = useAppStore((s) => s.origins);
   const progress = useAppStore((s) => s.progress);
   const activeFile = useAppStore((s) => s.activeFile);
   const selection = useAppStore((s) => s.selection);
@@ -99,7 +113,12 @@ export function TopBar(): ReactNode {
   const navIndex = useAppStore((s) => s.navIndex);
   const navHistory = useAppStore((s) => s.navHistory);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [hoveredChip, setHoveredChip] = useState<string | null>(null);
+  // 悬浮的 chip 与它的屏幕锚点。提示用 position:fixed 钉在 chip 下沿：chips 那一行
+  // 是 overflow:hidden（7ff1333 为滚动按钮布局加的），提示挂在行内会被裁掉 ——
+  // 实测截图里 DOM 有、屏幕上没有，所以锚点在悬浮那一刻量出来存着。
+  const [hoveredChip, setHoveredChip] = useState<{ path: string; x: number; y: number } | null>(
+    null
+  );
   const [chipScroll, setChipScroll] = useState({ canLeft: false, canRight: false });
   const chipsRef = useRef<RNScrollView>(null);
   const scrollOffsetRef = useRef(0);
@@ -315,6 +334,8 @@ export function TopBar(): ReactNode {
             {files.map((f) => {
               const ci = colorIndexOfFile(graph?.files ?? null, files, f.path);
               const active = f.path === activeFile;
+              const origin = origins[f.path];
+              const pulledAt = origin ? pulledAtIso(origin.pulledAt) : null;
               return Platform.OS === 'web' ? (
                 <div
                   key={f.path}
@@ -323,8 +344,14 @@ export function TopBar(): ReactNode {
                     e.stopPropagation();
                     setCtxMenu({ x: e.clientX, y: e.clientY, path: f.path });
                   }}
-                  onMouseEnter={() => setHoveredChip(f.path)}
+                  onMouseEnter={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setHoveredChip({ path: f.path, x: r.left, y: r.bottom });
+                  }}
                   onMouseLeave={() => setHoveredChip(null)}
+                  // data-* 只能挂在这层原生 div 上：RN-web 的 Pressable 不转发 data-*（实测过）。
+                  data-pull-url={origin ? origin.url : undefined}
+                  data-pull-at={pulledAt ?? undefined}
                   style={{ display: 'inline-block' }}
                 >
                   <Pressable
@@ -343,6 +370,15 @@ export function TopBar(): ReactNode {
                     >
                       {f.name}
                     </Text>
+                    {origin ? (
+                      <Text
+                        testID={'pull-origin-' + f.path}
+                        numberOfLines={1}
+                        style={styles.chipPulled}
+                      >
+                        {'pulled'}
+                      </Text>
+                    ) : null}
                     <Pressable
                       testID={'chip-remove-' + f.path}
                       onPress={() => void removeFile(f.path)}
@@ -370,6 +406,15 @@ export function TopBar(): ReactNode {
                   >
                     {f.name}
                   </Text>
+                  {origin ? (
+                    <Text
+                      testID={'pull-origin-' + f.path}
+                      numberOfLines={1}
+                      style={styles.chipPulled}
+                    >
+                      {'pulled'}
+                    </Text>
+                  ) : null}
                   <Pressable
                     testID={'chip-remove-' + f.path}
                     onPress={() => void removeFile(f.path)}
@@ -407,13 +452,6 @@ export function TopBar(): ReactNode {
               <Text style={styles.chipScrollBtnText}>{'▶'}</Text>
             </Pressable>
           ) : null}
-          {hoveredChip ? (
-            <View style={styles.chipTooltip} testID={'chip-tooltip-' + hoveredChip}>
-              <Text style={styles.chipTooltipText}>
-                {files.find((f) => f.path === hoveredChip)?.path}
-              </Text>
-            </View>
-          ) : null}
         </View>
       ) : null}
 
@@ -444,6 +482,47 @@ export function TopBar(): ReactNode {
           warnings: warnings.length,
         }}
       />
+
+      {/*
+        拉取的报错单独一条，不并进上面的 warnings：那条的开头写死了「N file(s) had issues」，
+        而拉取问题（非法 URL、限速、不可达）压根没有对应的文件条目。反馈面板的诊断计数
+        warnings 也是「解析告警条数」的白名单字段，混进来会让那个数字说谎。
+      */}
+      {pullIssues.length > 0 ? (
+        <View style={styles.warnBar} testID="topbar-pull-issues">
+          <Text style={styles.warnText} numberOfLines={4}>
+            {pullIssues.length + ' link(s) were not pulled:\n' + pullIssues.join('\n')}
+          </Text>
+        </View>
+      ) : null}
+
+      {/*
+        提示挂在顶栏根上而不是 chips 那一行里：那行是 overflow:hidden，而且（RNW 的 baseStyle）
+        自带 z-index:0 的层叠上下文 —— 行内的覆盖层既会被裁，又只在行内部比大小。
+        实测截图里提示被正文面板整个盖住，只露出顶栏下沿的一条边。挂到根上之后它和
+        反馈遮罩一样参与全页的层叠比较（根是 z-index:auto，见文件头 Z_INDEX_AUTO 那段）。
+      */}
+      {hoveredChip ? (
+        <View
+          style={[styles.chipTooltip, { top: hoveredChip.y + 4, left: hoveredChip.x }]}
+          testID={'chip-tooltip-' + hoveredChip.path}
+        >
+          <Text style={styles.chipTooltipText}>
+            {files.find((f) => f.path === hoveredChip.path)?.path}
+          </Text>
+          {(() => {
+            // 来源写在提示里而不是另开一个原生 title：一个 chip 只该有一个提示，
+            // 而这个已经在了（它本来就是为了读完整路径）。
+            const o = origins[hoveredChip.path];
+            if (!o) return null;
+            return (
+              <Text style={styles.chipTooltipText}>
+                {'Pulled from ' + o.url + ' at ' + pulledAtIso(o.pulledAt)}
+              </Text>
+            );
+          })()}
+        </View>
+      ) : null}
 
       {warnings.length > 0 ? (
         <View style={styles.warnBar} testID="topbar-warnings">
@@ -699,9 +778,9 @@ const styles = StyleSheet.create({
   },
   chipScrollBtnText: { color: colors.text, fontSize: 10, fontFamily: fonts.ui },
   chipTooltip: {
-    position: 'absolute',
-    top: 34,
-    left: 0,
+    // fixed 而不是 absolute：chips 那一行 overflow:hidden，行内的绝对定位会被裁掉；
+    // top/left 由悬浮时量到的 chip 锚点在行内覆盖。
+    position: POSITION_FIXED,
     paddingHorizontal: 8,
     paddingTop: 4,
     paddingBottom: 4,
@@ -731,6 +810,7 @@ const styles = StyleSheet.create({
   chipDot: { width: 8, height: 8, borderRadius: 4 },
   chipText: { color: colors.text, fontFamily: fonts.mono, fontSize: 11, maxWidth: 220 },
   chipTextError: { color: colors.danger },
+  chipPulled: { color: colors.accent, fontFamily: fonts.ui, fontSize: 9, fontWeight: '600' },
   chipRemove: {
     width: 20,
     height: 20,

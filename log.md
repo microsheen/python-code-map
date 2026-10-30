@@ -1245,3 +1245,60 @@
   连上一轮那份日志也补读回来（node/npm 版本、12 条警告的逐条出处、CI 侧入口哈希）。降级读法
   （`deferred_commit_data` 与 run 页面 `aria-label`）留着当备胎，但别把它当成唯一路径 —— 它给不了日志正文，
   而日志正文里才有能用来更正自己记忆的原文。
+
+## 2026-10-30 拉取 2/7 落地轮（直链 tracer bullet：粘贴一条 https 直链即进会话 · P 组 13 项 · 503 单测 · 88 项冒烟）
+
+issue #4（父 spec #2，ADR-0006 决策 1/3/4 的首批落地）。纯推导层先红后绿（`src/pull/urls.ts` /
+`errors.ts` / `batch.ts` / `transport.ts`），store 走既有文件合并通道（`pullFromText` → `mergeFiles`），
+web 侧唯一 fetch 触点 `src/platform/web/pullFetch.ts`（15s AbortController 超时；TypeError 时同 URL 打一发
+`no-cors` 探针把「被 CORS 拒」与「根本不可达」分开）。冒烟加本地同源桩 `/__pull-stub__/` 与
+仅回环源生效的 base 覆盖（`window.__CODEMAP_PULL_BASE__`，闸门在 `pullFetch.ts` 的 `isLoopbackOrigin`：
+页面自己的源不是 localhost/127.0.0.1/[::1] 就不认这个键，线上域名永远拿不到这条能力）。
+
+- **P 组 13 项全绿**（[实测] 2026-10-30，本机 `npm run smoke`，88/88）：P0t 源码超时==15s、P0 空态、
+  PU1 点开才采集、PU2 粘贴原文、PU3 进会话进标签、PU4 标识+data-* 元数据、PU4b 悬浮提示三样齐全、
+  PU5 参与调用图、P1 全程 GET 零请求体（CDP 与桩两本账）、P2 拉取面 URL 恰好一条且可推导、
+  P2b 桩答 200、PR1 重开页面拉取文件仍在（标签/标识/元数据都读得回来）、PR2 还原快照桩零命中
+  （页面加载永不自动拉取）。PR 两项是两轴 review 指出「快照往返只有 jsdom 证据」之后补的。
+  P2 的窗口记账要交代一句：拉取是本会话第一次解析，解析器 wasm 懒加载，于是 `/wasm/tree-sitter*.wasm`
+  两条落在这个窗口里；判据与 E5 同一个（pathname 在 dist/ 内有文件 = 应用资产），资产单列一条 note，
+  拉取面必须恰好一条。
+- **F 组重名按「改没落地的名字」解决**：ADR-0006 的拉取面 F 组落地为 **P 组**，图标链路 F1/F2 原地不动
+  （历史读数不改写）。口径的全文只写在 ADR-0006 末尾「落地备注（追加不改写）」一节，
+  `docs/ops-deployment.md` / `public/_headers` / `CODING_STANDARDS.md` 三处只留指针与读法 —— 第一版曾把理由抄进四个
+  文件，两轴 review 的 Standards 轴按「单一来源」把它打回来了。
+- **三个「断言绿着但用户看不见/读不到」的坑，都是截图或实测 outerHTML 揪出来的**：
+  ① `CodePane/FileTabs.tsx` 是死文件 —— 组件树上早就没有它（`browser-verify.mjs` 两处
+  "FileTabs removed" 注释、本文件 2026-10-29 retro 轮记过产物里 `[FileTabs]` 0 命中），第一版把来源标识
+  做在它上面，冒烟读 `file-tab-*` 永远读空；改落到顶栏 chips（用户真能看见的那排标签）。
+  ② RN-web 的 Pressable 不转发 `data-*` / `title`（实测 outerHTML 一个都不剩），元数据只能挂 chip 外层
+  那层原生 web div。③ chip 悬浮提示在真浏览器里**根本不出现**：chips 那行 `overflow:hidden`，且 RNW 的
+  baseStyle 给每个 View 一个 z-index:0 的层叠上下文，行内覆盖层既被裁又只在行内比大小 —— 截图里 DOM 在、
+  屏幕上只剩顶栏下沿 7px 的一条边。提示挪到顶栏根 + `position:fixed` + 悬浮时量到的 chip 锚点之后才真浮起来
+  （这条坑在拉取之前就存在，本轮顺带修掉，PU4b 与截图一起钉住）。
+- **testid 命名空间撞车**：旧标识名 `file-tab-pull-<path>` 与标签自己的 `file-tab-<path>` 共用前缀，
+  路径以 `pull-` 开头时（本轮桩的 host 就叫 `pull-stub.invalid`，第一版冒烟就是这么红的）两个元素同名。
+  标识改名 `pull-origin-<path>`，与 `chip-` / `file-tab-` 都不相交；`__tests__/pullUi.test.tsx` 加了一条
+  「pull-thing.py 与 thing.py 同屏」的回归（先红后绿）。
+- **两轴 review 后的修正**（Standards + Spec 两个子代理并行，固定点 `eb0df1f`）：① `pullFromText` 加
+  try/finally 与逐批 try/catch —— 传输外壳一旦 reject，旧代码会把 `pulling` 永久留成 true（按钮死锁）；
+  reject 现在翻译成新观察类型 `crash`、单文件降级。② 整轮一个文件都没拉成时不再重置用户的
+  选择/范围/视图（`runAnalysis` 的 `preserveView`）：没有新内容进来，重置是纯损失。③ `upsertBatch` 把
+  重叠路径从旧批次收走 —— 否则 `a.py` 与 `a.py?raw=1` 会各握一个批次却指着同一个路径，#7 的
+  刷新重放会替别的 URL 拉文件。④ 20 文件上限的拒收文案与拉取时刻的 ISO 格式化各抽成一个
+  函数（两处重复字面量 / 重复表达式）。⑤ `pullContract()` 读出的 15s 从「只打印」变成 P0t 断言。
+  ⑥ 超限文案是中文这件既有问题单独开了 **#10**（#4 的 AC 要求「沿用现有文案」，改文案是越界）。
+- **没改的**：`audit:egress` 扫描范围没扩到 pullFetch.ts（那是 #9「外发审计扩扫」；给全局加
+  `--allow-token=fetch(` 会把 contact.ts 那道保证一起放掉，pullFetch.ts 里注释记着）；P3 静默期 / P4 刷新范围
+  留给 #9；README 三语改写是 #3；顶栏常驻拉取入口是 #8。`FileTabs.tsx` 这个死文件本轮**没删**
+  （删它是清理动作，不挂在这张功能票上，遗留里记着）。
+- 门禁实测：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning；jest **25 suites / 503 tests**
+  全过（比上轮 +66：pull 39 + pullStore 16 + pullUi 11）；smoke **88/88**（上轮 75，+13 即 P 组）；
+  `audit:egress` scanned 3 file(s) clean（范围未变）。产物：入口 `entry-675e439bbca8f7894b0a2e465d5f9092.js`，
+  `index.html` 1,562 B、sha256 `0c102f9dc4ed42721f1bcfdf418f5bea79127f1a80b609747a03a878e515c4b7`。
+- CI：本轮提交后另起一轮记读数（沿用「CI 实测单独成轮」的惯例）。
+- 本轮学到的规矩：**DOM 里读得到不等于用户看得见** —— 冒烟里截图是唯一替用户看屏幕的观测点，
+  新加的可见性断言必须配一张截图人工核一遍；以及改名先改还没落地的那个名字。
+- 遗留：① #9（P3/P4 + audit:egress 扩扫 + 真 GitHub 人工抽测的流程）；② #8 顶栏常驻拉取入口；
+  ③ #3 README 三语；④ #10 超限文案改英文；⑤ `src/components/CodePane/FileTabs.tsx` 死文件待删；
+  ⑥ CI 读数下一轮补。

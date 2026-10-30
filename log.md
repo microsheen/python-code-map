@@ -1500,3 +1500,25 @@ issue #5：github.com 的页面 URL 直接可用，用户不必自己找 raw 直
   ⑨ **新**：目录 URL 的斜杠分支是启发式（仓库真有 `feature` 分支且其下有 `x/pkg` 时会选错），
   这是 URL 本身的歧义，只能文档化；⑩ **新**：解析层三句中文 UI 文案（#10 遗留 ⑧）仍在；
   ⑪ `PullBatch.ref` 现在有写入点（github blob 填 ref）但仍无读取点，等 #7 刷新。
+
+## 2026-10-30 #5 review 收口轮（失败占位身份改用已解析拆分 · 词表撞词与草稿残句清掉 · 541 单测 · 93 项冒烟）
+
+提交后按 skill 又跑了一次两轴 review（fixed point `da609d7`，即 0632fb1 的完整 diff），三条可动的全部改掉：
+
+- **Spec 轴唯一实质缺陷：blob 失败占位退回首段猜测。** `fetchGithubFile` 失败时把已解析的 `loc` 丢了，
+  store 用 `githubFirstPath`（恒取「首段 = ref」）拼占位身份 —— `/blob/feature/x/src/a.py` 在 refs
+  已解析出 `feature/x`、raw 404 的场景下，红点条目落成 `o/r/x/src/a.py`。修：`GithubFileResult` 失败分支
+  带回 `{ref, path}`，store 统一用 `file.path`；`githubFirstPath` 删除（它本来就只有这一个调用点）。
+  补一条回归测试：斜杠分支 + raw 404 + 元数据 200，断言占位身份是 `o/r/src/a.py`。
+- **Standards 轴硬性：词表撞词。** `github.ts` 的 `GithubListing` 注释写了「一次导入解析出的清单」，
+  「导入」是 CONTEXT.md「拉取」条明列的避免词 —— 改「拉取」。同文件 `githubMatchingRefsUrl` 注释里
+  「html_url 之外不带任何鉴权」是草稿残句（全仓没有 html_url 这个东西），改「请求本身」。
+- **判定不改的**：三个 URL 构造器里 `repos/{o}/{r}` 前缀重复三次、Result 信封三份 —— 抽出抽象的收益
+  抵不上多一层间接，判断类，记下不动作；`pullListing` 无消费方是已登记的 #6 分期，不算投机泛化。
+- 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 零输出（**连着第七轮**）；
+  jest **25 suites / 541 tests**（540 +1 回归测试）；smoke **93/93**（`EXIT=0`）。
+  本机产物：入口 `entry-256809da3e321bdeb30fa01283489fc2.js`、`index.html` 1,562 B / sha256
+  `992b2b9b0026ffb63ad2f3b3eaaa02af6f6f73cf1a116b1fd610c6c2b707b65d`。
+- 本轮学到的规矩：**「手里握着正确值却在失败路径上丢回猜测值」这类缺口，单测天然照不到 ——
+  成功路径与失败路径各自绿，拼起来才错。** review 的价值就在这条缝上；以后写「成功/失败共用一份
+  派生数据」的代码，失败分支的断言要单独点名将派生值钉死。

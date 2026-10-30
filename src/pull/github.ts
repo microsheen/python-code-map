@@ -132,7 +132,7 @@ export function githubRepoMetaUrl(owner: string, repo: string): string {
  * 分支前缀查询：一次请求就能拿到「所有以该前缀开头的 head」。
  *
  * 只用于 blob URL 的 ref 拆分（raw 请求本身不关心拆分，但会话身份需要知道
- * ref 到哪里结束）。前缀只取首段，所以不会太宽；html_url 之外不带任何鉴权。
+ * ref 到哪里结束）。前缀只取首段，所以不会太宽；请求本身不带任何鉴权。
  */
 export function githubMatchingRefsUrl(owner: string, repo: string, prefix: string): string {
   return `https://${GITHUB_API_HOST}/repos/${encodeSeg(owner)}/${encodeSeg(
@@ -321,7 +321,7 @@ export function githubPickEntries(
   }));
 }
 
-/** 一次导入解析出的清单（#6 的勾选界面直接消费）。 */
+/** 一次拉取解析出的清单（#6 的勾选界面直接消费）。 */
 export interface GithubListing {
   sourceUrl: string;
   owner: string;

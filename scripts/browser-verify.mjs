@@ -280,6 +280,15 @@ async function probeAppUrl() {
 const PULL_STUB_PREFIX = '/__pull-stub__/';
 const PULL_STUB_HOST = 'pull-stub.invalid';
 const PULL_STUB_PATH = 'probe/zz_pull_probe.py';
+/**
+ * github 分流的第二个桩场景（issue #5）：用户粘的是 github.com 的 blob 页面，拉取面实际发出的是
+ * 「一次 matching-refs + 一次 raw」。两条路径都挂在同一个桩前缀下，base 覆盖只换 origin，
+ * 所以 pathname 仍能按用户 URL 确定性推导。
+ */
+const GITHUB_STUB_URL = 'https://github.com/psf/requests/blob/main/probe/zz_gh_probe.py';
+const GITHUB_STUB_REFS_PATH = 'repos/psf/requests/git/matching-refs/heads/main';
+const GITHUB_STUB_RAW_PATH = 'psf/requests/main/probe/zz_gh_probe.py';
+const GITHUB_STUB_SESSION_PATH = 'psf/requests/probe/zz_gh_probe.py';
 const PULL_STUB_FILES = {
   [PULL_STUB_PATH]: [
     'def zz_pull_probe():',
@@ -289,6 +298,8 @@ const PULL_STUB_FILES = {
     '    return 42',
     '',
   ].join('\n'),
+  [GITHUB_STUB_REFS_PATH]: JSON.stringify([{ ref: 'refs/heads/main' }]),
+  [GITHUB_STUB_RAW_PATH]: ['def zz_gh_probe():', '    return 7', ''].join('\n'),
 };
 /** 用户会粘进面板的那条直链（https + .py 结尾，符合分流规则） */
 const PULL_STUB_URL = 'https://' + PULL_STUB_HOST + '/' + PULL_STUB_PATH;
@@ -1472,6 +1483,92 @@ async function main() {
   await clickTestId(cdp, 'topbar-reset');
   await poll(cdp, 'window.__t.stats()', (v) => !!v && v.empty, 15000, 'empty again after Clear');
   note('after Clear', 'back to the empty upload panel');
+
+  // ---- PG：github.com 页面 URL 的拉取面（issue #5） ----
+  // 与 P 组同一条取证思路：空态下再粘一条 github blob URL。拉取面实际发两条请求
+  // （一次 matching-refs 解析 ref + 一次 raw 取内容），两个观测点仍然得说「全 GET、零请求体」，
+  // 而且两条 URL 都能由用户粘的那条页面 URL 确定性推导。
+  const idsBeforeGithub = new Set(netRequests.keys());
+  const hitsBeforeGithub = pullStubHits.length;
+  await clickTestId(cdp, 'upload-pull');
+  await typeIntoTestId(cdp, 'pull-input', GITHUB_STUB_URL);
+  await clickTestId(cdp, 'pull-submit');
+  const afterGithub = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), nodes: window.__t.nodeIds(), issues: window.__t.valueOf("topbar-pull-issues") })',
+    (v) => !!v && (v.tabs.some((t) => t.path === GITHUB_STUB_SESSION_PATH) || !!v.issues),
+    30000,
+    'github blob pulled'
+  ).then((r) => r.value);
+  note('after github pull', afterGithub);
+  await shot(cdp, 'pull-05-github.png');
+  const ghTab = afterGithub.tabs.find((t) => t.path === GITHUB_STUB_SESSION_PATH) || null;
+  check(
+    'PG1 github.com 的 blob 页面 URL 直接拉单文件：身份是 owner/repo/ + 仓库相对路径，没有报错条',
+    !!ghTab && !afterGithub.issues,
+    'tab=' + JSON.stringify(ghTab) + ' issues=' + JSON.stringify(afterGithub.issues)
+  );
+  check(
+    'PG2 来源仍是用户粘的那条 github 页面 URL（不是内部 raw 地址）',
+    !!ghTab && ghTab.marker === 'pulled' && ghTab.url === GITHUB_STUB_URL,
+    JSON.stringify(ghTab && { marker: ghTab.marker, url: ghTab.url })
+  );
+  check(
+    'PG3 拉进来的文件参与调用图（与直链文件同为一等公民）',
+    afterGithub.nodes.indexOf(GITHUB_STUB_SESSION_PATH + '::zz_gh_probe') >= 0,
+    String(afterGithub.nodes.filter((id) => id.indexOf('zz_gh_probe') >= 0))
+  );
+
+  const githubIds = new Set([...netRequests.keys()].filter((id) => !idsBeforeGithub.has(id)));
+  const githubReqs = [...githubIds].map((id) => netRequests.get(id)).filter(Boolean);
+  const githubFace = githubReqs.filter((r) => !distFileFor(pathnameOf(r.url)));
+  const githubHits = pullStubHits.slice(hitsBeforeGithub);
+  note(
+    'github pull requests (cdp)',
+    githubReqs.map(
+      (r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED:' + (r.failed || '?'))
+    )
+  );
+  note('github pull requests (stub side)', githubHits);
+  report.pullGithubNetwork = githubReqs;
+  report.pullGithubStubHits = githubHits;
+  check(
+    'PG4 github 路径同样是全程 GET、请求体恒空（CDP 与桩侧两个观测点）',
+    githubReqs.length > 0 &&
+      githubReqs.every((r) => r.method === 'GET' && !r.hasPostData && r.postDataBytes === 0) &&
+      githubHits.length > 0 &&
+      githubHits.every(
+        (h) => h.method === 'GET' && h.contentLength === null && h.transferEncoding === null
+      ),
+    JSON.stringify({
+      cdp: githubReqs.map((r) => r.method + ' body=' + r.postDataBytes + 'B'),
+      stub: githubHits,
+    })
+  );
+  const expectedRefsWire = pullBase + GITHUB_STUB_REFS_PATH;
+  const expectedRawWire = pullBase + GITHUB_STUB_RAW_PATH;
+  check(
+    'PG5 github 路径的请求 URL 仍能由用户 URL 确定性推导：matching-refs 前缀 + raw 的 ref/path',
+    githubFace.length === 2 &&
+      githubFace[0].url === expectedRefsWire &&
+      githubFace[1].url === expectedRawWire &&
+      githubFace.every((r) => r.status === 200) &&
+      githubHits.length === 2 &&
+      githubHits[0].path === PULL_STUB_PREFIX.replace(/\/$/, '') + '/' + GITHUB_STUB_REFS_PATH &&
+      githubHits[1].path === PULL_STUB_PREFIX.replace(/\/$/, '') + '/' + GITHUB_STUB_RAW_PATH,
+    'face=' +
+      githubFace.map((r) => r.url).join(', ') +
+      ' expected=' +
+      [expectedRefsWire, expectedRawWire].join(', ') +
+      ' stub=' +
+      githubHits.map((h) => h.path).join(', ')
+  );
+  // E 组基线只排除「拉取动作」：github 这一段也是拉取，不能让它的两条请求污染 E1–E5
+  for (const id of githubIds) pullIds.add(id);
+
+  await clickTestId(cdp, 'topbar-reset');
+  await poll(cdp, 'window.__t.stats()', (v) => !!v && v.empty, 15000, 'empty after github pull');
+  note('after github Clear', 'back to the empty upload panel');
 
   const probe0 = await evalJs(cdp, 'window.__t.probe()');
   note('probe(before upload)', probe0);

@@ -9,6 +9,7 @@
  * 前三类在这里，第四类是 classifyUrl 的 invalid 结论（它压根不发请求）。
  * 限速是 4xx 的一个子类，单独一类是因为它的处置动作不同：等一会儿再试，而不是去改链接。
  */
+import { GITHUB_API_HOST, GITHUB_RAW_HOST } from './github';
 import { PULL_TIMEOUT_MS } from './urls';
 
 export type PullFailureKind = 'network' | 'cors' | 'http' | 'rate-limited';
@@ -90,6 +91,20 @@ export function classifyFailure(obs: PullFailureObservation, url: string): PullF
     return {
       kind: 'rate-limited',
       message: `HTTP ${obs.status} from ${host} — rate limited, try again later`,
+    };
+  }
+  // GitHub API 的 401/403/404 都可能是「仓库是私有的」（匿名拿不到）。#5 不接受任何认证，
+  // 所以这里不提示登录、不提示 token，只把「只支持公开仓库」这一句直接给用户。
+  // 404 还有第二种解释：分支名或目录写错（匿名下两者在 API 上分不开），所以 404 多给一句，
+  // 免得用户拿着一模一样的链接反复重试。raw 主机的 401 是「这条内容要鉴权」，同一句话。
+  if (
+    (host === GITHUB_RAW_HOST && obs.status === 401) ||
+    (host === GITHUB_API_HOST && (obs.status === 401 || obs.status === 403 || obs.status === 404))
+  ) {
+    const base = `HTTP ${obs.status} from ${host} — private repositories are not supported; only public repositories can be pulled`;
+    return {
+      kind: 'http',
+      message: host === GITHUB_API_HOST && obs.status === 404 ? `${base}. The branch or path may also be wrong.` : base,
     };
   }
   // 5xx 是对方答话了但答的是「我这边出错」—— 叫用户去改链接是错建议（ADR-0006「文案避免被误读成

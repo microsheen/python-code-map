@@ -31,6 +31,13 @@ import { classifyFailure } from '../pull/errors';
 import { pruneBatches, pruneOrigins, upsertBatch } from '../pull/batch';
 import type { OriginMap, PullBatch } from '../pull/batch';
 import type { PullOutcome, PullTransport } from '../pull/transport';
+import { githubSessionPath, type GithubListing } from '../pull/github';
+import {
+  createGithubFetchCache,
+  fetchGithubFile,
+  fetchGithubListing,
+  githubFirstPath,
+} from '../pull/githubFetch';
 
 export type SelectionSource = 'code' | 'graph' | 'scope' | 'nav';
 
@@ -143,6 +150,8 @@ export interface AppStore {
   pullIssues: string[];
   /** 拉取进行中：禁用按钮，免得连点发出重复请求 */
   pulling: boolean;
+  /** github 仓库/目录 URL 解析出的候选清单；勾选界面的输入（界面在 #6） */
+  pullListing: GithubListing | null;
 
   loadFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
   addFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
@@ -241,6 +250,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         activeFile: null,
         origins: {},
         batches: [],
+        pullListing: null,
         selection: NO_SELECTION,
         edgeSelection: null,
         scope: ALL_SCOPE,
@@ -362,6 +372,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
     batches: [],
     pullIssues: [],
     pulling: false,
+    pullListing: null,
 
     loadFiles: async (files, parser) => {
       if (files.length > MAX_FILES) {
@@ -381,26 +392,62 @@ export const useAppStore = create<AppStore>()((set, get) => {
       if (lines.length === 0) {
         // 空输入的文案不另写一句：它就是 classifyUrl 的 empty 分支
         const empty = classifyUrl('');
-        set({ pullIssues: empty.kind === 'invalid' ? [empty.message] : [], pulling: false });
+        set({
+          pullIssues: empty.kind === 'invalid' ? [empty.message] : [],
+          pulling: false,
+          pullListing: null,
+        });
         return;
       }
-      set({ pulling: true, pullIssues: [] });
+      set({ pulling: true, pullIssues: [], pullListing: null });
       try {
         const incoming: PickedFile[] = [];
         const issues: string[] = [];
         let origins: OriginMap = { ...get().origins };
         let batches: PullBatch[] = get().batches;
+        let listing: GithubListing | null = null;
+        // 拉进来的条目只有一种形状：有正文，或者带一句 error。两种来源（github blob / 直链）
+        // 共用这一个构造函数，免得「超限句 + 空正文 + 名字」这三件套写两遍。
+        const pushPulled = (path: string, text: string, error: string | null): void => {
+          const name = path.slice(path.lastIndexOf('/') + 1);
+          incoming.push(error ? { path, name, content: '', error } : { path, name, content: text });
+        };
+        // 一次粘贴共享一份 ref 解析缓存：同一仓库的多条 blob URL 只查一次分支
+        const githubCache = createGithubFetchCache();
 
         // 逐批独立成败：一批失败不影响后面的批次，也不碰会话里既有的内容
         for (const line of lines) {
           const triage = classifyUrl(line);
-          if (triage.kind !== 'direct') {
-            // 非法 URL（含 http 明文）与本轮还不支持的页面 URL：连请求都不发，只把理由给用户
+          if (triage.kind === 'invalid') {
+            // 非法 URL（含 http 明文）：连请求都不发，只把理由给用户
             issues.push(triage.message);
             continue;
           }
+          if (triage.kind === 'github') {
+            // github 页面 URL 走另一条分流（issue #5）：blob 直接拉单文件，仓库/目录只出清单。
+            // 清单的勾选界面在 #6；这一票先把 pullListing 填好，不让它在这里发任何文件请求。
+            if (triage.target.kind === 'blob') {
+              const file = await fetchGithubFile(triage.target, transport, githubCache);
+              const relPath = file.ok ? file.path : githubFirstPath(triage.target);
+              const path = githubSessionPath(triage.target.owner, triage.target.repo, relPath);
+              const pulledAt = Date.now();
+              if (file.ok) pushPulled(path, file.text, oversizeMessageOf(file.text));
+              else pushPulled(path, '', file.message);
+              origins = { ...origins, [path]: { url: triage.target.url, pulledAt } };
+              batches = upsertBatch(batches, {
+                sourceUrl: triage.target.url,
+                ref: file.ok ? file.ref : null,
+                paths: [path],
+                pulledAt,
+              });
+              continue;
+            }
+            const result = await fetchGithubListing(triage.target, transport);
+            if (result.ok) listing = result.listing;
+            else issues.push(result.message);
+            continue;
+          }
           const path = pulledPathFor(triage.url);
-          const name = path.slice(path.lastIndexOf('/') + 1);
           let outcome: PullOutcome;
           try {
             outcome = await transport.get(directRequest(triage.url));
@@ -419,16 +466,10 @@ export const useAppStore = create<AppStore>()((set, get) => {
           if (outcome.ok) {
             // 超 1MB 的文件不进会话（更不该把几 MB 正文写进 IndexedDB），但占一个带红点的位置，
             // 文案与上传路径共用解析层那一句（#10 之后是英文）：一处判据、一句话。
-            const over = oversizeMessageOf(outcome.text);
-            incoming.push(
-              over
-                ? { path, name, content: '', error: over }
-                : { path, name, content: outcome.text }
-            );
+            pushPulled(path, outcome.text, oversizeMessageOf(outcome.text));
           } else {
             // 单文件失败只降级该文件：留一个带 error 的条目，走既有的坏文件降级路径
-            const failure = classifyFailure(outcome.observation, triage.url);
-            incoming.push({ path, name, content: '', error: failure.message });
+            pushPulled(path, '', classifyFailure(outcome.observation, triage.url).message);
           }
           // 失败也记来源：这个位置确实属于这条 URL，刷新（#7）时要连它一起重试
           origins = { ...origins, [path]: { url: triage.url, pulledAt } };
@@ -441,9 +482,9 @@ export const useAppStore = create<AppStore>()((set, get) => {
         }
 
         if (incoming.length === 0) {
-          // 全是非法 URL：一个文件都没得合并。这时候走 mergeFiles 会把既有文件白白重解析一遍，
-          // 顺带把用户当前的选择/范围/视图重置掉 —— 那不是「拉取失败」该有的副作用。
-          set({ pullIssues: issues, pulling: false });
+          // 全是非法 URL / 只有清单：一个文件都没得合并。这时候走 mergeFiles 会把既有文件白白重解析
+          // 一遍，顺带把用户当前的选择/范围/视图重置掉 —— 那不是「拉取失败」该有的副作用。
+          set({ pullIssues: issues, pulling: false, pullListing: listing });
           return;
         }
         const anyContent = incoming.some((f) => !f.error);
@@ -455,11 +496,12 @@ export const useAppStore = create<AppStore>()((set, get) => {
             batches,
             pullIssues: issues,
             pulling: false,
+            pullListing: listing,
           },
           { preserveView: !anyContent }
         );
         // 撞上 20 文件上限：红条已经是现有那句文案，这里只把拉取自己的状态收干净
-        if (!merged) set({ pullIssues: issues, pulling: false });
+        if (!merged) set({ pullIssues: issues, pulling: false, pullListing: listing });
       } finally {
         // 兜底：任何意料之外的异常都不许把 pulling 留成 true（那样按钮会永久禁用）。
         if (get().pulling) set({ pulling: false });
@@ -660,6 +702,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         batches: [],
         pullIssues: [],
         pulling: false,
+        pullListing: null,
       }));
     },
   };

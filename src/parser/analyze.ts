@@ -12,8 +12,48 @@ import { walk, type SyntaxNodeLike } from './treeLike';
 import type { ParseTree, PythonParser } from './treeSitter';
 import type { AnalysisResult, FileAnalysis, LineTokens, PyFile } from './types';
 
-/** 单文件大小上限（按字符数近似 1MB） */
+/** 单文件大小上限：1MB，按 UTF-8 **实际字节数**算（byteLengthOf），不是字符数。 */
 export const MAX_FILE_SIZE = 1024 * 1024;
+
+/**
+ * UTF-8 编码后的字节数。
+ *
+ * 为什么不用 TextEncoder：jest 的 jsdom 环境里没有这个全局量（实测 typeof TextEncoder ===
+ * 'undefined'），用它就得在测试里再塞一份 polyfill，于是「测的那条路径」与「跑的那条路径」
+ * 不是同一条。这里手算 UTF-8 长度，浏览器与测试走的是同一份代码。
+ * 落单的高代理项不是合法 UTF-8，按替换字符的 3 字节计。
+ */
+export function byteLengthOf(text: string): number {
+  const s = text ?? '';
+  let bytes = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    const code = s.charCodeAt(i);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i += 1;
+      } else bytes += 3;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
+/**
+ * 超限文案，只此一处：本地上传与拉取两条路径共用同一句（issue #4「沿用现有超限提示文案」）。
+ * 这句是中文而仓库口径要求 UI 字符串用英文 —— 它是本票之前就存在的文案，沿用比顺手改写诚实；
+ * 要改口径请单独一轮，别夹在功能票里。
+ */
+export function oversizeMessage(): string {
+  return `文件超过 ${Math.round(MAX_FILE_SIZE / 1024 / 1024)}MB，已跳过`;
+}
+
+/** 超了上限就返回那句文案，没超返回 null。 */
+export function oversizeMessageOf(content: string): string | null {
+  return byteLengthOf(content) > MAX_FILE_SIZE ? oversizeMessage() : null;
+}
 
 export interface AnalyzeProgress {
   done: number;
@@ -38,7 +78,12 @@ export function normalizeNewlines(text: string): string {
   return text.replace(/\r\n?/g, '\n');
 }
 
-export function makePyFile(rawPath: string, rawName: string, content: string, error?: string): PyFile {
+export function makePyFile(
+  rawPath: string,
+  rawName: string,
+  content: string,
+  error?: string
+): PyFile {
   const path = normalizePath(rawPath || rawName || 'unnamed.py');
   const text = normalizeNewlines(content ?? '');
   return {
@@ -59,9 +104,8 @@ export function normalizeFiles(input: PyFile[]): PyFile[] {
     f.path = normalizePath(raw.path || raw.name);
     if (!f.path) continue;
     if (!f.error) {
-      if ((f.content?.length ?? 0) > MAX_FILE_SIZE) {
-        f.error = `文件超过 ${Math.round(MAX_FILE_SIZE / 1024 / 1024)}MB，已跳过`;
-      }
+      const over = oversizeMessageOf(f.content ?? '');
+      if (over) f.error = over;
     }
     f.lines = normalizeNewlines(f.content ?? '').split('\n');
     f.content = normalizeNewlines(f.content ?? '');
@@ -93,14 +137,26 @@ export function emptyAnalysisResult(): AnalysisResult {
     files: [],
     analyses: [],
     highlights: new Map<string, LineTokens[]>(),
-    graph: { nodes: [], edges: [], unresolved: [], files: [], stats: { funcs: 0, edges: 0, unresolved: 0, ms: 0, byReason: { ambiguous: 0, external: 0, dynamic: 0, unknown: 0 } } },
+    graph: {
+      nodes: [],
+      edges: [],
+      unresolved: [],
+      files: [],
+      stats: {
+        funcs: 0,
+        edges: 0,
+        unresolved: 0,
+        ms: 0,
+        byReason: { ambiguous: 0, external: 0, dynamic: 0, unknown: 0 },
+      },
+    },
   };
 }
 
 export async function analyzeFiles(
   input: PyFile[],
   parser: PythonParser,
-  opts: AnalyzeOptions = {},
+  opts: AnalyzeOptions = {}
 ): Promise<AnalysisResult> {
   const started = Date.now();
   const batchSize = Math.max(1, opts.batchSize ?? 3);
@@ -161,7 +217,7 @@ export async function analyzeFiles(
       const lines = a.file.lines;
       highlights.set(
         a.file.path,
-        cachedHighlight(key, () => highlightLines(tree.rootNode, lines)),
+        cachedHighlight(key, () => highlightLines(tree.rootNode, lines))
       );
     } catch (e) {
       a.file.error = a.file.error ?? `解析异常：${e instanceof Error ? e.message : String(e)}`;

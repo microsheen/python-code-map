@@ -3,6 +3,7 @@
  * 所有操作异步、静默降级——失败时不影响主流程。
  */
 import type { PickedFile } from '../../parser/types';
+import type { OriginMap, PullBatch } from '../../pull/batch';
 
 const DB_NAME = 'code-map';
 const DB_VERSION = 1;
@@ -13,6 +14,18 @@ export interface SessionData {
   files: PickedFile[];
   activeFile: string | null;
   timestamp: number;
+  /**
+   * 拉取文件的来源与批次元数据。两个都是**可选**字段：本功能之前存的快照没有它们，
+   * 读出来是 undefined，一律当本地文件处理，读入不报错（issue #2「快照兼容」）。
+   */
+  origins?: OriginMap;
+  batches?: PullBatch[];
+}
+
+/** saveSession 的第三个参数：随文件一起留存的拉取元数据。 */
+export interface SessionMeta {
+  origins?: OriginMap;
+  batches?: PullBatch[];
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -33,14 +46,21 @@ function openDB(): Promise<IDBDatabase> {
 export async function saveSession(
   files: PickedFile[],
   activeFile: string | null,
+  meta?: SessionMeta
 ): Promise<void> {
   try {
     const db = await openDB();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       tx.objectStore(STORE_NAME).put(
-        { files, activeFile, timestamp: Date.now() } satisfies SessionData,
-        KEY,
+        {
+          files,
+          activeFile,
+          timestamp: Date.now(),
+          origins: meta?.origins ?? {},
+          batches: meta?.batches ?? [],
+        } satisfies SessionData,
+        KEY
       );
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);

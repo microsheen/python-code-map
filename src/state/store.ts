@@ -5,9 +5,15 @@
  * 靠 nonce 自增让"滚动到行"和"居中"重新触发。
  */
 import { create } from 'zustand';
-import { applyScope, neighborhoodScope, scopeContains, ALL_SCOPE, type Scope } from '../graph/scope';
+import {
+  applyScope,
+  neighborhoodScope,
+  scopeContains,
+  ALL_SCOPE,
+  type Scope,
+} from '../graph/scope';
 import { findEdge, sortedCallSites } from '../graph/edges';
-import { analyzeFiles, makePyFile } from '../parser/analyze';
+import { analyzeFiles, makePyFile, oversizeMessageOf } from '../parser/analyze';
 import { getParser, type PythonParser } from '../parser/treeSitter';
 import type {
   CallGraph,
@@ -19,6 +25,12 @@ import type {
   PyFile,
 } from '../parser/types';
 import { saveSession, loadSession, clearSession } from '../platform/web/persist';
+import { webPullTransport } from '../platform/web/pullFetch';
+import { classifyUrl, directRequest, pulledPathFor, splitPastedUrls } from '../pull/urls';
+import { classifyFailure } from '../pull/errors';
+import { pruneBatches, pruneOrigins, upsertBatch } from '../pull/batch';
+import type { OriginMap, PullBatch } from '../pull/batch';
+import type { PullOutcome, PullTransport } from '../pull/transport';
 
 export type SelectionSource = 'code' | 'graph' | 'scope' | 'nav';
 
@@ -64,7 +76,7 @@ export interface Progress {
 }
 
 export const IDENTITY_VIEW: ViewState = { tx: 0, ty: 0, scale: 1 };
-export const DEFAULT_SPLIT = 0.35; 
+export const DEFAULT_SPLIT = 0.35;
 export const MIN_SPLIT = 0.25;
 export const MAX_SPLIT = 0.75;
 export const MAX_FILES = 20;
@@ -79,7 +91,21 @@ export function clampSplit(ratio: number): number {
   return Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, ratio));
 }
 
-export interface CtxMenu { x: number; y: number; path: string; }
+export interface CtxMenu {
+  x: number;
+  y: number;
+  path: string;
+}
+
+/**
+ * pullFromText 的可选注入点。
+ * transport 是 store 单测的接缝（issue #4「store 既有文件合并通道是第二层接缝（mock 传输）」）；
+ * 不传就用 platform/web 那个 fetch 外壳 —— 真 fetch 只有那一个触点。
+ */
+export interface PullOptions {
+  parser?: PythonParser | null;
+  transport?: PullTransport;
+}
 
 export interface AppStore {
   files: PyFile[];
@@ -109,8 +135,22 @@ export interface AppStore {
   /** 导航历史：每次选中函数时推入，支持后退/前进 */
   /** 当前在历史中的位置（-1 表示不在历史中） */
 
+  /** 拉取文件的来源：path -> { url, pulledAt }。本地文件不在里面（这就是它俩的区别）。 */
+  origins: OriginMap;
+  /** 拉取批次：一个 URL 一个批次，是刷新（#7）的单位；随会话快照持久化 */
+  batches: PullBatch[];
+  /** 本轮拉取里连文件位置都建不出来的问题（非法 URL 等），一条一句直接给用户看 */
+  pullIssues: string[];
+  /** 拉取进行中：禁用按钮，免得连点发出重复请求 */
+  pulling: boolean;
+
   loadFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
   addFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
+  /**
+   * 拉取：粘贴框里的一段文本 -> 一行一个 URL、一个 URL 一个批次、逐批独立成败。
+   * 非法 URL 一律不发请求；单文件失败只降级那一个文件，会话既有内容不动。
+   */
+  pullFromText: (text: string, opts?: PullOptions) => Promise<void>;
   removeFile: (path: string) => Promise<void>;
   removeFiles: (paths: string[]) => Promise<void>;
   setActiveFile: (path: string) => void;
@@ -155,21 +195,42 @@ function projectEdge(
   source: FuncId,
   target: FuncId,
   index: number,
-  origin: EdgeOrigin,
+  origin: EdgeOrigin
 ): Pick<AppStore, 'edgeSelection' | 'activeFile'> | null {
   const sites = sortedCallSites(findEdge(state.graph, source, target));
   if (sites.length === 0) return null;
   const clamped = index >= 0 && index < sites.length ? index : 0;
   const site = sites[clamped] as CallSite;
   return {
-    edgeSelection: { source, target, index: clamped, count: sites.length, origin, nonce: ++edgeNonce },
+    edgeSelection: {
+      source,
+      target,
+      index: clamped,
+      count: sites.length,
+      origin,
+      nonce: ++edgeNonce,
+    },
     activeFile: state.files.some((f) => f.path === site.file) ? site.file : state.activeFile,
   };
 }
 
+/** 20 文件上限的拒收文案：loadFiles 与 mergeFiles 共用同一句（现有文案，不新写）。 */
+function tooManyFilesMessage(count: number): string {
+  return `Too many files: ${count}/${MAX_FILES}. Please remove some files before adding more.`;
+}
+
 export const useAppStore = create<AppStore>()((set, get) => {
-  const runAnalysis = async (picked: PickedFile[], parser?: PythonParser | null): Promise<void> => {
-    set({ status: 'loading-wasm', error: null, warnings: [], progress: { done: 0, total: picked.length } });
+  const runAnalysis = async (
+    picked: PickedFile[],
+    parser?: PythonParser | null,
+    opts?: { preserveView?: boolean }
+  ): Promise<void> => {
+    set({
+      status: 'loading-wasm',
+      error: null,
+      warnings: [],
+      progress: { done: 0, total: picked.length },
+    });
     if (picked.length === 0) {
       set({
         files: [],
@@ -178,6 +239,8 @@ export const useAppStore = create<AppStore>()((set, get) => {
         graph: null,
         status: 'idle',
         activeFile: null,
+        origins: {},
+        batches: [],
         selection: NO_SELECTION,
         edgeSelection: null,
         scope: ALL_SCOPE,
@@ -193,8 +256,15 @@ export const useAppStore = create<AppStore>()((set, get) => {
         onProgress: (pr) => set({ progress: { done: pr.done, total: pr.total } }),
       });
       const failed = result.files.filter((f) => f.error);
+      // 来源与批次跟着文件集合一起收敛：会话里已经没有的文件，元数据也不留（不变量 origins ⊆ files）。
+      // 删掉一个拉取文件之后它的批次路径也跟着消失 —— 刷新（#7）才不会把它复活。
+      const alivePaths = result.files.map((f) => f.path);
+      const nextOrigins = pruneOrigins(get().origins, alivePaths);
+      const nextBatches = pruneBatches(get().batches, alivePaths);
       set({
         files: result.files,
+        origins: nextOrigins,
+        batches: nextBatches,
         analyses: result.analyses,
         highlights: result.highlights,
         graph: result.graph,
@@ -206,23 +276,66 @@ export const useAppStore = create<AppStore>()((set, get) => {
             ? 'All files failed to parse. Please check that the files are valid Python text.'
             : null,
         warnings: failed.map((f) => `${f.name}：${f.error ?? 'Unknown error'}`),
-        selection: NO_SELECTION,
-        edgeSelection: null,
-        scope: ALL_SCOPE,
-        view: IDENTITY_VIEW,
-        fitNonce: get().fitNonce + 1,
+        // preserveView：没有任何新内容进来的那种合并（拉取全失败）不重置用户的
+        // 选择/范围/视图 —— 重置在那种情况下是纯损失，不是「有新内容要看」。
+        ...(opts?.preserveView
+          ? {}
+          : {
+              selection: NO_SELECTION,
+              edgeSelection: null,
+              scope: ALL_SCOPE,
+              view: IDENTITY_VIEW,
+              fitNonce: get().fitNonce + 1,
+            }),
       });
-    // 持久化到 IndexedDB
-    void saveSession(
-      get().files.map((f) => ({ path: f.path, name: f.name, content: f.content, error: f.error })),
-      get().activeFile,
-    );
+      // 持久化到 IndexedDB（含拉取的来源与批次：重开页面内容还在，而还原快照不发任何请求）
+      void saveSession(
+        get().files.map((f) => ({
+          path: f.path,
+          name: f.name,
+          content: f.content,
+          error: f.error,
+        })),
+        get().activeFile,
+        { origins: nextOrigins, batches: nextBatches }
+      );
     } catch (e) {
       set({
         status: 'error',
         error: e instanceof Error ? e.message : String(e),
       });
     }
+  };
+
+  /**
+   * 既有的文件合并通道：按 path last-write-wins，超过 MAX_FILES 整体拒掉并沿用现有那句文案。
+   *
+   * 拉取与本地上传共用这一条通道 —— 拉取文件因此天然是「一等公民」，不需要第二套合并语义
+   * （issue #4：同名文件沿用 last-write-wins）。meta 只在合并真的生效时才写进 state，
+   * 被上限拒掉时不写：元数据永远不该指向不在会话里的文件。
+   */
+  const mergeFiles = async (
+    incoming: PickedFile[],
+    parser?: PythonParser | null,
+    meta?: Partial<AppStore>,
+    opts?: { preserveView?: boolean }
+  ): Promise<boolean> => {
+    const existing: PickedFile[] = get().files.map((f) => ({
+      path: f.path,
+      name: f.name,
+      content: f.content,
+      error: f.error,
+    }));
+    const byPath = new Map<string, PickedFile>();
+    for (const f of [...existing, ...incoming.map((x) => ({ ...x }))]) byPath.set(f.path, f);
+    const merged = [...byPath.values()];
+    if (merged.length > MAX_FILES) {
+      set({ error: tooManyFilesMessage(merged.length) });
+      return false;
+    }
+    if (meta) set(meta);
+    await runAnalysis(merged, parser, opts);
+    return true;
   };
 
   return {
@@ -245,28 +358,113 @@ export const useAppStore = create<AppStore>()((set, get) => {
     navHistory: [],
     navIndex: -1,
     ctxMenu: null,
+    origins: {},
+    batches: [],
+    pullIssues: [],
+    pulling: false,
 
     loadFiles: async (files, parser) => {
       if (files.length > MAX_FILES) {
-        set({ error: `Too many files: ${files.length}/${MAX_FILES}. Please remove some files before adding more.` });
-
+        set({ error: tooManyFilesMessage(files.length) });
         return;
       }
       await runAnalysis(files, parser);
     },
 
     addFiles: async (files, parser) => {
-      const existing: PickedFile[] = get()
-        .files.map((f) => ({ path: f.path, name: f.name, content: f.content, error: f.error }));
-      const incoming = files.map((f) => ({ ...f }));
-      const byPath = new Map<string, PickedFile>();
-      for (const f of [...existing, ...incoming]) byPath.set(f.path, f);
-      const merged = [...byPath.values()];
-      if (merged.length > MAX_FILES) {
-        set({ error: `Too many files: ${merged.length}/${MAX_FILES}. Please remove some files before adding more.` });
+      await mergeFiles(files, parser);
+    },
+
+    pullFromText: async (text, opts) => {
+      const transport = opts?.transport ?? webPullTransport;
+      const lines = splitPastedUrls(text);
+      if (lines.length === 0) {
+        // 空输入的文案不另写一句：它就是 classifyUrl 的 empty 分支
+        const empty = classifyUrl('');
+        set({ pullIssues: empty.kind === 'invalid' ? [empty.message] : [], pulling: false });
         return;
       }
-      await runAnalysis(merged, parser);
+      set({ pulling: true, pullIssues: [] });
+      try {
+        const incoming: PickedFile[] = [];
+        const issues: string[] = [];
+        let origins: OriginMap = { ...get().origins };
+        let batches: PullBatch[] = get().batches;
+
+        // 逐批独立成败：一批失败不影响后面的批次，也不碰会话里既有的内容
+        for (const line of lines) {
+          const triage = classifyUrl(line);
+          if (triage.kind !== 'direct') {
+            // 非法 URL（含 http 明文）与本轮还不支持的页面 URL：连请求都不发，只把理由给用户
+            issues.push(triage.message);
+            continue;
+          }
+          const path = pulledPathFor(triage.url);
+          const name = path.slice(path.lastIndexOf('/') + 1);
+          let outcome: PullOutcome;
+          try {
+            outcome = await transport.get(directRequest(triage.url));
+          } catch (e) {
+            // 传输外壳自己 reject（不该发生：webPullTransport 内部把异常全接住了）。真发生了就按
+            // 这一个文件失败处理 —— 绝不让一个异常把 pulling 卡成 true、把整轮拉取带走。
+            outcome = {
+              ok: false,
+              observation: {
+                type: 'crash',
+                detail: e instanceof Error ? e.message : String(e),
+              },
+            };
+          }
+          const pulledAt = Date.now();
+          if (outcome.ok) {
+            // 超 1MB 的文件不进会话（更不该把几 MB 正文写进 IndexedDB），但占一个带红点的位置，
+            // 文案沿用解析层那一句：「按实际字节校验」+「沿用现有超限提示文案」两条一起满足。
+          // 这句文案是中文、与「英文 UI 字符串」口径不符 —— 那是既有问题，挂在 issue #10。
+            const over = oversizeMessageOf(outcome.text);
+            incoming.push(
+              over
+                ? { path, name, content: '', error: over }
+                : { path, name, content: outcome.text }
+            );
+          } else {
+            // 单文件失败只降级该文件：留一个带 error 的条目，走既有的坏文件降级路径
+            const failure = classifyFailure(outcome.observation, triage.url);
+            incoming.push({ path, name, content: '', error: failure.message });
+          }
+          // 失败也记来源：这个位置确实属于这条 URL，刷新（#7）时要连它一起重试
+          origins = { ...origins, [path]: { url: triage.url, pulledAt } };
+          batches = upsertBatch(batches, {
+            sourceUrl: triage.url,
+            ref: null,
+            paths: [path],
+            pulledAt,
+          });
+        }
+
+        if (incoming.length === 0) {
+          // 全是非法 URL：一个文件都没得合并。这时候走 mergeFiles 会把既有文件白白重解析一遍，
+          // 顺带把用户当前的选择/范围/视图重置掉 —— 那不是「拉取失败」该有的副作用。
+          set({ pullIssues: issues, pulling: false });
+          return;
+        }
+        const anyContent = incoming.some((f) => !f.error);
+        const merged = await mergeFiles(
+          incoming,
+          opts?.parser,
+          {
+            origins,
+            batches,
+            pullIssues: issues,
+            pulling: false,
+          },
+          { preserveView: !anyContent }
+        );
+        // 撞上 20 文件上限：红条已经是现有那句文案，这里只把拉取自己的状态收干净
+        if (!merged) set({ pullIssues: issues, pulling: false });
+      } finally {
+        // 兜底：任何意料之外的异常都不许把 pulling 留成 true（那样按钮会永久禁用）。
+        if (get().pulling) set({ pulling: false });
+      }
     },
 
     removeFile: async (path) => {
@@ -292,15 +490,15 @@ export const useAppStore = create<AppStore>()((set, get) => {
     selectFromCode: (funcId) =>
       set((state) => {
         const nonce = state.selection.nonce + 1;
-        if (!funcId) return { selection: { funcId: null, source: 'code', nonce }, edgeSelection: null };
-        const scoped = state.graph
-          ? applyScope(state.graph, state.scope)
-          : null;
+        if (!funcId)
+          return { selection: { funcId: null, source: 'code', nonce }, edgeSelection: null };
+        const scoped = state.graph ? applyScope(state.graph, state.scope) : null;
         const visible = !!scoped && scopeContains(scoped, funcId);
         // 推入导航历史：截断当前位置之后的历史，再追加新项
-        const nextHistory = state.navIndex >= 0
-          ? [...state.navHistory.slice(0, state.navIndex + 1), funcId]
-          : [funcId];
+        const nextHistory =
+          state.navIndex >= 0
+            ? [...state.navHistory.slice(0, state.navIndex + 1), funcId]
+            : [funcId];
         return {
           selection: { funcId, source: 'code', nonce },
           edgeSelection: null,
@@ -318,9 +516,10 @@ export const useAppStore = create<AppStore>()((set, get) => {
             ? neighborhoodScope(funcId, state.scope.depth)
             : state.scope;
         // 推入导航历史
-        const nextHistory = state.navIndex >= 0
-          ? [...state.navHistory.slice(0, state.navIndex + 1), funcId]
-          : [funcId];
+        const nextHistory =
+          state.navIndex >= 0
+            ? [...state.navHistory.slice(0, state.navIndex + 1), funcId]
+            : [funcId];
         return {
           selection: { funcId, source: 'graph', nonce: state.selection.nonce + 1 },
           edgeSelection: null,
@@ -362,13 +561,12 @@ export const useAppStore = create<AppStore>()((set, get) => {
         return next ?? state;
       }),
 
-    clearEdgeSelection: () => set((state) => (state.edgeSelection ? { edgeSelection: null } : state)),
+    clearEdgeSelection: () =>
+      set((state) => (state.edgeSelection ? { edgeSelection: null } : state)),
 
     setScope: (scope) =>
       set((state) => {
-        const scoped = state.graph
-          ? applyScope(state.graph, scope)
-          : null;
+        const scoped = state.graph ? applyScope(state.graph, scope) : null;
         const keep =
           !!state.selection.funcId && !!scoped && scopeContains(scoped, state.selection.funcId);
         return {
@@ -381,7 +579,6 @@ export const useAppStore = create<AppStore>()((set, get) => {
           edgeSelection: null,
         };
       }),
-
 
     setSplitRatio: (ratio) => set({ splitRatio: clampSplit(ratio) }),
 
@@ -422,6 +619,12 @@ export const useAppStore = create<AppStore>()((set, get) => {
       if (get().files.length > 0) return;
       const session = await loadSession();
       if (session && session.files.length > 0) {
+        // 先把来源与批次放回 state，再走既有的 loadFiles：runAnalysis 会按文件集合裁剪元数据，
+        // 顺序反了就会被裁光。旧快照没有这两个字段 -> 一律当本地文件，读入不报错。
+        // 这里**不发任何请求**：还原快照只是把内容与元数据读回来（用户故事 10）。
+        if (session.origins || session.batches) {
+          set({ origins: session.origins ?? {}, batches: session.batches ?? [] });
+        }
         await get().loadFiles(session.files, get().parser);
         if (session.activeFile) {
           const files = get().files;
@@ -454,13 +657,11 @@ export const useAppStore = create<AppStore>()((set, get) => {
         navHistory: [],
         navIndex: -1,
         ctxMenu: null,
+        origins: {},
+        batches: [],
+        pullIssues: [],
+        pulling: false,
       }));
     },
   };
 });
-
-
-
-
-
-

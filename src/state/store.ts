@@ -36,7 +36,6 @@ import {
   createGithubFetchCache,
   fetchGithubFile,
   fetchGithubListing,
-  githubFirstPath,
 } from '../pull/githubFetch';
 
 export type SelectionSource = 'code' | 'graph' | 'scope' | 'nav';
@@ -428,8 +427,8 @@ export const useAppStore = create<AppStore>()((set, get) => {
             // 清单的勾选界面在 #6；这一票先把 pullListing 填好，不让它在这里发任何文件请求。
             if (triage.target.kind === 'blob') {
               const file = await fetchGithubFile(triage.target, transport, githubCache);
-              const relPath = file.ok ? file.path : githubFirstPath(triage.target);
-              const path = githubSessionPath(triage.target.owner, triage.target.repo, relPath);
+              // 失败占位也用已解析的拆分：refs 已说 ref=feature/x 时，身份不许退回 x/... 的猜测
+              const path = githubSessionPath(triage.target.owner, triage.target.repo, file.path);
               const pulledAt = Date.now();
               if (file.ok) pushPulled(path, file.text, oversizeMessageOf(file.text));
               else pushPulled(path, '', file.message);

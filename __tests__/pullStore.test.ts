@@ -755,6 +755,24 @@ describeWasm('github 页面 URL 拉取（store 接缝 · 真 wasm · mock 传输
     expect(s().batches[0]?.ref).toBeNull();
   });
 
+  it('斜杠分支的 blob 失败占位：身份用已解析的拆分，不退回首段猜测', async () => {
+    const page = 'https://github.com/o/r/blob/feature/x/src/a.py';
+    const refs = githubMatchingRefsUrl('o', 'r', 'feature');
+    const raw = githubRawUrl('o', 'r', 'feature/x', 'src/a.py');
+    const meta = githubRepoMetaUrl('o', 'r');
+    const transport = fakeTransport({
+      [refs]: { ok: true, text: JSON.stringify([{ ref: 'refs/heads/feature/x' }]) },
+      [raw]: { ok: false, observation: { type: 'status', status: 404, rateLimited: false } },
+      [meta]: { ok: true, text: JSON.stringify({ default_branch: 'main' }) },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([refs, raw, meta]);
+    expect(s().files.map((f) => f.path)).toEqual(['o/r/src/a.py']);
+    expect(s().files[0]?.error).toMatch(/may have moved/i);
+  });
+
   it('公开仓库里的坏文件链接：raw 404 + 元数据 200 -> 仍然是链接失效文案', async () => {
     const page = 'https://github.com/o/r/blob/main/src/nope.py';
     const refs = githubMatchingRefsUrl('o', 'r', 'main');

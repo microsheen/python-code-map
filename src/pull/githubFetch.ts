@@ -33,7 +33,8 @@ import {
 
 export type GithubFileResult =
   | { ok: true; ref: string; path: string; text: string }
-  | { ok: false; message: string };
+  /** 失败也带回已解析的 ref/path：错误占位条目的会话身份必须是同一个拆分，不能退回首段猜测 */
+  | { ok: false; ref: string | null; path: string; message: string };
 
 export type GithubListingResult =
   | { ok: true; listing: GithubListing }
@@ -128,21 +129,21 @@ export async function fetchGithubFile(
   cache: GithubFetchCache = createGithubFetchCache()
 ): Promise<GithubFileResult> {
   const loc = await resolveBlobLocation(target, transport, cache);
-  if (!loc) return { ok: false, message: GITHUB_BAD_RESPONSE };
+  if (!loc) return { ok: false, ref: null, path: '', message: GITHUB_BAD_RESPONSE };
 
   const url = githubRawUrl(target.owner, target.repo, loc.ref, loc.path);
   const outcome = await get(transport, url);
   if (outcome.ok) return { ok: true, ref: loc.ref, path: loc.path, text: outcome.text };
   if (!is404(outcome)) {
-    return { ok: false, message: classifyFailure(outcome.observation, url).message };
+    return { ok: false, ref: loc.ref, path: loc.path, message: classifyFailure(outcome.observation, url).message };
   }
 
   const repoUrl = githubRepoMetaUrl(target.owner, target.repo);
   const meta = await get(transport, repoUrl);
   if (!meta.ok && isApiAuthFailure(meta)) {
-    return { ok: false, message: classifyFailure(meta.observation, repoUrl).message };
+    return { ok: false, ref: loc.ref, path: loc.path, message: classifyFailure(meta.observation, repoUrl).message };
   }
-  return { ok: false, message: classifyFailure(outcome.observation, url).message };
+  return { ok: false, ref: loc.ref, path: loc.path, message: classifyFailure(outcome.observation, url).message };
 }
 
 /** 裸仓库 URL：多发一次仓库元数据请求，只为取默认分支。 */
@@ -226,9 +227,4 @@ export async function fetchGithubListing(
     return { ok: false, message: classifyFailure(last.outcome.observation, last.url).message };
   }
   return { ok: false, message: GITHUB_BAD_RESPONSE };
-}
-
-/** 供 store 拼错误占位路径用：第一候选（最常见的主干分支）的文件路径。 */
-export function githubFirstPath(target: GithubTarget): string {
-  return githubLocations(target)[0]?.path ?? '';
 }

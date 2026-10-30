@@ -50,7 +50,10 @@ export function oversizeMessage(): string {
   return `文件超过 ${Math.round(MAX_FILE_SIZE / 1024 / 1024)}MB，已跳过`;
 }
 
-/** 超了上限就返回那句文案，没超返回 null。 */
+/**
+ * 超了上限就返回那句文案，没超返回 null。
+ * 判据只有这一处：本地上传与拉取都按 UTF-8 **实际字节**卡 1MB，别在任一条路径上另算一遍。
+ */
 export function oversizeMessageOf(content: string): string | null {
   return byteLengthOf(content) > MAX_FILE_SIZE ? oversizeMessage() : null;
 }

@@ -6,7 +6,8 @@
  * 冒烟 P1 再从真浏览器的网络记录上验一遍（方法全 GET、请求体字节数恒 0）。
  *
  * store 只依赖这个接口，所以 store 的单测可以注入假传输（issue #4 的第二层接缝）；
- * 真 fetch 只存在于 platform/web 那一层，由真浏览器冒烟整体覆盖。
+ * 外发的真 fetch 只存在于 platform/web 那一层（同源 wasm 资产那处不算，见 pullFetch.ts 头注），
+ * 由真浏览器冒烟整体覆盖。
  */
 import type { PullFailureObservation } from './errors';
 import type { PullRequest } from './urls';

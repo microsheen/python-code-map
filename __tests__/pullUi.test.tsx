@@ -4,7 +4,7 @@
  * 断言只看用户能看见/能读到的东西：按钮在不在、粘贴之后 store 收到了什么、标签上读不读得到
  * 来源 URL 与拉取时刻。样式与布局不进断言（那是冒烟截图的活）。
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { UploadPanel } from '../src/components/UploadPanel';
 import { TopBar } from '../src/components/TopBar';
 import { useAppStore } from '../src/state/store';
@@ -50,14 +50,32 @@ describe('空态上传面板：Pull from URL 入口', () => {
     expect(pull.calls).toEqual([]);
   });
 
-  it('粘贴多行再确认：store 收到的就是那段原文（多行 = 多个批次，切分是 store 的事）', () => {
+  it('粘贴多行再确认：store 收到的就是那段原文（多行 = 多个批次，切分是 store 的事）', async () => {
     const pull = stubPull();
     render(<UploadPanel />);
     fireEvent.click(screen.getByTestId('upload-pull'));
     const text = 'https://one.example.com/a.py\nhttps://two.example.com/b.py';
     fireEvent.change(screen.getByTestId('pull-input'), { target: { value: text } });
-    fireEvent.click(screen.getByTestId('pull-submit'));
+    // 确认之后的收尾（清空粘贴框、收起面板）落在 .then 的微任务里，要跟点击一起裹进 act
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pull-submit'));
+    });
     expect(pull.calls).toEqual([text]);
+  });
+
+  it('拉取收尾：确认之后粘贴框自己收起来（跟取消按钮那条对称）', async () => {
+    stubPull();
+    render(<UploadPanel />);
+    fireEvent.click(screen.getByTestId('upload-pull'));
+    fireEvent.change(screen.getByTestId('pull-input'), {
+      target: { value: 'https://one.example.com/a.py' },
+    });
+    expect(screen.queryByTestId('pull-box')).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pull-submit'));
+    });
+    expect(screen.queryByTestId('pull-box')).toBeNull();
+    expect(screen.queryByTestId('pull-input')).toBeNull();
   });
 
   it('空粘贴点确认：不触发拉取（连一句提示都不必发请求）', () => {

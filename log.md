@@ -1441,3 +1441,62 @@ issue #10 说的就是一句用户可见文案：`oversizeMessage()` 返回「�
   「逐批独立成败」语义（等 #6 一起看）；⑦ 三条 review 判断项（承诺节选重复 / `mergeFiles` 的 `meta` 过宽 /
   `PullBatch.ref` 无读取点，后者等 #5）；⑧ **新**：解析层三句中文 UI 文案（解析失败 / 语法错误 / 解析异常）
   与这条口径同源，待扫 —— 要动的话建议单独一轮，连断言一起改。
+
+## 2026-10-30 拉取 3/7 落地轮（github 页面 URL 三向分流：blob 直拉 · 仓库/目录一次 trees 出清单 · 斜杠分支靠 matching-refs 解歧 · 540 单测 · 93 项冒烟）
+
+issue #5：github.com 的页面 URL 直接可用，用户不必自己找 raw 直链。三种形态（仓库根 / `tree` 目录 /
+`blob` 单文件）识别后转成 API / raw 调用，拉取文件的会话身份统一为 `owner/repo/ + 仓库相对路径`。
+
+- **新增两个文件、一条分流。** `src/pull/github.ts` 是纯推导（页面形态、候选拆分、URL 构造、
+  trees/refs/元数据解析、清单→勾选条目映射），`src/pull/githubFetch.ts` 是网络编排（只吃
+  `PullTransport`，真 fetch 仍只在 `pullFetch.ts` 一处）；`src/pull/paths.ts` 把 `isPythonPath`
+  与 `wireUrl` 摘出去，避免 urls ↔ github 循环依赖。`urls.ts` 在 scheme 判定之后、`.py` 判定之前
+  插 github 分流；`store.ts` 多一个 `pullListing`（#6 勾选界面的输入）与「一次粘贴一份 ref 缓存」。
+- **三条请求形状，各自一句话：**
+  ① blob → 一次 `git/matching-refs/heads/{首段}` 定 ref + 一次 raw（普通分支共 2 条 GET）；
+  ② 仓库根 → 一次 `repos/{o}/{r}` 取 `default_branch` + 一次 `git/trees/{ref}?recursive=1`；
+  ③ 目录 → 正常分支**只有那一次 trees**；`feature/x` 这类斜杠分支按「最短 ref 先试、目录存在即命中」
+  逐候选试（最多 1 次/候选）。
+- **两条歧义是 URL 本身带来的，不是实现选的。** 路径段里 ref 与目录的边界不可判：
+  目录用候选逐个试（`/tree/feature/x/pkg` 先试 `ref=feature,dir=x/pkg`，不中再试 `ref=feature/x,dir=pkg`）；
+  单文件因为所有拆法的 raw 地址**逐字相同**，只能用一次 matching-refs 找最长前缀。后者的失败（限速/网络）
+  不拖垮文件本身：退回「首段 = ref」，raw 照发 —— 代价是身份可能偏一段，记在遗留 ⑧。
+- **truncated 是「这份 ref 的树」的属性，不是 URL 的属性。** 第一次写成了「见到 truncated 立即报错」，
+  review 指出斜杠分支的中间候选后面还跟着**另一个 ref**（它的树可能完整），已改成：非最后候选继续试，
+  所有候选都不成才报 `GITHUB_TRUNCATED_MESSAGE`（裸仓库单候选时仍是一次 trees 后立即报错，原断言不变）。
+  整个路径不碰 Contents API、不翻页。
+- **失败文案按主机分。** `api.github.com` 的 401/403/404 → 「private repositories are not supported;
+  only public repositories can be pulled」，不提示登录、不提示 token；404 追加一句
+  「The branch or path may also be wrong.」（匿名下「私有」与「写错」在 API 上分不开，少这句会把
+  `/tree/mian/...` 误诊成私有仓）。`raw` 的 401 归同一句，404 仍是「file may have moved」。
+  403 + 限速头（或 429）仍先走「rate limited, try again later」。
+- **没改的（判据）：** 勾选界面（#6）、Contents API 兜底、任何认证/token、20 文件上限语义（#11）、
+  上传面板提示文案（它还停在「每个链接都指向 .py/.pyi」，等 #6 一起改）。直链分流一行未动：冒烟里
+  P0/PU1–PU5/P1/P2/P2b 全绿即为判据。
+- 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning（零输出，
+  **连着第六轮**）；jest **25 suites / 540 tests**（#10 记的 505 → +35）；smoke **93/93**（#10 记的 88
+  → +5，PG1–PG5 全在，`EXIT=0`）；`audit:egress: scanned 3 file(s)`（clean）。
+  本机产物：入口 `entry-adc23ea5d6cea2f7b99c36b6907b40b2.js` **1,450,868 B**（上一版 1,441,807 B，
+  **+9,061 B**，两个新模块）、`index.html` 1,562 B / sha256
+  `142bc91dbe447709cb30ec7d5adbc9872242dfef131c699a0f614533540457f6`、dist 原始总字节 2,175,650 B。
+- 冒烟 github 面的实测（`pullGithubNetwork`，两个观测点都记）：成功路径恰好 **2 条 GET**，
+  `…/__pull-stub__/repos/psf/requests/git/matching-refs/heads/main` 与
+  `…/__pull-stub__/psf/requests/main/probe/zz_gh_probe.py`，请求体 0 B（桩侧 `content-length` /
+  `transfer-encoding` 均为 null），会话身份 `psf/requests/probe/zz_gh_probe.py`。
+- CI：**本轮没有 run**（改动尚未推送，按 rule「没读到既不是通过也不是失败」，不写结论）。CI 侧
+  待下一轮推送后补记 run id 与逐 job 读数。
+- 两轴 review（fixed point `da609d7`）结果与处置：Standards 硬性 3 条（PG 组名未登记 ADR-0006、
+  `not-python` 文案两处逐字重复、store 里拉取条目形状写两遍）+ 判断若干。已改：ADR-0006 落地备注追加
+  PG 登记（并写明为什么不并进 P 组）、文案收成一处 `notPython()`、`pushPulled()` 收成一处、
+  `PY_PATH_RE` 收回文件内。判定不成立：`fetchGithub*` 的 fetch 是传输动词（`pullFetch.ts` 早已如此），
+  不算 `pull` 口径漂移。Spec 4 条：已改 2（raw 401 归类、斜杠候选 truncated 继续试），另 2 进遗留。
+- 本轮学到的规矩：**遇到「URL 信息不足以判定」时，把不确定度写成有界的候选表 + 明确的停止条件，
+  别在解析层猜一个然后祈祷。** 另一条：**「这份列表被截断」要归属到它来源的那个 ref，
+  而不是用户粘贴的那条 URL** —— 同一 URL 的候选里 ref 并不总是同一个。
+- 遗留：① **#6** 勾选界面（`pullListing` 目前无消费方）；② #9（P3/P4 + `audit:egress` 扩扫）；
+  ③ #8 顶栏常驻拉取入口；④ #3 README 三语；⑤ `FileTabs.tsx` 死文件待删；⑥ workflow actions 升 v5；
+  ⑦ **#11** 20 文件上限的「逐批独立成败」语义（等 #6）；⑧ **新**：matching-refs 失败时 blob 退回首段
+  ref，身份可能少一段（API 挂而 raw 活着时才会发生），无测试 —— 要不要改成「失败即整条失败」需拍板；
+  ⑨ **新**：目录 URL 的斜杠分支是启发式（仓库真有 `feature` 分支且其下有 `x/pkg` 时会选错），
+  这是 URL 本身的歧义，只能文档化；⑩ **新**：解析层三句中文 UI 文案（#10 遗留 ⑧）仍在；
+  ⑪ `PullBatch.ref` 现在有写入点（github blob 填 ref）但仍无读取点，等 #7 刷新。

@@ -7,18 +7,21 @@
  *
  * 非法结论带 reason 与 message 两样：reason 给代码分支（也是单测的断言点），
  * message 直接给用户看，所以是英文（仓库口径：中文文档 / 英文 UI 字符串）。
- * 五条文案必须互不相同 —— 「错误分类可区分」这条验收标准说的就是用户能不能一眼看出该改哪儿，
+ * 每条文案必须互不相同 —— 「错误分类可区分」这条验收标准说的就是用户能不能一眼看出该改哪儿，
  * 笼统一句「无效的 URL」等于没分类。
  */
 
-/** 只认路径以 .py/.pyi 结尾的直链；query/hash 不参与判断（?raw=1、#L10 都是常见写法）。 */
-const PY_PATH_RE = /\.(py|pyi)$/i;
+import { GITHUB_HOST, githubTargetOf, type GithubTarget } from './github';
+import { isPythonPath, wireUrl } from './paths';
 
 export type InvalidUrlReason =
-  'empty' | 'not-a-url' | 'insecure' | 'unsupported-scheme' | 'not-python';
+  'empty' | 'not-a-url' | 'insecure' | 'unsupported-scheme' | 'not-python' | 'not-github';
 
 export type PullTriage =
-  { kind: 'direct'; url: string } | { kind: 'invalid'; reason: InvalidUrlReason; message: string };
+  | { kind: 'direct'; url: string }
+  /** github.com 的仓库/目录/文件页面：路径身份与请求形状是另一条分流（issue #5） */
+  | { kind: 'github'; target: GithubTarget }
+  | { kind: 'invalid'; reason: InvalidUrlReason; message: string };
 
 /**
  * 一次拉取请求的全部输入。
@@ -48,15 +51,12 @@ function invalid(reason: InvalidUrlReason, message: string): PullTriage {
   return { kind: 'invalid', reason, message };
 }
 
-/**
- * 真正会发出去的那个 URL：origin + pathname + search，**不含 hash**。
- *
- * 片段（#L10）是浏览器侧的东西，服务端永远收不到，所以它既不该出现在请求里，也不该参与
- * 批次身份 —— 否则同一条直链只差一个 #L3 就会被当成两个批次，「重复粘贴同一 URL 原位更新」
- * 那条验收标准就漏了。query 相反：?raw=1 会改变服务端返回什么，必须保留。
- */
-function wireUrl(u: URL): string {
-  return u.origin + u.pathname + u.search;
+/** `not-python` 那句话只写一份：两条分流（github 页面与直链）用的是同一个判据与文案。 */
+function notPython(pathname: string): PullTriage {
+  return invalid(
+    'not-python',
+    `Not a Python file: the path must end in .py or .pyi (got "${echo(pathname)}")`
+  );
 }
 
 /** 分流一条用户输入的 URL。 */
@@ -65,7 +65,7 @@ export function classifyUrl(raw: string): PullTriage {
   if (!text) {
     return invalid(
       'empty',
-      'Nothing pasted: add one https:// link per line, each ending in .py or .pyi'
+      'Nothing pasted: add one https:// link per line — a .py/.pyi file or a github.com repo/tree/blob page'
     );
   }
   let u: URL;
@@ -86,12 +86,16 @@ export function classifyUrl(raw: string): PullTriage {
       `Unsupported protocol "${u.protocol}" — only https:// links can be pulled`
     );
   }
-  if (!PY_PATH_RE.test(u.pathname)) {
+  if (u.hostname.toLowerCase() === GITHUB_HOST) {
+    const github = githubTargetOf(u);
+    if (github.kind === 'github') return { kind: 'github', target: github.target };
+    if (github.kind === 'not-python') return notPython(u.pathname);
     return invalid(
-      'not-python',
-      `Not a Python file: the path must end in .py or .pyi (got "${echo(u.pathname)}")`
+      'not-github',
+      `Not a GitHub repository, directory, or file page: "${echo(u.pathname)}"`
     );
   }
+  if (!isPythonPath(u.pathname)) return notPython(u.pathname);
   return { kind: 'direct', url: wireUrl(u) };
 }
 
@@ -105,8 +109,8 @@ export function directRequest(url: string): PullRequest {
  *
  * 规则：host + URL 路径（去掉开头的 '/'），query 不参与。带上 host 是为了让不同来源的同名文件
  * 不互相覆盖（用户故事 8），也让拉取文件与本地文件天然不同名 —— 本地文件的路径来自
- * webkitRelativePath，不会带主机名。#5 会把 github.com 的页面 URL 映射成 owner/repo/ 前缀，
- * 那是**另一条分流**的规则，不影响这里：直链永远按 host + 路径落。
+ * webkitRelativePath，不会带主机名。github.com 的页面 URL 走 github 分流（githubSessionPath），
+ * 身份是 owner/repo/ 前缀，那是**另一条规则**，不影响这里：直链永远按 host + 路径落。
  *
  * 百分号编码原样保留、不解码：解码会让 `a.py%2Fb` 与 `a.py/b` 撞成同一个身份，
  * 而编码后的路径已经能唯一确定来源。

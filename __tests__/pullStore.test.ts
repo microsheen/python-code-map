@@ -11,6 +11,12 @@ import { fileScope } from '../src/graph/scope';
 import type { AppStore } from '../src/state/store';
 import type { PullOutcome, PullTransport } from '../src/pull/transport';
 import type { PullRequest } from '../src/pull/urls';
+import {
+  githubMatchingRefsUrl,
+  githubRawUrl,
+  githubRepoMetaUrl,
+  githubTreeUrl,
+} from '../src/pull/github';
 import { MAX_FILE_SIZE, oversizeMessage } from '../src/parser/analyze';
 import { webPullTransport } from '../src/platform/web/pullFetch';
 import { getTestParser, describeWasm } from './helpers/wasm';
@@ -451,5 +457,317 @@ describeWasm('拉取进会话（store 接缝 · 真 wasm · mock 传输）', () 
     expect(s().batches).toEqual([]);
     expect(s().pullIssues).toEqual([]);
     expect(s().pulling).toBe(false);
+    expect(s().pullListing).toBeNull();
+  });
+});
+
+describeWasm('github 页面 URL 拉取（store 接缝 · 真 wasm · mock 传输）', () => {
+  let parser: PythonParser;
+
+  beforeAll(async () => {
+    parser = await getTestParser();
+  });
+
+  beforeEach(() => {
+    mockPersist.saved = [];
+    mockPersist.session = null;
+    useAppStore.setState({ ...INITIAL, parser: null }, true);
+  });
+
+  const treeWith = (entries: { path: string; type: string; size?: number }[], truncated = false) =>
+    JSON.stringify({ truncated, tree: entries });
+
+  it('blob URL 跳过清单直接拉单文件：先解析 ref，再发一次 raw GET', async () => {
+    const page = 'https://github.com/psf/requests/blob/main/src/requests/zz_probe.py';
+    const refs = githubMatchingRefsUrl('psf', 'requests', 'main');
+    const raw = githubRawUrl('psf', 'requests', 'main', 'src/requests/zz_probe.py');
+    const transport = fakeTransport({
+      [refs]: { ok: true, text: JSON.stringify([{ ref: 'refs/heads/main' }]) },
+      [raw]: { ok: true, text: pySource('zz_probe') },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([refs, raw]);
+    const path = 'psf/requests/src/requests/zz_probe.py';
+    expect(s().files.map((f) => f.path)).toEqual([path]);
+    expect(s().files[0]?.content).toContain('def zz_probe');
+    expect(s().graph?.nodes.map((n) => n.id)).toContain(path + '::zz_probe');
+    expect(s().origins[path]?.url).toBe(page);
+    expect(s().batches).toEqual([
+      { sourceUrl: page, ref: 'main', paths: [path], pulledAt: expect.any(Number) },
+    ]);
+    expect(s().pullListing).toBeNull();
+    expect(s().pullIssues).toEqual([]);
+  });
+
+  it('分支名含 /（feature/x）：ref 解析正确，身份落回仓库相对路径', async () => {
+    const page = 'https://github.com/o/r/blob/feature/x/src/zz_probe.py';
+    const refs = githubMatchingRefsUrl('o', 'r', 'feature');
+    const raw = githubRawUrl('o', 'r', 'feature/x', 'src/zz_probe.py');
+    const transport = fakeTransport({
+      [refs]: { ok: true, text: JSON.stringify([{ ref: 'refs/heads/feature/x' }]) },
+      [raw]: { ok: true, text: pySource('zz_probe') },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    const path = 'o/r/src/zz_probe.py';
+    expect(s().files.map((f) => f.path)).toEqual([path]);
+    expect(s().batches[0]?.ref).toBe('feature/x');
+    expect(s().origins[path]?.url).toBe(page);
+  });
+
+  it('同一仓库多文件共享一次 ref 解析，跨文件调用自动连边', async () => {
+    const aPage = 'https://github.com/o/r/blob/main/a.py';
+    const bPage = 'https://github.com/o/r/blob/main/b.py';
+    const refs = githubMatchingRefsUrl('o', 'r', 'main');
+    const aRaw = githubRawUrl('o', 'r', 'main', 'a.py');
+    const bRaw = githubRawUrl('o', 'r', 'main', 'b.py');
+    const transport = fakeTransport({
+      [refs]: { ok: true, text: JSON.stringify([{ ref: 'refs/heads/main' }]) },
+      [aRaw]: {
+        ok: true,
+        text: ['import b', '', 'def zz_a():', '    return b.zz_b()', ''].join('\n'),
+      },
+      [bRaw]: { ok: true, text: pySource('zz_b') },
+    });
+
+    await s().pullFromText(aPage + '\n' + bPage, { parser, transport });
+
+    // ref 查询只发一次（同仓库缓存），两条 raw 各一次
+    expect(transport.calls.map((c) => c.url)).toEqual([refs, aRaw, bRaw]);
+    expect(s().files.map((f) => f.path).sort()).toEqual(['o/r/a.py', 'o/r/b.py']);
+    expect(
+      s().graph?.edges.some(
+        (e) => e.source === 'o/r/a.py::zz_a' && e.target === 'o/r/b.py::zz_b'
+      )
+    ).toBe(true);
+  });
+
+  it('不同仓库的同名文件不互相覆盖', async () => {
+    const one = 'https://github.com/o1/r/blob/main/pkg/mod.py';
+    const two = 'https://github.com/o2/r/blob/main/pkg/mod.py';
+    const refs1 = githubMatchingRefsUrl('o1', 'r', 'main');
+    const refs2 = githubMatchingRefsUrl('o2', 'r', 'main');
+    const transport = fakeTransport({
+      [refs1]: { ok: true, text: JSON.stringify([{ ref: 'refs/heads/main' }]) },
+      [refs2]: { ok: true, text: JSON.stringify([{ ref: 'refs/heads/main' }]) },
+      [githubRawUrl('o1', 'r', 'main', 'pkg/mod.py')]: {
+        ok: true,
+        text: pySource('zz_one'),
+      },
+      [githubRawUrl('o2', 'r', 'main', 'pkg/mod.py')]: {
+        ok: true,
+        text: pySource('zz_two'),
+      },
+    });
+
+    await s().pullFromText(one + '\n' + two, { parser, transport });
+
+    expect(s().files.map((f) => [f.path, f.content.includes('zz_one'), f.content.includes('zz_two')])).toEqual([
+      ['o1/r/pkg/mod.py', true, false],
+      ['o2/r/pkg/mod.py', false, true],
+    ]);
+  });
+
+  it('裸仓库 URL：多发一次元数据取默认分支，再一次 trees 出清单（不发文件请求）', async () => {
+    const page = 'https://github.com/o/r';
+    const meta = githubRepoMetaUrl('o', 'r');
+    const tree = githubTreeUrl('o', 'r', 'trunk');
+    const transport = fakeTransport({
+      [meta]: { ok: true, text: JSON.stringify({ default_branch: 'trunk' }) },
+      [tree]: {
+        ok: true,
+        text: treeWith([
+          { path: 'pkg', type: 'tree' },
+          { path: 'pkg/a.py', type: 'blob', size: 12 },
+          { path: 'pkg/b.pyi', type: 'blob', size: 34 },
+          { path: 'README.md', type: 'blob', size: 1 },
+        ]),
+      },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([meta, tree]);
+    expect(s().files).toEqual([]);
+    expect(s().pullIssues).toEqual([]);
+    expect(s().pullListing).toEqual({
+      sourceUrl: page,
+      owner: 'o',
+      repo: 'r',
+      ref: 'trunk',
+      dir: '',
+      entries: [
+        { path: 'pkg/a.py', sessionPath: 'o/r/pkg/a.py', size: 12, selectable: true },
+        { path: 'pkg/b.pyi', sessionPath: 'o/r/pkg/b.pyi', size: 34, selectable: true },
+      ],
+    });
+    expect(s().pulling).toBe(false);
+  });
+
+  it('目录 URL：一次 trees 只列该目录下的文件，路径保留完整仓库相对形态', async () => {
+    const page = 'https://github.com/o/r/tree/main/src';
+    const tree = githubTreeUrl('o', 'r', 'main');
+    const transport = fakeTransport({
+      [tree]: {
+        ok: true,
+        text: treeWith([
+          { path: 'src', type: 'tree' },
+          { path: 'src/a.py', type: 'blob', size: 12 },
+          { path: 'src/nested', type: 'tree' },
+          { path: 'src/nested/b.py', type: 'blob', size: 13 },
+          { path: 'other/c.py', type: 'blob', size: 14 },
+        ]),
+      },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([tree]);
+    expect(s().pullListing?.dir).toBe('src');
+    expect(s().pullListing?.entries.map((e) => e.sessionPath)).toEqual([
+      'o/r/src/a.py',
+      'o/r/src/nested/b.py',
+    ]);
+  });
+
+  it('含 / 的分支目录：候选逐个试，命中 feature/x 后只出该目录清单', async () => {
+    const page = 'https://github.com/o/r/tree/feature/x/pkg';
+    const first = githubTreeUrl('o', 'r', 'feature');
+    const second = githubTreeUrl('o', 'r', 'feature/x');
+    const transport = fakeTransport({
+      [first]: {
+        ok: true,
+        text: treeWith([
+          { path: 'x', type: 'tree' },
+          { path: 'x/other.py', type: 'blob', size: 1 },
+        ]),
+      },
+      [second]: {
+        ok: true,
+        text: treeWith([
+          { path: 'pkg', type: 'tree' },
+          { path: 'pkg/a.py', type: 'blob', size: 2 },
+        ]),
+      },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([first, second]);
+    expect(s().pullListing?.ref).toBe('feature/x');
+    expect(s().pullListing?.dir).toBe('pkg');
+    expect(s().pullListing?.entries.map((e) => e.sessionPath)).toEqual(['o/r/pkg/a.py']);
+  });
+
+  it('斜杠分支的中间候选 truncated：换下一个候选再试（另一个 ref 的树可能完整）', async () => {
+    const page = 'https://github.com/o/r/tree/feature/x/pkg';
+    const first = githubTreeUrl('o', 'r', 'feature');
+    const second = githubTreeUrl('o', 'r', 'feature/x');
+    const transport = fakeTransport({
+      [first]: { ok: true, text: treeWith([{ path: 'x', type: 'tree' }], true) },
+      [second]: {
+        ok: true,
+        text: treeWith([
+          { path: 'pkg', type: 'tree' },
+          { path: 'pkg/a.py', type: 'blob', size: 2 },
+        ]),
+      },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([first, second]);
+    expect(s().pullListing?.ref).toBe('feature/x');
+    expect(s().pullListing?.entries.map((e) => e.sessionPath)).toEqual(['o/r/pkg/a.py']);
+    expect(s().pullIssues).toEqual([]);
+  });
+
+  it('trees truncated：显式报错并建议目录级 URL，不追加任何请求', async () => {
+    const page = 'https://github.com/o/r';
+    const meta = githubRepoMetaUrl('o', 'r');
+    const tree = githubTreeUrl('o', 'r', 'main');
+    const transport = fakeTransport({
+      [meta]: { ok: true, text: JSON.stringify({ default_branch: 'main' }) },
+      [tree]: {
+        ok: true,
+        text: treeWith([{ path: 'a.py', type: 'blob', size: 1 }], true),
+      },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([meta, tree]);
+    expect(s().pullListing).toBeNull();
+    expect(s().pullIssues).toHaveLength(1);
+    expect(s().pullIssues[0]).toMatch(/truncated/i);
+    expect(s().pullIssues[0]).toMatch(/directory URL/i);
+  });
+
+  it('私有/不存在仓库（元数据 404）：明确说不支持私有仓库，不尝试认证', async () => {
+    const page = 'https://github.com/o/r';
+    const meta = githubRepoMetaUrl('o', 'r');
+    const transport = fakeTransport({
+      [meta]: { ok: false, observation: { type: 'status', status: 404, rateLimited: false } },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([meta]);
+    expect(s().pullIssues[0]).toMatch(/private repositories are not supported/i);
+    expect(s().pullIssues[0]).not.toMatch(/token|log ?in|sign ?in/i);
+  });
+
+  it('匿名限速（403 + 限速头）仍然是稍后再试', async () => {
+    const page = 'https://github.com/o/r';
+    const meta = githubRepoMetaUrl('o', 'r');
+    const tree = githubTreeUrl('o', 'r', 'main');
+    const transport = fakeTransport({
+      [meta]: { ok: true, text: JSON.stringify({ default_branch: 'main' }) },
+      [tree]: { ok: false, observation: { type: 'status', status: 403, rateLimited: true } },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(s().pullIssues[0]).toMatch(/try again later/i);
+  });
+
+  it('私有仓库的 blob URL：raw 404 后元数据 404 -> 私有仓库文案，位置仍留红点', async () => {
+    const page = 'https://github.com/o/r/blob/main/src/x.py';
+    const refs = githubMatchingRefsUrl('o', 'r', 'main');
+    const raw = githubRawUrl('o', 'r', 'main', 'src/x.py');
+    const meta = githubRepoMetaUrl('o', 'r');
+    const transport = fakeTransport({
+      [refs]: { ok: false, observation: { type: 'status', status: 404, rateLimited: false } },
+      [raw]: { ok: false, observation: { type: 'status', status: 404, rateLimited: false } },
+      [meta]: { ok: false, observation: { type: 'status', status: 404, rateLimited: false } },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(transport.calls.map((c) => c.url)).toEqual([refs, raw, meta]);
+    const path = 'o/r/src/x.py';
+    expect(s().files.map((f) => f.path)).toEqual([path]);
+    expect(s().files[0]?.error).toMatch(/private repositories are not supported/i);
+    expect(s().origins[path]?.url).toBe(page);
+    expect(s().batches[0]?.ref).toBeNull();
+  });
+
+  it('公开仓库里的坏文件链接：raw 404 + 元数据 200 -> 仍然是链接失效文案', async () => {
+    const page = 'https://github.com/o/r/blob/main/src/nope.py';
+    const refs = githubMatchingRefsUrl('o', 'r', 'main');
+    const raw = githubRawUrl('o', 'r', 'main', 'src/nope.py');
+    const meta = githubRepoMetaUrl('o', 'r');
+    const transport = fakeTransport({
+      [refs]: { ok: true, text: JSON.stringify([{ ref: 'refs/heads/main' }]) },
+      [raw]: { ok: false, observation: { type: 'status', status: 404, rateLimited: false } },
+      [meta]: { ok: true, text: JSON.stringify({ default_branch: 'main' }) },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+
+    expect(s().files[0]?.error).toMatch(/may have moved/i);
   });
 });

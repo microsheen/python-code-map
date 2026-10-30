@@ -3,7 +3,8 @@
  *
  * 这一层是全功能唯一新增的接缝：纯输入 -> 纯输出，不发请求、不碰 DOM。
  * 断言只看外部可见的结果（分流结论、请求形状、会话里的路径、报错分类与文案），
- * 不看内部怎么分步骤 —— 所以这里的测试在 #5/#6 扩出 github 分流与清单解析后应当原样成立。
+ * 不看内部怎么分步骤 —— 所以 #4 这批断言在 #5 扩出 github 分流后仍然原样成立
+ * （github 自己的一批断言在本文件的 `（#5）` describe 里，两边不共用断言）。
  */
 import {
   classifyUrl,
@@ -22,16 +23,38 @@ import {
 import { classifyFailure, isRateLimited } from '../src/pull/errors';
 import { upsertBatch } from '../src/pull/batch';
 import {
+  GITHUB_TRUNCATED_MESSAGE,
+  githubDirExists,
+  githubEntriesInDir,
+  githubLocations,
+  githubMatchingRefsUrl,
+  githubPickEntries,
+  githubRawUrl,
+  githubRepoMetaUrl,
+  githubSessionPath,
+  githubTreeUrl,
+  longestRefPrefix,
+  parseGithubRefs,
+  parseGithubTree,
+  parseRepoDefaultBranch,
+} from '../src/pull/github';
+import {
   isLoopbackOrigin,
   wireUrlFor,
   PULL_BASE_OVERRIDE_KEY,
 } from '../src/platform/web/pullFetch';
 import type { PullTriage } from '../src/pull/urls';
+import type { GithubTarget } from '../src/pull/github';
 
 /** 只在 kind === 'invalid' 时有意义；写出来是为了让断言读得到 reason/message 而不用 cast。 */
 function invalidOf(t: PullTriage): { reason: string; message: string } {
   if (t.kind !== 'invalid') throw new Error('期望 invalid，实际 ' + t.kind);
   return t;
+}
+
+function githubOf(t: PullTriage): GithubTarget {
+  if (t.kind !== 'github') throw new Error('期望 github，实际 ' + t.kind);
+  return t.target;
 }
 
 describe('URL 分流：任意主机的 https 直链', () => {
@@ -367,5 +390,251 @@ describe('base URL 覆盖只在 dev/冒烟生效', () => {
     expect(wireUrlFor('https://pull-stub.invalid/a/b.py')).toBe(
       'http://127.0.0.1:8099/__pull-stub__/a/b.py'
     );
+  });
+});
+
+describe('github 页面 URL：识别与推导（#5）', () => {
+  it('仓库根：owner/repo 就是全部', () => {
+    const target = githubOf(classifyUrl('https://github.com/psf/requests?tab=readme'));
+    expect(target.kind).toBe('repo');
+    expect(target.owner).toBe('psf');
+    expect(target.repo).toBe('requests');
+    expect(target.rest).toEqual([]);
+    expect(target.url).toBe('https://github.com/psf/requests?tab=readme');
+  });
+
+  it('目录 URL：/tree/<ref>/<dir> 的 ref 与目录分开', () => {
+    const target = githubOf(classifyUrl('https://github.com/psf/requests/tree/main/src'));
+    expect(target.kind).toBe('tree');
+    expect(target.rest).toEqual(['main', 'src']);
+    expect(githubLocations(target)[0]).toEqual({ ref: 'main', path: 'src' });
+  });
+
+  it('分支名含 /（feature/x）：候选里保留了正确的拆分', () => {
+    const target = githubOf(classifyUrl('https://github.com/o/r/tree/feature/x/pkg'));
+    const locations = githubLocations(target);
+    expect(locations).toContainEqual({ ref: 'feature/x', path: 'pkg' });
+    // 最短 ref 排在最前：正常分支第一次就命中，带斜杠的分支才多试一次
+    expect(locations[0]).toEqual({ ref: 'feature', path: 'x/pkg' });
+  });
+
+  it('单文件 URL：blob/<ref>/<path>，hash 不进身份、query 保留', () => {
+    const target = githubOf(
+      classifyUrl('https://github.com/psf/requests/blob/main/src/requests/api.py?plain=1#L10')
+    );
+    expect(target.kind).toBe('blob');
+    expect(target.rest).toEqual(['main', 'src', 'requests', 'api.py']);
+    expect(target.url).toBe(
+      'https://github.com/psf/requests/blob/main/src/requests/api.py?plain=1'
+    );
+    expect(githubLocations(target)[0]).toEqual({ ref: 'main', path: 'src/requests/api.py' });
+  });
+
+  it('.pyi 也是 Python 文件；非 Python 的 blob 页面仍然按 not-python 拒绝', () => {
+    expect(githubOf(classifyUrl('https://github.com/o/r/blob/main/pkg/stub.pyi')).kind).toBe(
+      'blob'
+    );
+    expect(
+      invalidOf(classifyUrl('https://github.com/o/r/blob/main/pkg/README.md')).reason
+    ).toBe('not-python');
+  });
+
+  it('github.com 上不是仓库/目录/文件页面的 URL 有单独一类文案', () => {
+    const t = invalidOf(classifyUrl('https://github.com/psf'));
+    expect(t.reason).toBe('not-github');
+    expect(t.message).toMatch(/repository, directory, or file page/);
+    expect(invalidOf(classifyUrl('https://github.com/o/r/issues/1')).reason).toBe('not-github');
+  });
+
+  it('非 github 主机仍然走直链（raw.githubusercontent.com 也一样）', () => {
+    expect(
+      classifyUrl('https://raw.githubusercontent.com/o/r/main/pkg/mod.py')
+    ).toEqual({
+      kind: 'direct',
+      url: 'https://raw.githubusercontent.com/o/r/main/pkg/mod.py',
+    });
+  });
+
+  it('请求 URL 全部由用户 URL 确定性推出，且都是 GET 的地址（无 query 之外的参数）', () => {
+    expect(githubRepoMetaUrl('psf', 'requests')).toBe(
+      'https://api.github.com/repos/psf/requests'
+    );
+    expect(githubTreeUrl('psf', 'requests', 'main')).toBe(
+      'https://api.github.com/repos/psf/requests/git/trees/main?recursive=1'
+    );
+    expect(githubRawUrl('psf', 'requests', 'main', 'src/requests/api.py')).toBe(
+      'https://raw.githubusercontent.com/psf/requests/main/src/requests/api.py'
+    );
+    expect(githubMatchingRefsUrl('psf', 'requests', 'feature')).toBe(
+      'https://api.github.com/repos/psf/requests/git/matching-refs/heads/feature'
+    );
+  });
+
+  it('斜杠 ref 在 raw 地址里原样保留，路径段单独编码', () => {
+    expect(githubRawUrl('o', 'r', 'feature/x', 'pkg/a b.py')).toBe(
+      'https://raw.githubusercontent.com/o/r/feature/x/pkg/a%20b.py'
+    );
+  });
+
+  it('会话路径身份 = owner/repo/ + 仓库相对路径；同名文件跨仓库不撞车', () => {
+    expect(githubSessionPath('o', 'r', 'pkg/mod.py')).toBe('o/r/pkg/mod.py');
+    expect(normalizePath(githubSessionPath('o', 'r', 'pkg/mod.py'))).toBe('o/r/pkg/mod.py');
+    expect(githubSessionPath('o1', 'r', 'pkg/mod.py')).not.toBe(
+      githubSessionPath('o2', 'r', 'pkg/mod.py')
+    );
+  });
+});
+
+describe('github 清单解析（#5）', () => {
+  const treeJson = JSON.stringify({
+    sha: 'abc',
+    truncated: false,
+    tree: [
+      { path: 'pkg', type: 'tree' },
+      { path: 'pkg/sub', type: 'tree' },
+      { path: 'pkg/a.py', type: 'blob', size: 10 },
+      { path: 'pkg/b.pyi', type: 'blob', size: 20 },
+      { path: 'pkg/sub/c.py', type: 'blob', size: 30 },
+      { path: 'pkg/README.md', type: 'blob', size: 40 },
+      { path: 'pkg/odd.py', type: 'blob' },
+      { path: 'submodule', type: 'commit', size: 0 },
+    ],
+  });
+
+  it('只留 .py/.pyi 的 blob，体积照抄 size（缺失按 0），目录单独留着判存在', () => {
+    const parsed = parseGithubTree(treeJson);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.truncated).toBe(false);
+    expect(parsed.value.entries.map((e) => [e.path, e.size])).toEqual([
+      ['pkg/a.py', 10],
+      ['pkg/b.pyi', 20],
+      ['pkg/sub/c.py', 30],
+      ['pkg/odd.py', 0],
+    ]);
+    expect(parsed.value.dirs).toEqual(['pkg', 'pkg/sub']);
+  });
+
+  it('目录过滤只留该目录下的文件，路径仍保留完整仓库相对形态', () => {
+    const parsed = parseGithubTree(treeJson);
+    if (!parsed.ok) throw new Error(parsed.message);
+    expect(githubDirExists(parsed.value, 'pkg')).toBe(true);
+    expect(githubDirExists(parsed.value, 'pkg/nope')).toBe(false);
+    expect(githubEntriesInDir(parsed.value, 'pkg').map((e) => e.path)).toEqual([
+      'pkg/a.py',
+      'pkg/b.pyi',
+      'pkg/sub/c.py',
+      'pkg/odd.py',
+    ]);
+    expect(githubEntriesInDir(parsed.value, 'pkg/sub').map((e) => e.path)).toEqual([
+      'pkg/sub/c.py',
+    ]);
+  });
+
+  it('清单条目 -> 勾选条目：会话路径带 owner/repo，1MB 上限直接给出 selectable', () => {
+    const parsed = parseGithubTree(
+      JSON.stringify({
+        truncated: false,
+        tree: [
+          { path: 'pkg/small.py', type: 'blob', size: 10 },
+          { path: 'pkg/big.py', type: 'blob', size: MAX_FILE_SIZE + 1 },
+        ],
+      })
+    );
+    if (!parsed.ok) throw new Error(parsed.message);
+    expect(githubPickEntries('o', 'r', parsed.value.entries)).toEqual([
+      { path: 'pkg/small.py', sessionPath: 'o/r/pkg/small.py', size: 10, selectable: true },
+      {
+        path: 'pkg/big.py',
+        sessionPath: 'o/r/pkg/big.py',
+        size: MAX_FILE_SIZE + 1,
+        selectable: false,
+      },
+    ]);
+  });
+
+  it('truncated 是显式信号，文案指向目录级 URL', () => {
+    const parsed = parseGithubTree(
+      JSON.stringify({ truncated: true, tree: [{ path: 'a.py', type: 'blob', size: 1 }] })
+    );
+    if (!parsed.ok) throw new Error(parsed.message);
+    expect(parsed.value.truncated).toBe(true);
+    expect(GITHUB_TRUNCATED_MESSAGE).toMatch(/directory URL/);
+  });
+
+  it('坏 JSON / 缺 tree 数组都是同一句「意外响应」', () => {
+    expect(parseGithubTree('not json').ok).toBe(false);
+    const missing = parseGithubTree('{"truncated":false}');
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.message).toMatch(/unexpected response/);
+  });
+
+  it('仓库元数据只取 default_branch', () => {
+    expect(parseRepoDefaultBranch('{"default_branch":"trunk"}')).toEqual({
+      ok: true,
+      value: 'trunk',
+    });
+    expect(parseRepoDefaultBranch('{"default_branch":""}').ok).toBe(false);
+    expect(parseRepoDefaultBranch('{}').ok).toBe(false);
+  });
+
+  it('matching-refs -> 分支名，最长前缀命中斜杠分支', () => {
+    const parsed = parseGithubRefs(
+      JSON.stringify([{ ref: 'refs/heads/main' }, { ref: 'refs/heads/feature/x' }])
+    );
+    if (!parsed.ok) throw new Error(parsed.message);
+    expect(parsed.value).toEqual(['main', 'feature/x']);
+    expect(longestRefPrefix(parsed.value, ['feature', 'x', 'pkg'])).toBe('feature/x');
+    expect(longestRefPrefix(parsed.value, ['main', 'pkg'])).toBe('main');
+    expect(longestRefPrefix(parsed.value, ['nope', 'pkg'])).toBeNull();
+  });
+});
+
+describe('github 失败分类（#5）', () => {
+  it('api.github.com 的 401/403/404 都翻译成「不支持私有仓库」，不提登录与 token', () => {
+    for (const status of [401, 403, 404]) {
+      const f = classifyFailure(
+        { type: 'status', status, rateLimited: false },
+        'https://api.github.com/repos/o/r'
+      );
+      expect(f.message).toMatch(/private repositories are not supported/);
+      expect(f.message).toMatch(/public repositories/);
+      expect(f.message).not.toMatch(/token|log ?in|sign ?in/i);
+    }
+  });
+
+  it('raw 内容的 404 仍然是「链接可能失效」那一句，不误报私有仓库', () => {
+    const f = classifyFailure(
+      { type: 'status', status: 404, rateLimited: false },
+      'https://raw.githubusercontent.com/o/r/main/a.py'
+    );
+    expect(f.message).toMatch(/may have moved/);
+  });
+
+  it('api 的 404 多给一句「分支或目录可能也写错了」：匿名下两者在 API 上分不开', () => {
+    const f = classifyFailure(
+      { type: 'status', status: 404, rateLimited: false },
+      'https://api.github.com/repos/o/r/git/trees/mian'
+    );
+    expect(f.message).toMatch(/private repositories are not supported/);
+    expect(f.message).toMatch(/branch or path may also be wrong/);
+  });
+
+  it('raw 主机的 401（要鉴权）归入「不支持私有仓库」，不提登录与 token', () => {
+    const f = classifyFailure(
+      { type: 'status', status: 401, rateLimited: false },
+      'https://raw.githubusercontent.com/o/r/main/a.py'
+    );
+    expect(f.message).toMatch(/private repositories are not supported/);
+    expect(f.message).not.toMatch(/token|log ?in|sign ?in/i);
+  });
+
+  it('限速优先于私有仓库文案：403 + 限速头仍然是稍后再试', () => {
+    const f = classifyFailure(
+      { type: 'status', status: 403, rateLimited: true },
+      'https://api.github.com/repos/o/r'
+    );
+    expect(f.kind).toBe('rate-limited');
+    expect(f.message).toMatch(/try again later/);
   });
 });

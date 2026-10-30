@@ -1355,3 +1355,51 @@ web 侧唯一 fetch 触点 `src/platform/web/pullFetch.ts`（15s AbortController
 - 遗留：① #9（P3 静默期 / P4 刷新范围 + `audit:egress` 扩扫到 `pullFetch.ts` + 真 GitHub 人工抽测流程）；
   ② #8 顶栏常驻拉取入口；③ #3 README 三语；④ #10 超限文案改英文；⑤ `src/components/CodePane/FileTabs.tsx`
   死文件待删；⑥ workflow actions 升 v5（Node 20 deprecation）。上一轮遗留 ⑥「CI 读数下一轮补」本轮关闭。
+
+## 2026-10-30 #4 review 遗留收口轮（5xx 文案与 4xx 分叉 · fetch 唯一性收窄到「外发」 · 上传路径补字节断言 · 505 单测 · 88 项冒烟）
+
+issue #4 关票后紧接的两轴 review（fixpoint `eb0df1f` → `4580fe5`）留了 Standards 5 条、Spec 4 条。
+本轮只收口「不改行为、不改口径」的三条，其余记在遗留里。
+
+- **5xx 不再叫用户改链接。** `src/pull/errors.ts` 的 http 分支按状态码分叉：4xx 仍是
+  「the file may have moved or the link may be wrong」（这时改链接才有用），5xx 改成
+  「the host answered with a server error; try again later」。`kind` 仍是 `http` —— 四分类是 AC，
+  5xx 不是第五类。改前 503 也把责任推给用户的链接，与 ADR-0006「后果」里「文案避免被误读成站点坏了」反着来。
+  `__tests__/pull.test.ts` 两侧各钉一条：4xx 必须指向链接、5xx 必须不指向（`not.toMatch`）。
+- **「全站唯一一处 fetch」收窄为「唯一的外发 fetch」。** `src/platform/web/pullFetch.ts` 头注点名另一处
+  在 `src/parser/treeSitter.ts`（取同源 wasm 资产，不是外发点），`src/pull/transport.ts` 同步改成「外发的真 fetch」。
+  原句被一条同源资产加载就能证伪 —— 绝对词缺限定，就是会被下一轮打回来的那种。「拉取 2/7 落地轮」
+  正文里那句「web 侧唯一 fetch 触点」按纯追加规矩**不改写**，与本轮冲突时以本轮为准。
+- **上传路径补上多字节断言。** 1MB 上限在 `77d7f6a` 之前是「按字符数近似」，现在两条路径共用
+  `oversizeMessageOf`（UTF-8 实际字节）。review 指出「字节口径扩到了本地上传路径，而本地路径没有新测试」，
+  于是 `__tests__/store.test.ts` 加了一条：349,526 个汉字（字符数远不到 1M、UTF-8 字节 1,048,578 超限）
+  走 `loadFiles` 必须被标成超限、但不从会话里消失。判据只此一处的说明写进 `oversizeMessageOf` 头注。
+- 顺手：`scripts/browser-verify.mjs` 的 `pullContract` 头注「冒烟这边抄的那份就会静默失效」→
+  「抄下来的那份就会静默失效」（改成读源码之后已经没有「那份」了）。
+- **没修的（判断项，记在遗留 ⑧）**：① 承诺节选在 `src/pull/urls.ts` 与 `src/pull/transport.ts` 各抄了一遍；
+  ② `mergeFiles` 的 `meta?: Partial<AppStore>` 允许覆盖任意 store 字段；③ `PullBatch.ref` 本票内没有读取点
+  （#5 做 github 分流时才填）。
+- 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning（零输出）；
+  jest **25 suites / 505 tests**（+1，即上面那条多字节断言）；smoke **88/88**（`EXIT=0`，P 组 13 项全在）。
+  本机重出了一份产物：入口 `entry-93376fe53bbe4daaa1dac7ec0d22f37b.js`（1,441,831 B，比上一版 +136 B）、
+  `index.html` 1,562 B / sha256 `3eaa1b7c07d3000a0a65be19e69bfc96ce421d334de9ad6e6b41ae3daaa0c508`。
+- CI：run **`41012718747`**（`push`、branch `master`、被测 commit `8c734dd`、attempt 1、`conclusion=success`）：
+  `checks` ✅（job `123921988231`，06:12:26Z → 06:13:29Z，**63 s**）、`browser-smoke` ✅（job `123922322575`，
+  06:13:31Z → 06:14:12Z，**41 s**）、`deploy` **skipped**。CI 侧 jest **25 suites / 505 tests**（与本机逐字相同，
+  `Time: 11.409 s`）、`eslint . --max-warnings=0` 零输出（**连着第四轮**）、`audit-egress: scanned 3 file(s)`、
+  smoke **88/88** 且 P 组 13 项全在、E1 `总请求数=17`、E7 `210 个标记 x 17 个请求，零命中`。
+  CI 产物：入口 `entry-7c32cb8056a6d84df31bdfc94d386b7c.js`、`index.html` 1,562 B / sha256
+  `22c878910182f2fc6bbc811c4c64d475a7de4d220aa6dbbf09e11f23884b0cd1`、`dist` 工件 **Final size 593,337 B**
+  （上一轮 593,315 B，+22 B；Artifact ID `12957184909`）。
+- **同字节数、不同入口哈希，第九次被量到**（CI `7c32cb80…` vs 本机 `93376fe5…`，两边的 `index.html` 都是 1,562 B）。
+  这轮多一条对照：本机入口哈希随源码变了（`675e439b…` → `93376fe5…`），CI 也跟着变（`89bf478d…` → `7c32cb80…`）
+  ⇒ **入口哈希确实是内容哈希**；「同字节数、不同哈希」是两个环境各自装了同一份内容，但两边的产物本身不逐字节相同。
+  工件 zip 摘要本轮是 `b998bbcb0ea42a1ae3fe0217f27003f829a12ba91318986a65d43d6b707d8e3a`（与上一轮不同 ——
+  仍不能当产物指纹，理由见上一轮正文）。
+- 本轮学到的规矩：**绝对词要带限定词。**「唯一一处 fetch」被一条同源 wasm 加载就证伪，「唯一的外发 fetch」才是
+  能守住的版本。以及**文案方向要跟因果一致**：5xx 是对方坏了，4xx 才是地址不对 —— 分类做对了、文案接反了，
+  用户拿到的仍然是错建议。
+- 遗留：① #9（P3/P4 + `audit:egress` 扩扫）；② #8 顶栏常驻拉取入口；③ #3 README 三语；④ #10 超限文案改英文；
+  ⑤ `src/components/CodePane/FileTabs.tsx` 死文件待删；⑥ workflow actions 升 v5；⑦ **#11** 20 文件上限与
+  「逐批独立成败」的语义待拍板；⑧ 三条 review 判断项（承诺节选重复 / `mergeFiles` 的 `meta` 过宽 /
+  `PullBatch.ref` 无读取点，后者等 #5）。#7 已补一条评论：PR1 只读了 origins、`batches` 只有 jsdom 证据。

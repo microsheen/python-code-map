@@ -32,13 +32,16 @@ import {
 } from './github';
 
 export type GithubFileResult =
-  | { ok: true; ref: string; path: string; text: string }
-  /** 失败也带回已解析的 ref/path：错误占位条目的会话身份必须是同一个拆分，不能退回首段猜测 */
-  | { ok: false; ref: string | null; path: string; message: string };
+  | { ok: true; ref: string; refResolved: true; path: string; text: string }
+  /**
+   * 失败也带回已解析的 ref/path：错误占位条目的会话身份必须是同一个拆分，不能退回首段猜测。
+   * `refResolved` 区分「matching-refs / 完整 sha 解析出来的」与「首段当 ref 的兜底猜测」：
+   * 前者写进批次元数据（#7 刷新按它重放），后者不写 —— 猜出来的 ref 不是权威身份。
+   */
+  | { ok: false; ref: string | null; refResolved: boolean; path: string; message: string };
 
 export type GithubListingResult =
-  | { ok: true; listing: GithubListing }
-  | { ok: false; message: string };
+  { ok: true; listing: GithubListing } | { ok: false; message: string };
 
 /** 传输外壳自己 reject 不该把整轮拉取带走：按单文件失败处理（与 store 共用 pullOnce 判据）。 */
 function get(transport: PullTransport, url: string): Promise<PullOutcome> {
@@ -83,11 +86,11 @@ async function resolveBlobLocation(
   target: GithubTarget,
   transport: PullTransport,
   cache: GithubFetchCache
-): Promise<GithubLocation | null> {
+): Promise<{ ref: string; path: string; resolved: boolean } | null> {
   const rest = target.rest;
   const first = rest[0];
   if (!first) return null;
-  if (FULL_SHA_RE.test(first)) return { ref: first, path: rest.slice(1).join('/') };
+  if (FULL_SHA_RE.test(first)) return { ref: first, path: rest.slice(1).join('/'), resolved: true };
 
   const key = `${target.owner}/${target.repo}#${first}`;
   let refs = cache.refs.get(key);
@@ -101,9 +104,9 @@ async function resolveBlobLocation(
 
   const matched = refs ? longestRefPrefix(refs, rest) : null;
   if (matched) {
-    return { ref: matched, path: rest.slice(matched.split('/').length).join('/') };
+    return { ref: matched, path: rest.slice(matched.split('/').length).join('/'), resolved: true };
   }
-  return { ref: first, path: rest.slice(1).join('/') };
+  return { ref: first, path: rest.slice(1).join('/'), resolved: false };
 }
 
 /**
@@ -118,21 +121,44 @@ export async function fetchGithubFile(
   cache: GithubFetchCache = createGithubFetchCache()
 ): Promise<GithubFileResult> {
   const loc = await resolveBlobLocation(target, transport, cache);
-  if (!loc) return { ok: false, ref: null, path: '', message: GITHUB_BAD_RESPONSE };
+  if (!loc) {
+    return { ok: false, ref: null, refResolved: false, path: '', message: GITHUB_BAD_RESPONSE };
+  }
 
   const url = githubRawUrl(target.owner, target.repo, loc.ref, loc.path);
   const outcome = await get(transport, url);
-  if (outcome.ok) return { ok: true, ref: loc.ref, path: loc.path, text: outcome.text };
+  if (outcome.ok) {
+    // raw 用这个拆分拿到了正文：这个 ref 就是可重放的
+    return { ok: true, ref: loc.ref, refResolved: true, path: loc.path, text: outcome.text };
+  }
   if (!is404(outcome)) {
-    return { ok: false, ref: loc.ref, path: loc.path, message: classifyFailure(outcome.observation, url).message };
+    return {
+      ok: false,
+      ref: loc.ref,
+      refResolved: loc.resolved,
+      path: loc.path,
+      message: classifyFailure(outcome.observation, url).message,
+    };
   }
 
   const repoUrl = githubRepoMetaUrl(target.owner, target.repo);
   const meta = await get(transport, repoUrl);
   if (!meta.ok && isApiAuthFailure(meta)) {
-    return { ok: false, ref: loc.ref, path: loc.path, message: classifyFailure(meta.observation, repoUrl).message };
+    return {
+      ok: false,
+      ref: loc.ref,
+      refResolved: loc.resolved,
+      path: loc.path,
+      message: classifyFailure(meta.observation, repoUrl).message,
+    };
   }
-  return { ok: false, ref: loc.ref, path: loc.path, message: classifyFailure(outcome.observation, url).message };
+  return {
+    ok: false,
+    ref: loc.ref,
+    refResolved: loc.resolved,
+    path: loc.path,
+    message: classifyFailure(outcome.observation, url).message,
+  };
 }
 
 /** 裸仓库 URL：多发一次仓库元数据请求，只为取默认分支。 */

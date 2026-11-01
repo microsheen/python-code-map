@@ -51,6 +51,17 @@ export function upsertBatch(batches: PullBatch[], next: PullBatch): PullBatch[] 
   return [...rest, { ...next, paths }];
 }
 
+/**
+ * 按会话路径找它所属的批次。一个路径同一时刻只属于一个批次（见 upsertBatch），
+ * 所以命中最多一条；本地文件没有批次，返回 null。
+ */
+export function batchForPath(batches: PullBatch[], path: string): PullBatch | null {
+  for (const b of batches) {
+    if (b.paths.includes(path)) return b;
+  }
+  return null;
+}
+
 /** 会话里已经不存在的文件，来源也跟着去掉：不变量是 origins ⊆ files。 */
 export function pruneOrigins(origins: OriginMap, paths: Iterable<string>): OriginMap {
   const alive = new Set(paths);

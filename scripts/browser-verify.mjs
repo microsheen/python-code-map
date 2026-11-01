@@ -164,10 +164,10 @@ function startStaticServer() {
           contentLength: req.headers['content-length'] ?? null,
           transferEncoding: req.headers['transfer-encoding'] ?? null,
         });
-        const body = Object.prototype.hasOwnProperty.call(PULL_STUB_FILES, rel)
+        const entry = Object.prototype.hasOwnProperty.call(PULL_STUB_FILES, rel)
           ? PULL_STUB_FILES[rel]
           : null;
-        if (body === null) {
+        if (entry === null) {
           res.writeHead(404, {
             'content-type': 'text/plain; charset=utf-8',
             'cache-control': 'no-store',
@@ -175,6 +175,11 @@ function startStaticServer() {
           res.end('not found');
           return;
         }
+        // 桩内容可以是函数：按该路径被命中的次数返回不同正文。#7 的刷新取证靠它 ——
+        // 重放一次之后正文真的换新，才能证明「刷新」不是把旧内容又读了一遍。
+        // 次数不另记一份，直接从刚刚 push 的命中账里数：两份计数迟早会漂。
+        const hit = pullStubHits.filter((h) => h.path === pathname).length;
+        const body = typeof entry === 'function' ? entry(hit) : entry;
         res.writeHead(200, {
           'content-type': 'text/plain; charset=utf-8',
           'cache-control': 'no-store',
@@ -281,6 +286,11 @@ const PULL_STUB_PREFIX = '/__pull-stub__/';
 const PULL_STUB_HOST = 'pull-stub.invalid';
 const PULL_STUB_PATH = 'probe/zz_pull_probe.py';
 /**
+ * 两批次的刷新范围场景（issue #7 · ADR-0006 基线第 4 条）：一次粘贴两条直链 = 两个批次。
+ * 刷新其中一个，另一个的请求数与来源时刻都不许变 —— 这条就是「刷新只碰本批」。
+ */
+const PULL_STUB_ALT_PATH = 'probe/zz_pull_alt.py';
+/**
  * github 分流的第二个桩场景（issue #5）：用户粘的是 github.com 的 blob 页面，拉取面实际发出的是
  * 「一次 matching-refs + 一次 raw」。两条路径都挂在同一个桩前缀下，base 覆盖只换 origin，
  * 所以 pathname 仍能按用户 URL 确定性推导。
@@ -300,14 +310,27 @@ const GITHUB_LIST_RAW_B = 'psf/requests/main/listprobe/b.py';
 const GITHUB_LIST_A_SESSION = 'psf/requests/listprobe/a.py';
 const GITHUB_LIST_B_SESSION = 'psf/requests/listprobe/b.py';
 const PULL_STUB_FILES = {
-  [PULL_STUB_PATH]: [
-    'def zz_pull_probe():',
-    '    return zz_pull_helper()',
-    '',
-    'def zz_pull_helper():',
-    '    return 42',
-    '',
-  ].join('\n'),
+  // 第一次命中给原内容；之后每次命中都给一个能一眼认出来的新正文（刷新取证的判据）。
+  // def 名保持不变：刷新前后都还是同一批文件，图的节点不该因为刷新而改姓。
+  [PULL_STUB_PATH]: (hit) =>
+    hit <= 1
+      ? [
+          'def zz_pull_probe():',
+          '    return zz_pull_helper()',
+          '',
+          'def zz_pull_helper():',
+          '    return 42',
+          '',
+        ].join('\n')
+      : [
+          'def zz_pull_probe():',
+          '    return zz_pull_helper() + 100',
+          '',
+          'def zz_pull_helper():',
+          '    return 42',
+          '',
+        ].join('\n'),
+  [PULL_STUB_ALT_PATH]: ['def zz_pull_alt():', '    return 3', ''].join('\n'),
   [GITHUB_STUB_REFS_PATH]: JSON.stringify([{ ref: 'refs/heads/main' }]),
   [GITHUB_STUB_RAW_PATH]: ['def zz_gh_probe():', '    return 7', ''].join('\n'),
   [GITHUB_LIST_TREE_PATH]: JSON.stringify({
@@ -327,8 +350,11 @@ const PULL_STUB_FILES = {
 };
 /** 用户会粘进面板的那条直链（https + .py 结尾，符合分流规则） */
 const PULL_STUB_URL = 'https://' + PULL_STUB_HOST + '/' + PULL_STUB_PATH;
+/** 第二个批次的直链：与第一条同主机、不同路径，于是它们是两个独立批次 */
+const PULL_STUB_ALT_URL = 'https://' + PULL_STUB_HOST + '/' + PULL_STUB_ALT_PATH;
 /** 会话里应当出现的路径：host + URL 路径（src/pull/urls.ts 的 pulledPathFor） */
 const PULL_STUB_SESSION_PATH = PULL_STUB_HOST + '/' + PULL_STUB_PATH;
+const PULL_STUB_ALT_SESSION_PATH = PULL_STUB_HOST + '/' + PULL_STUB_ALT_PATH;
 /** 桩侧自己的记账：与 CDP 的网络记录互为第二个观测点（方法、有没有请求体） */
 const pullStubHits = [];
 
@@ -504,6 +530,30 @@ async function realClick(cdp, x, y) {
     buttons: 0,
     clickCount: 1,
   });
+}
+
+/**
+ * 悬浮到一个文件标签、等提示出现，再点提示里的某个动作（`pull-refresh-` / `pull-copy-`）。
+ * 提示有 150ms 的延时隐藏，所以「移进去 → 等 → 点动作」三步必须在同一段里连续做完。
+ */
+async function hoverChipAction(cdp, action, path) {
+  const chipBox = await evalJs(cdp, 'window.__t.centerOf(' + JSON.stringify('chip-' + path) + ')');
+  if (!chipBox) throw new Error('chip not found: ' + path);
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: Math.round(chipBox.x),
+    y: Math.round(chipBox.y),
+    button: 'none',
+    buttons: 0,
+    clickCount: 0,
+  });
+  await sleep(250);
+  const actionBox = await evalJs(
+    cdp,
+    'window.__t.centerOf(' + JSON.stringify(action + '-' + path) + ')'
+  );
+  if (!actionBox) throw new Error(action + ' action missing: ' + path);
+  await realClick(cdp, actionBox.x, actionBox.y);
 }
 
 async function focusElement(cdp, id) {
@@ -1533,10 +1583,194 @@ async function main() {
     'before=' + stubHitsBeforeReload + ' after=' + pullStubHits.length
   );
 
+  // ---- PR3：重开之后批次也读得回来（issue #7） ----
+  // PR1 只证 origin（URL/时刻）；「批次是否活过重启」得靠刷新来证：如果 batches 没读回来，
+  // 提示里不会出现 Refresh 动作，更不会按原来源重放。顺带验内容真的换新 —— 桩按命中次数换正文。
+  const hitsBeforeRestoredRefresh = pullStubHits.length;
+  const idsBeforeRestoredRefresh = new Set(netRequests.keys());
+  await hoverChipAction(cdp, 'pull-refresh', PULL_STUB_SESSION_PATH);
+  const afterRestoredRefresh = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), line2: window.__t.valueOf("code-line-2"), nodes: window.__t.nodeIds() })',
+    (v) =>
+      !!v &&
+      v.tabs.some((t) => t.path === PULL_STUB_SESSION_PATH && t.at !== (rtab ? rtab.at : null)),
+    30000,
+    'refresh after reload'
+  ).then((r) => r.value);
+  const refreshedTab =
+    afterRestoredRefresh.tabs.find((t) => t.path === PULL_STUB_SESSION_PATH) || null;
+  note('after restored refresh', afterRestoredRefresh);
+  await shot(cdp, 'pull-04b-refreshed.png');
+  check(
+    'PR3 重开页面之后批次元数据仍活着：标签里的 Refresh 按原来源重放，拉取时刻更新、正文换新',
+    !!rtab &&
+      !!refreshedTab &&
+      refreshedTab.at !== rtab.at &&
+      (afterRestoredRefresh.line2 || '').indexOf('+ 100') >= 0 &&
+      pullStubHits.length === hitsBeforeRestoredRefresh + 1 &&
+      pullStubHits[hitsBeforeRestoredRefresh].path ===
+        PULL_STUB_PREFIX.replace(/\/$/, '') + new URL(PULL_STUB_URL).pathname &&
+      afterRestoredRefresh.nodes.indexOf(PULL_STUB_SESSION_PATH + '::zz_pull_probe') >= 0 &&
+      refreshedTab.marker === 'pulled',
+    JSON.stringify({
+      before: rtab && rtab.at,
+      after: refreshedTab && refreshedTab.at,
+      line2: afterRestoredRefresh.line2,
+      hits: pullStubHits.slice(hitsBeforeRestoredRefresh),
+    })
+  );
+  // 这次重放同样是拉取面的请求：并入 pullIds，E 组基线（不含拉取动作）不许把它算进去。
+  for (const id of netRequests.keys()) {
+    if (pullIds.has(id) || idsBeforeRestoredRefresh.has(id)) continue;
+    const r = netRequests.get(id);
+    if (r && !distFileFor(pathnameOf(r.url))) pullIds.add(id);
+  }
+
+  // ---- P3：拉取完成后的静默期零请求（ADR-0006 基线第 3 条） ----
+  // 把鼠标移到中性角落，等一段时间：会话里已经有一份内容，任何自动重拉/轮询都会在这里露头。
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: 2,
+    y: 2,
+    button: 'none',
+    buttons: 0,
+    clickCount: 0,
+  });
+  await sleep(200);
+  const hitsBeforeIdle = pullStubHits.length;
+  const reqsBeforeIdle = netRequests.size;
+  await sleep(1200);
+  check(
+    'P3 拉取完成后的静默期新增请求数为 0（桩命中与浏览器请求数一个都没多，没有自动重拉）',
+    pullStubHits.length === hitsBeforeIdle && netRequests.size === reqsBeforeIdle,
+    JSON.stringify({
+      stubBefore: hitsBeforeIdle,
+      stubAfter: pullStubHits.length,
+      reqBefore: reqsBeforeIdle,
+      reqAfter: netRequests.size,
+    })
+  );
+
   // 回到空态：走产品自己的 Clear（连 IndexedDB 一起清），不是测试偷偷改状态
   await clickTestId(cdp, 'topbar-reset');
   await poll(cdp, 'window.__t.stats()', (v) => !!v && v.empty, 15000, 'empty again after Clear');
   note('after Clear', 'back to the empty upload panel');
+
+  // ---- P4：刷新只碰本批（ADR-0006 基线第 4 条 · issue #7） ----
+  // 一次粘两条直链 = 两个独立批次。刷新其中一批：只允许该批路径的请求出现，
+  // 另一批的来源时刻、图节点、正文一律不许被碰 —— 这就是「刷新只碰本批」。
+  const idsBeforeTwoBatchPull = new Set(netRequests.keys());
+  await clickTestId(cdp, 'upload-pull');
+  const twoTyped = await typeIntoTestId(
+    cdp,
+    'pull-input',
+    PULL_STUB_URL + '\n' + PULL_STUB_ALT_URL
+  );
+  check(
+    'P4a 粘贴框保留用户给的两行（一行一条 = 两个批次）',
+    typeof twoTyped === 'string' &&
+      twoTyped.indexOf(PULL_STUB_URL) >= 0 &&
+      twoTyped.indexOf(PULL_STUB_ALT_URL) >= 0,
+    JSON.stringify(twoTyped)
+  );
+  await clickTestId(cdp, 'pull-submit');
+  const twoBatches = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), nodes: window.__t.nodeIds(), issues: window.__t.valueOf("topbar-pull-issues") })',
+    (v) =>
+      !!v &&
+      !v.issues &&
+      v.tabs.some((t) => t.path === PULL_STUB_SESSION_PATH) &&
+      v.tabs.some((t) => t.path === PULL_STUB_ALT_SESSION_PATH),
+    30000,
+    'two direct batches pulled'
+  ).then((r) => r.value);
+  const probeBefore = twoBatches.tabs.find((t) => t.path === PULL_STUB_SESSION_PATH) || null;
+  const altBefore = twoBatches.tabs.find((t) => t.path === PULL_STUB_ALT_SESSION_PATH) || null;
+  if (!probeBefore || !altBefore) {
+    throw new Error('two-batch setup incomplete: ' + JSON.stringify(twoBatches));
+  }
+  note('two batches before refresh', twoBatches);
+
+  const idsBeforeBatchRefresh = new Set(netRequests.keys());
+  const hitsBeforeBatchRefresh = pullStubHits.length;
+  await hoverChipAction(cdp, 'pull-refresh', PULL_STUB_SESSION_PATH);
+  const afterBatchRefresh = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), nodes: window.__t.nodeIds(), line2: window.__t.valueOf("code-line-2") })',
+    (v) => !!v && v.tabs.some((t) => t.path === PULL_STUB_SESSION_PATH && t.at !== probeBefore.at),
+    30000,
+    'single batch refresh'
+  ).then((r) => r.value);
+  const probeAfter = afterBatchRefresh.tabs.find((t) => t.path === PULL_STUB_SESSION_PATH) || null;
+  const altAfter =
+    afterBatchRefresh.tabs.find((t) => t.path === PULL_STUB_ALT_SESSION_PATH) || null;
+  note('after single-batch refresh', afterBatchRefresh);
+  await shot(cdp, 'pull-06-batch-refresh.png');
+
+  const refreshIds = new Set(
+    [...netRequests.keys()].filter((id) => !idsBeforeBatchRefresh.has(id))
+  );
+  const refreshReqs = [...refreshIds].map((id) => netRequests.get(id)).filter(Boolean);
+  const refreshFace = refreshReqs.filter((r) => !distFileFor(pathnameOf(r.url)));
+  const refreshHits = pullStubHits.slice(hitsBeforeBatchRefresh);
+  note(
+    'batch refresh requests (cdp)',
+    refreshReqs.map(
+      (r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED:' + (r.failed || '?'))
+    )
+  );
+  note('batch refresh requests (stub side)', refreshHits);
+
+  const altPathname = new URL(PULL_STUB_ALT_URL).pathname;
+  check(
+    'P4 刷新一个批次只发该批次路径的请求：另一批的 URL 一条都没出现，全程 GET、请求体恒空',
+    refreshFace.length === 1 &&
+      refreshFace[0].url === pullBase + PULL_STUB_PATH &&
+      refreshReqs.every((r) => r.url.indexOf(altPathname) < 0) &&
+      refreshHits.length === 1 &&
+      refreshHits[0].path === PULL_STUB_PREFIX + PULL_STUB_PATH &&
+      refreshReqs.every((r) => r.method === 'GET' && !r.hasPostData && r.postDataBytes === 0) &&
+      refreshHits.every(
+        (h) => h.method === 'GET' && h.contentLength === null && h.transferEncoding === null
+      ),
+    JSON.stringify({ cdp: refreshReqs.map((r) => r.method + ' ' + r.url), stub: refreshHits })
+  );
+  check(
+    'P4b 被刷新的那一批：拉取时刻更新、正文换新、图节点仍在；另一批的时刻与节点原样',
+    !!probeAfter &&
+      probeAfter.at !== probeBefore.at &&
+      (afterBatchRefresh.line2 || '').indexOf('+ 100') >= 0 &&
+      afterBatchRefresh.nodes.indexOf(PULL_STUB_SESSION_PATH + '::zz_pull_probe') >= 0 &&
+      !!altAfter &&
+      altAfter.at === altBefore.at &&
+      afterBatchRefresh.nodes.indexOf(PULL_STUB_ALT_SESSION_PATH + '::zz_pull_alt') >= 0 &&
+      afterBatchRefresh.tabs.length === 2,
+    JSON.stringify({
+      before: probeBefore,
+      after: probeAfter,
+      altBefore,
+      altAfter,
+      line2: afterBatchRefresh.line2,
+      tabs: afterBatchRefresh.tabs,
+    })
+  );
+
+  // 两批次的拉取与这次刷新都属于拉取面：并入 pullIds，后面的 E 组基线不许把它们算进去。
+  for (const id of netRequests.keys()) {
+    if (pullIds.has(id) || idsBeforeTwoBatchPull.has(id)) continue;
+    const r = netRequests.get(id);
+    if (r && !distFileFor(pathnameOf(r.url))) pullIds.add(id);
+  }
+  await clickTestId(cdp, 'topbar-reset');
+  await poll(
+    cdp,
+    'window.__t.stats()',
+    (v) => !!v && v.empty,
+    15000,
+    'empty again after batch refresh'
+  );
 
   // ---- PG：github.com 页面 URL 的拉取面（issue #5） ----
   // 与 P 组同一条取证思路：空态下再粘一条 github blob URL。拉取面实际发两条请求

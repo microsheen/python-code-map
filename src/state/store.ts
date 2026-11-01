@@ -36,6 +36,7 @@ import {
 import { classifyFailure } from '../pull/errors';
 import { pruneBatches, pruneOrigins, upsertBatch } from '../pull/batch';
 import type { OriginMap, PullBatch } from '../pull/batch';
+import { batchRefreshPlan } from '../pull/refresh';
 import { pullOnce, type PullTransport } from '../pull/transport';
 import { githubRawUrl, githubSessionPath, type GithubListing } from '../pull/github';
 import { createGithubFetchCache, fetchGithubFile, fetchGithubListing } from '../pull/githubFetch';
@@ -171,6 +172,11 @@ export interface AppStore {
    * 不拖垮整批。selected 为空时什么都不做（也不清清单）。
    */
   confirmPullListing: (selected: string[], opts?: PullOptions) => Promise<void>;
+  /**
+   * 刷新一个批次（issue #7）：按批次元数据里的原来源与 ref 重放「仍在会话中的该批路径」。
+   * 只碰这一批：其他批次不动，删掉的路径不复活；来源 URL 不变，只把拉取时刻推到这一次。
+   */
+  refreshBatch: (sourceUrl: string, opts?: PullOptions) => Promise<void>;
   /** 关闭勾选清单：不清会话、不发请求，只把 pullListing 置空。 */
   dismissPullListing: () => void;
   removeFile: (path: string) => Promise<void>;
@@ -499,7 +505,9 @@ export const useAppStore = create<AppStore>()((set, get) => {
                 { [path]: { url: triage.target.url, pulledAt } },
                 {
                   sourceUrl: triage.target.url,
-                  ref: file.ok ? file.ref : null,
+                  // 只记权威解析出的 ref（sha / matching-refs）；首段兜底的猜测不写进批次，
+                  // 刷新会按同一规则再拆一次（见 refresh.ts 的 refOf）
+                  ref: file.refResolved ? file.ref : null,
                   paths: [path],
                   pulledAt,
                 }
@@ -634,6 +642,67 @@ export const useAppStore = create<AppStore>()((set, get) => {
             pullListing: null,
             pullProgress: { done: total, total },
           },
+          { preserveView: !anyContent }
+        );
+      } finally {
+        if (get().pulling) set({ pulling: false });
+      }
+    },
+
+    refreshBatch: async (sourceUrl, opts) => {
+      // 正在拉取（连点刷新 / 上一轮还没跑完）就不开第二轮：同一批文件会被发两遍 GET
+      if (get().pulling) return;
+      const batch = get().batches.find((b) => b.sourceUrl === sourceUrl);
+      if (!batch) return;
+      const plan = batchRefreshPlan(batch);
+      if (!plan.ok) {
+        // 元数据推导不出请求：一条都不发，理由交给用户（与非法 URL 共用同一条告警带）
+        set({ pullIssues: [plan.message], pulling: false });
+        return;
+      }
+      // 只重放仍在会话中的路径。批次路径本来就被 runAnalysis 按文件集合裁过，这里按 files
+      // 再兜一道：即使将来有别的路径写进批次，刷新也不会替一个不在会话里的文件拉正文。
+      const alive = new Set(get().files.map((f) => f.path));
+      const requests = plan.requests.filter((r) => alive.has(r.path));
+      if (requests.length === 0) return;
+
+      const transport = opts?.transport ?? webPullTransport;
+      set({ pulling: true, pullIssues: [] });
+      try {
+        const origins: OriginMap = { ...get().origins };
+        const incoming: PickedFile[] = [];
+        const issues: string[] = [];
+        let anyContent = false;
+        for (const req of requests) {
+          const outcome = await pullOnce(transport, { url: req.url, timeoutMs: req.timeoutMs });
+          if (!outcome.ok) {
+            // 刷新失败不替换已经有内容的文件：一次网络抖动不该把会话里的正文清成占位。
+            // 失败理由走告警带；该文件的内容与拉取时刻都停在上一次成功时的样子。
+            issues.push(classifyFailure(outcome.observation, req.url).message);
+            continue;
+          }
+          const pulledAt = Date.now();
+          const error = oversizeMessageOf(outcome.text);
+          if (!error) anyContent = true;
+          incoming.push(pulledEntry(req.path, outcome.text, error));
+          // 来源 URL 不变：它仍是用户当初给的那条页面/直链地址（github 批次不是 raw 地址），
+          // 变的只有拉取时刻 —— 悬浮提示里那句 "Pulled from … at …" 读的就是这两个字段。
+          origins[req.path] = { url: origins[req.path]?.url ?? batch.sourceUrl, pulledAt };
+        }
+        if (incoming.length === 0) {
+          // 一条都没刷新成功：不写新内容、不动批次时刻，也不重解析既有会话
+          set({ pullIssues: issues, pulling: false });
+          return;
+        }
+        // 批次时刻推到这一次；其他批次原样（「刷新只碰本批」）
+        const batches = get().batches.map((b) =>
+          b.sourceUrl === sourceUrl ? { ...b, pulledAt: Date.now() } : b
+        );
+        await mergeFiles(
+          incoming,
+          opts?.parser,
+          { origins, batches, pullIssues: issues, pulling: false },
+          // 没有任何新内容进来（只拿到超限正文）时：用户当前的范围/视图不该被重置
           { preserveView: !anyContent }
         );
       } finally {

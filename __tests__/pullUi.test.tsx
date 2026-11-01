@@ -192,6 +192,99 @@ describe('顶栏文件标签：拉取文件的来源可读', () => {
   });
 });
 
+describe('顶栏悬浮提示：来源动作（issue #7）', () => {
+  const path = 'example.com/pkg/tool.py';
+  const url = 'https://example.com/pkg/tool.py';
+  const at = Date.UTC(2026, 9, 30, 1, 2, 3);
+  const batch = { sourceUrl: url, ref: null, paths: [path], pulledAt: at };
+
+  function presetPulled(): void {
+    preset({
+      files: [
+        { path, name: 'tool.py', content: 'def f():\n    pass\n', lines: [] },
+        { path: 'local.py', name: 'local.py', content: 'def g():\n    pass\n', lines: [] },
+      ],
+      activeFile: path,
+      origins: { [path]: { url, pulledAt: at } },
+      batches: [batch],
+    } as Partial<AppStore>);
+  }
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+  });
+
+  it('拉取文件的提示里有 Copy URL 与 Refresh from source；本地文件没有这两个动作', () => {
+    presetPulled();
+    render(<TopBar />);
+    fireEvent.mouseOver(screen.getByTestId('chip-' + path));
+    expect(screen.getByTestId('chip-tooltip-' + path).textContent).toContain('Pulled from ' + url);
+    expect(screen.queryByTestId('pull-copy-' + path)).not.toBeNull();
+    expect(screen.queryByTestId('pull-refresh-' + path)).not.toBeNull();
+
+    fireEvent.mouseOver(screen.getByTestId('chip-local.py'));
+    expect(screen.getByTestId('chip-tooltip-local.py').textContent).toContain('local.py');
+    expect(screen.queryByTestId('pull-copy-local.py')).toBeNull();
+    expect(screen.queryByTestId('pull-refresh-local.py')).toBeNull();
+  });
+
+  it('Copy URL 把来源 URL 写进剪贴板', () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    presetPulled();
+    render(<TopBar />);
+    fireEvent.mouseOver(screen.getByTestId('chip-' + path));
+    fireEvent.click(screen.getByTestId('pull-copy-' + path));
+    expect(writeText).toHaveBeenCalledWith(url);
+  });
+
+  it('Refresh from source 调的是这一批的刷新（批次身份 = 来源 URL）', () => {
+    const refreshed: string[] = [];
+    preset({
+      files: [{ path, name: 'tool.py', content: 'def f():\n    pass\n', lines: [] }],
+      origins: { [path]: { url, pulledAt: at } },
+      batches: [batch],
+      refreshBatch: async (sourceUrl: string) => {
+        refreshed.push(sourceUrl);
+      },
+    } as Partial<AppStore>);
+    render(<TopBar />);
+    fireEvent.mouseOver(screen.getByTestId('chip-' + path));
+    fireEvent.click(screen.getByTestId('pull-refresh-' + path));
+    expect(refreshed).toEqual([url]);
+  });
+
+  it('有来源但没有批次（旧快照）：URL 仍可复制，刷新按钮不出现', () => {
+    preset({
+      files: [{ path, name: 'tool.py', content: 'def f():\n    pass\n', lines: [] }],
+      origins: { [path]: { url, pulledAt: at } },
+      batches: [],
+    } as Partial<AppStore>);
+    render(<TopBar />);
+    fireEvent.mouseOver(screen.getByTestId('chip-' + path));
+    expect(screen.queryByTestId('pull-copy-' + path)).not.toBeNull();
+    expect(screen.queryByTestId('pull-refresh-' + path)).toBeNull();
+  });
+
+  it('拉取进行中：刷新按钮禁用，点了也不会再发一轮', () => {
+    const refreshed: string[] = [];
+    preset({
+      files: [{ path, name: 'tool.py', content: 'def f():\n    pass\n', lines: [] }],
+      origins: { [path]: { url, pulledAt: at } },
+      batches: [batch],
+      pulling: true,
+      refreshBatch: async (sourceUrl: string) => {
+        refreshed.push(sourceUrl);
+      },
+    } as Partial<AppStore>);
+    render(<TopBar />);
+    fireEvent.mouseOver(screen.getByTestId('chip-' + path));
+    fireEvent.click(screen.getByTestId('pull-refresh-' + path));
+    expect(refreshed).toEqual([]);
+    expect(screen.getByTestId('pull-refresh-' + path).textContent).toBe('Refreshing…');
+  });
+});
+
 describe('勾选清单模态（issue #6）', () => {
   const listing: GithubListing = {
     sourceUrl: 'https://github.com/o/r/tree/main/pkg',
@@ -228,9 +321,9 @@ describe('勾选清单模态（issue #6）', () => {
     expect(screen.getByTestId('pull-listing-row-pkg/a.py').textContent).toContain('120 B');
     expect(screen.getByTestId('pull-listing-row-pkg/b.pyi').textContent).toContain('2.0 KB');
     expect(screen.getByTestId('pull-listing-size-pkg/huge.py').textContent).toContain('over 1 MB');
-    expect((screen.getByTestId('pull-listing-check-pkg/huge.py') as HTMLInputElement).disabled).toBe(
-      true
-    );
+    expect(
+      (screen.getByTestId('pull-listing-check-pkg/huge.py') as HTMLInputElement).disabled
+    ).toBe(true);
     expect((screen.getByTestId('pull-listing-check-pkg/a.py') as HTMLInputElement).disabled).toBe(
       false
     );

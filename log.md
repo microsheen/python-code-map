@@ -1,6 +1,6 @@
-~~~
+```
 当刷新网页的时候，应该能记住当前的文件选择，而不会完全回到初始页面。
-~~~
+```
 
 ## 2026-10-09 发布路线 B（公开仓库 + 自定义域名 + CI 门禁）
 
@@ -21,6 +21,7 @@
 - 完整运维记录与被实测到的平台坑：`docs/ops-deployment.md`。
 - 待拍板（阻塞公开推送）：对外公开合规性 / 目标账号与仓库名 / LICENSE /
   Cloudflare 凭据提供方式 / 域名 / Pages 项目名（全局唯一且不可改名）/ 反馈别名。
+
 ## 2026-10-13 复验与运维文档补记（CI 权限缺陷已修；公开推送仍待拍板）
 
 - 修复 CI 权限作用域缺陷：GitHub 文档明确「一旦显式声明 permissions，未列出的 scope 一律降为
@@ -38,6 +39,7 @@
   用 scrub + `--orphan` 流程清除，沙盘已验证该流程可得到 0 findings。
 - 待用户拍板（阻塞后续）：对外公开合规性 / 公开仓坐标 / LICENSE / Cloudflare 凭据提供方式 /
   域名 / Pages 项目名（全局唯一且不可改名）/ 反馈渠道形态 / GHES 守卫方案 / 推送传输方式。
+
 ## 2026-10-13 Phase 2 启动：O1 守卫落地，路线 B 又解锁三项
 
 - B1 合规：用户明确「允许」把本代码库对外公开。
@@ -85,9 +87,9 @@
 保留原文不删，是因为"我如何得出一个错误定论"本身就是这条流水线的风险清单。
 
 - **决定性证据**：第二次 CI run `38353547848` 的 `Toolchain` step 打印 `node=v24.21.0 npm=11.19.0
-  lockfileVersion=3`，而本机是 node 24.12.0 / npm 11.6.2。本机跑 `npx npm@11.19.0 ci --dry-run`
+lockfileVersion=3`，而本机是 node 24.12.0 / npm 11.6.2。本机跑 `npx npm@11.19.0 ci --dry-run`
   （Windows，不加任何 `--os/--cpu`）**完整复现** CI 的 `Missing: @emnapi/core@1.11.3 /
-  @emnapi/runtime@1.11.3`；同一份锁在 11.6.2 下 exit 0。所以是**小版本**差异，与 OS 无关 ——
+@emnapi/runtime@1.11.3`；同一份锁在 11.6.2 下 exit 0。所以是**小版本**差异，与 OS 无关 ——
   先前四轮 `--os/--cpu` 复刻方向全错，"这条本地验不出来"也随之作废。
 - **机制**：`@napi-rs/wasm-runtime` 的 `peerDependencies` 要 `@emnapi/core|runtime`，它挂在
   `cpu=wasm32` 可选子树里；锁中只有 `@unrs/resolver-binding-wasm32-wasi/node_modules/@emnapi/*`
@@ -145,6 +147,7 @@
   把 O1 / CF / 域名三行改成实测结论、新增"Pages 项目名""反馈渠道"两行、并删掉因此重复的两行；
   §12 那段"留给用户点头"改成已执行；§13 标题从"欠内网的那次验证"改成"已补上"，O1 证据从
   "没做到的"移到"已做到"。
+
 ## 2026-10-13 站点真的上线了：deploy 首跑三 job 全绿；域名已绑，但本机出口验证不了
 
 - **Pages 项目已创建**：`python-code-map`、`production_branch=main`。[实测] `POST /accounts/<acct>/pages/projects`
@@ -177,6 +180,7 @@
 - **文档**：`docs/ops-deployment.md` 446 → 498 行。§2 那条"从未真跑"的边界换成实测结论；§8 的示例命令删掉
   `/index.html`（[实测] Pages 对它返回 308，脚本取响应时用 `redirect: manual`，跳转体必然被判成与 dist 不一致 ——
   一个假阳性）并把"故障域不同"那条补成今天的实测数字；§10 从"待拍板"改成拍板台账；§13 增 8 条已做到、改 5 条未办。
+
 ## 2026-10-13 push→deploy 端到端跑通：生产 URL 移到 91eaa8c6；Zone Rules 实测 403，www→apex 只能人来
 
 - **push→deploy 第一次真的走通**：run `38364378715`（`event=push`、`main` / `2224d10`），`checks` /
@@ -190,7 +194,7 @@
   而 `Uploading... (7/7)` 里的 7 和 `dist` 实际的 **26** 个文件对不上。这个数字到底在数什么没搞清，
   所以它只能记成"未解释的观察"，不能支撑"CI 构建可复现"这类断言 —— 结论改由上面那条字节比较来支撑。
 - **[实测] `www → apex` 这件事 agent 做不了**：`GET /zones/<zone>/rulesets/phases/{http_request_redirect,
-  http_request_static_redirects,entrypoint}/entrypoint` 和 `GET /zones/<zone>/rulesets` **四条只读接口全部
+http_request_static_redirects,entrypoint}/entrypoint` 和 `GET /zones/<zone>/rulesets` **四条只读接口全部
   403 `10000 Authentication error`**，同一个 token 打 Pages、Zone DNS、Zone 详情都是 200 ⇒ 缺的是
   **Zone / Rules** 权限，不是"规则还没建"。三条路都得人来：控制台建规则 / 给 token 补权限（不换 token 字符串，
   CI secret 不用重贴）/ 删 `www` 记录回到单 origin。
@@ -202,18 +206,19 @@
   实际那段在 §4；② 用"替换区间"插入新 bullet 时，原来跟在镜像那条后面的缩进续行被划到了新 bullet 下面，
   归属漂移，另外还多出 1 个空格。修法是拆成独立 bullet + 按段落边界复读一遍，而不信"脚本没报错"。
 - **纪律**：门禁没红不等于扫描有效。本轮 `leak-scan2.mjs` 与 `npm run verify` 仍需在改完文档后重跑一遍才算数。
+
 ## 2026-10-13 翻公开：唯一不可逆动作落地，匿名克隆复审计 0 findings；确定性改用 4 host × 5 path 字节证
 
 - 路线 B 的最后一道闸门是可见性。B① 用户的「允许」就是授权来源，B② 定的 `microsheen/python-code-map`
   就是公开身份，这一步不需要再造条件：`gh repo edit --visibility public
-  --accept-visibility-change-consequences` 退出码 0，回读 `visibility=PUBLIC`、`isPrivate=false`。
+--accept-visibility-change-consequences` 退出码 0，回读 `visibility=PUBLIC`、`isPrivate=false`。
 - 翻完用两条**翻之前做不到**的独立证据复验：① `git -c credential.helper= clone` 配
   `GIT_TERMINAL_PROMPT=0` 匿名克隆成功，`HEAD=860e92d`、tracked 85、`commits_ALL=1`、`refs` 只剩 `main`；
   ② 匿名取 `raw.githubusercontent.com` 上的 `README.md` = 200 / 19,941 B。中途拿 `robots.txt` 当探针
   得到 404，那是**探针选错**（它只在 `dist` 里，仓库根没有），不是仓库不可读 —— 这种假阴性不记下来，
   下一轮就会有人把它当故障再查一遍。
 - 匿名克隆那份再跑 `audit-public-repo.mjs --history`：`worktreeFiles=85 / historyBlobs=85 /
-  blocking=0 / findings=[]`、退出码 0；对同一份克隆按内网主机名、内网 owner、个人邮箱域、Windows
+blocking=0 / findings=[]`、退出码 0；对同一份克隆按内网主机名、内网 owner、个人邮箱域、Windows
   绝对路径前缀、token 前缀逐条 `git grep`，**全部 0 命中**。翻公开之前那次认证克隆的审计同样是
   findings 0 —— 两条各自证明一件事：前者证明「世界看到的就是这一份」，后者证明「这一份内容干净」。
 - 翻公开带来的新面：`pull_request` 触发对全网 fork 打开。[实测] `actions/permissions` 是
@@ -232,6 +237,7 @@
 - 文档侧：`docs/ops-deployment.md` 524 → **553** 行，§10 加「仓库可见性」一行、§13 改写 12 处；
   `mustDisappear` 14 条要求「当前恰好命中 1 且不被新文本写回」，其中「两次的」差点被自己新写的
   「前两次的」命中，是断言拦下来的，不是人眼看出来的。
+
 ## 2026-10-13 发布路线 B（第四轮镜像上线；确定性升到逐文件；别名停止规则收紧）
 
 - 翻公开之后又走完一整轮：文档 round-2 落盘 → 内网提交 `e87ab5d` → 重做 scrub → 公开仓 `main` 强推到
@@ -259,6 +265,7 @@
 - 翻公开带来的新面进了「没做到的」：`pull_request` 触发对全网 fork 打开，[实测] `allowed_actions=all`、
   `default_workflow_permissions=read`、`can_approve_pull_request_reviews=false`；secrets 对 fork PR 不下发，
   所以真实风险是算力与日志噪音。「Require approval for all outside collaborators」仍是人在页面上勾的活。
+
 ## 2026-10-13 发布路线 B（计数口径查到根因：audit 报的 +N commits 其实是 2C-1）
 
 - 读 `audit-public-repo.mjs` 的 commit 邮箱段（取 `%ae` 与 `%ce`，后缀取 `hits.length - 1`）把上一节那个
@@ -274,6 +281,7 @@
 - 文档 571 → **579** 行（§13 三处：计数根因、O1 截止点、镜像轮数截止点）；`forbidden` 仍为 10 条并对整份
   正文断言 0 命中，`mustDisappear` 要求旧句「公开镜像重做并强推，四轮」不得被新文本回写，所以新句写成
   「到 `58775b7` 为止四轮」。
+
 ## 2026-10-13 发布路线 B（计数句一律带截止点：先改写法，再推第五轮镜像）
 
 - 本轮要解决的矛盾：公开仓停在 `58775b7`，带的是文档 r10 版，里面「别名此刻服务 `d3a75dd9`」「`deploy`
@@ -296,6 +304,7 @@
   单引号 here-string + `-Encoding utf8` 落盘后，仍要在 build 里断言无 `?`、`✨` 仍在，才算编码没被吃掉。
 - 文档 579 → **588** 行；门禁：`doccheck` 无连续空行/无 CR/末尾无换行，`longLines>140` 仍是 12 条且全是
   既有的表格行，没有新增超长行（frag 里最长 111）。
+
 ## 2026-10-13 发布路线 B（www 此刻不服务：线上按 hostname 逐个实测，推翻「双 origin」）
 
 - 本轮推翻的是上一版的一句强声明：§7/§13 曾照 DNS 记录（`@` 与 `www` 两条 CNAME）和 DoH 结果写「两个
@@ -331,6 +340,7 @@
   验过），所以这条路径是安全的。
 - 文档 588 → **645** 行（§7 一处 DNS/522 同码不同因 + 一处把 `www` 的 origin 风险改成条件句、§13 七处）；
   门禁：`doccheck` 无连续空行、无 CR、末尾无换行，`longLines>140` 仍是 12 条且全是既有表格行。
+
 ## 2026-10-14 站点图标轮（v4 定稿：旧骨架、抽象风、简背景）
 
 - 需求转了四圈：① 给 Python Code Map 设计图标并接进站点；② 反馈「太黑了、太复杂，简单抽象一点」；
@@ -454,11 +464,11 @@
   payload**），任何异常一律 `resolve(false)`，绝不把 reject 抛进面板。坑：jest 的 `moduleNameMapper` 会把 persist
   换成 `__mocks__/persist.js`，漏补 `hasSession` 就是 TypeError，已同步补 mock。
 - 门禁（本轮全部实跑，不是引用上一轮）：`npm run verify` → typecheck 0 + lint 0 error / 12 warning（均为既有）
-  + jest **17 suites / 280 tests** 全绿；`npm run audit:egress` → `clean: no egress primitive, no unpublished
-  address`、exit 0；`npm run smoke` → **47/47 PASS**、请求集 9 个全同源全 GET 零请求体零 4xx、E7 零命中、
-  E8 零 CSP 违规、`console errors/warnings = []`、页面异常 0。G4 实测 `diag=3/45/49/26/0/unknown` 与
-  `page=3/45/49/?/bar=false` 自洽（files/funcs/edges 对 chips/graph-node-/graph-edge- 元素数；unresolved 没有
-  页面对端，只断言 ≥ 0）。
+  - jest **17 suites / 280 tests** 全绿；`npm run audit:egress` → `clean: no egress primitive, no unpublished
+address`、exit 0；`npm run smoke` → **47/47 PASS**、请求集 9 个全同源全 GET 零请求体零 4xx、E7 零命中、
+    E8 零 CSP 违规、`console errors/warnings = []`、页面异常 0。G4 实测 `diag=3/45/49/26/0/unknown` 与
+    `page=3/45/49/?/bar=false` 自洽（files/funcs/edges 对 chips/graph-node-/graph-edge- 元素数；unresolved 没有
+    页面对端，只断言 ≥ 0）。
 - 产物基线变化：入口 `entry-dd0b2e36….js` → `entry-841acd7d….js`；`index.html` sha256
   `05acbf08114b0e3cfeaf5d2eecffce1836a24b12c886473a33cf136c31955f0a` →
   `e62cf05bf468e3a63f19c4c90eafded6ea2633d643595a1e67fcb9c688f10056`，字节数仍是 1455B（新增的是**源码**，不是
@@ -482,11 +492,12 @@
   推 `main` → CI 构建/冒烟/部署）。开工前按 AGENTS.md 复验过 `origin/master...HEAD` = 0/0。
 - [实测] 推完内网后 `gh run list` 复核：`ci-and-deploy` 对 `8720972` 的 run 是 `completed / skipped`（上一个
   `a36b598` 同样 skipped）。原因不是坏了，是每个 job 都带 `if: github.repository ==
-  'microsheen/python-code-map'` 的 Route B 归属守卫，而内网那份仓的 owner/name 与它不同（实例名与账号
+'microsheen/python-code-map'` 的 Route B 归属守卫，而内网那份仓的 owner/name 与它不同（实例名与账号
   名按纪律不写在这里，同 ops §13）⇒ 整条 workflow 直接跳过。后果要说清：`8720972` 新加的 blocking
   步骤 `npm run audit:egress` 到 `f2f3267` 为止只有**本地** exit 0 的记录，CI 侧一条执行记录都没有 —— 内网的
   run 永远 `skipped`，所以它的第一次真执行只能发生在推给公开归属的那次 run 上。这条不是遗漏，是这台机器的仓库
   形状决定的；但在那次 run 变绿之前，不要把「CI 在拦这道闸门」当成既成事实。
+
 ## 2026-10-15 第七轮发布（`audit:egress` 第一次在 CI 里真跑；线上逐文件 == CI 产物；apex 本轮被中间设备挡住）
 
 - 用户只说了两个字：「发布」。按 ops §11，这就是一轮独立的公开镜像动作：从内网 `master` clone 到临时目录 → scrub
@@ -522,18 +533,18 @@
 - CI（run `38677677341`，run_number 14，`completed / success`）：`checks` 116234883813 / `browser-smoke`
   116235191036 / `deploy` 116235343761。三件必须说清的事：① **这一步第一次在 CI 里真执行并放行** ——
   `Contact path cannot send anything (egress + address gate)` 打出 `clean: no egress primitive, no unpublished
-  address`；上一轮记的「blocking 步骤只有本地 exit 0、CI 侧一条记录都没有」到此兑现，从 `ff0697e` 起「CI 在拦这道
+address`；上一轮记的「blocking 步骤只有本地 exit 0、CI 侧一条记录都没有」到此兑现，从 `ff0697e` 起「CI 在拦这道
   闸门」才是事实。② 冒烟 **47/47**，G3 把 `build` 钉在 CI 那批字节上（`build=20c7f880` == CI 入口哈希前 8 位），
   G2 开→关面板零新增请求，G5 `<a>` 数 == 门控期望 1、零 `<li>`、零邮件痕迹；E1–E8 请求集 9 个全同源全 GET、
   零请求体、零 4xx、E7 零命中、E8 零 CSP 违规。③ `deploy` 日志里那句 `A request to the Cloudflare API … failed`
-  + `already exists [code: 8000002]` **不是故障**（§12 已记：那是故意先试建项目的分支），随后
-  `✨ Success! Uploaded 3 files (9 already uploaded)`、`✨ Deployment complete!` 给出的不可变 URL 是
-  `https://e8c78aa5.python-code-map.pages.dev` —— 只从 stdout 这一行取，没猜。
+  - `already exists [code: 8000002]` **不是故障**（§12 已记：那是故意先试建项目的分支），随后
+    `✨ Success! Uploaded 3 files (9 already uploaded)`、`✨ Deployment complete!` 给出的不可变 URL 是
+    `https://e8c78aa5.python-code-map.pages.dev` —— 只从 stdout 这一行取，没猜。
 - 线上 == 产物（参照系是 artifact `11947670005`：zip 582,694 B、展开 **31 个文件**、共 2,125,340 B；入口
   `entry-20c7f880…js` = 1,401,433 B、`index.html` = 1,455 B / sha256 `8e05b22f6880e6b3…`）：生产别名与那个不可变
   host 各取 9 条路径（`/`、`robots.txt`、四个图标、两个 wasm、入口 JS）**18/18 逐文件 MATCH**；
   `check-deploy.mjs --mode=browser --dist=<本轮 CI 产物>` 结论 `clean: identical bytes on every host, no
-  third-party URLs in HTML, no local-build diff`，九条 `x-robots-tag` 差异按既有口径显式声明不计入。CI 产物里
+third-party URLs in HTML, no local-build diff`，九条 `x-robots-tag` 差异按既有口径显式声明不计入。CI 产物里
   `index.html` 的 `https?://` 计数为 0，反馈地址只存在于 bundle JS —— 那条 HTML 门禁没被这次发布动摇。
 - 本轮两条**新工具事实**（写进 ops §13）：其一，这台机器上的 Node 现在对所有 host 都报
   `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`，中间设备用一张装在系统证书库、不在 Node 自带 CA store 里的根 CA 重签证书；
@@ -928,9 +939,9 @@
   —— 内容摘要不是标识符，照旧点出而不改写；一个公开仓自身的 run 号（`38709464607`，GitHub 公开资源，与内网 12 位形状不同）。
 - 本机出口实况（10-15 晚起）：github.com 直连 `git ls-remote`/push 间歇性 `Recv failure: Connection was reset`，读 `info/refs`
   的 curl 能 200 —— 抖动而非死路。发布循环按「先探 ls-remote、通了立刻推」写，第 3 次探测挤进去，`+ 14a57c6...9b20a79 (forced
-  update)`；推送照 §13 包在 `Start-Job` + `Wait-Job -Timeout 55` 里。
+update)`；推送照 §13 包在 `Start-Job` + `Wait-Job -Timeout 55` 里。
 - CI run `38750142007` 三个 job 全绿：`checks`（386 单测、lint 0 error / 12 warning 既有基线）、`browser-smoke` **`"passed": 75,
-  "failed": []`** —— 撤回轮的 I8 六条在 CI 里全过；`deploy` 成功，不可变 URL 照旧只从 stdout 取：
+"failed": []`** —— 撤回轮的 I8 六条在 CI 里全过；`deploy` 成功，不可变 URL 照旧只从 stdout 取：
   `https://c37953c6.python-code-map.pages.dev`（`code: 8000002` 那条仍是「故意先试建项目」的既有噪音）。
 - 线上 == 产物（逐文件）：`gh run download` 取本轮 CI 的 `dist`（31 个文件），入口 `entry-e6c02812…` **1,425,027 B**、
   `index.html` **1,562 B** / sha256 前缀 `5d16e56b` —— 本机构建 `entry-24180a4b…` 1,431,374 B 与 CI 差约 6 KB，**第四次复现**，
@@ -978,7 +989,7 @@
   页面一旦被注入第三方脚本，外泄不再被 connect-src 硬挡，防线只剩 `audit:egress` 与冒烟 E/F 组。
 - 上传面板那句 hint：`Code never leaves the browser. Files are cached locally for convenience.` →
   `Files you add stay in this browser and their contents are never sent anywhere; a request goes out only when you
-  explicitly pull a file from a URL.`。旧那句是全称宣称；新那句在今天（拉取还不存在，所以外发为零）与 2/7 落地之后
+explicitly pull a file from a URL.`。旧那句是全称宣称；新那句在今天（拉取还不存在，所以外发为零）与 2/7 落地之后
   同样为真 —— 它约束的是上界，不是描述一个已经存在的按钮。
 - 门禁实测：`npm run verify` exit 0（typecheck 空输出、lint **0 error / 12 warning** 全是既有基线、434 全过）；
   `npm run export` → 入口 `entry-7c71e4fa…` **1,431,448 B**（比上一轮本机基线 +74 B，正是那句 hint 变长的量）、
@@ -1087,7 +1098,7 @@
   browser-verify —— 「改这里任何一行后必须重跑」不区分注释与指令。
 - 遗留：① 生效 CSP 的「声明 == 生效」核对仍欠着（同上一轮遗留①；判据现在只写在 ops §8 一处，不再三份）；
   ② `api.github.com` 本轮全程连不上（`gh api` 连试 4 次都是 `wsarecv: An existing connection was forcibly
-  closed by the remote host`），「F 组重名」这条没法追加到 issue #9 上，只能先记在 `_headers` 注释与 ops §1，
+closed by the remote host`），「F 组重名」这条没法追加到 issue #9 上，只能先记在 `_headers` 注释与 ops §1，
   网络通时补一条 issue 评论；③ review 指出 AC3「无旧宣称残留」原先只被一个字面守住，现已改成形状守卫，
   但「换个说法重新吹一遍全称宣称」仍然只能靠 review 与 ADR —— 这是文本匹配的固有边界，写在测试头注里；
   ④ `%TEMP%\cm-fix3`（本轮 6 个 node 编辑脚本）照旧只能人工清。
@@ -1205,7 +1216,7 @@
   ② issue #3 仍**开着**：AC6 的「生效」半边要等下一次走 main 发布，之后按 `docs/ops-deployment.md` §8
   逐 host 抓生效 CSP 核对「声明 == 生效」（apex 与 `www` 还得换一张网络，本机出口是 403）。
   ③ CI 日志里那条平台警告本轮没处理：`Node.js 20 is deprecated … forced to run on Node.js 24:
-  actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4`，
+actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4`，
   `.github/workflows/ci-and-deploy.yml` 升 v5 是独立的一轮。
   ④ `CODING_STANDARDS.md` 只有 review 阶段读得到，没有任何门保证它不与实现漂移 —— 尤其「还没变成门的 4 条」，
   它们的存在本身就是「这里没人守」的声明；下一轮 review 要先核这两张表。
@@ -1213,6 +1224,7 @@
   本轮真犯了一次（issue-tracker 那段写操作的 bullet），改用单引号 here-string 重写才对。
   ⑥ `%TEMP%\cm-retro`（本轮 node 脚本、两份 CI 日志、两条 issue 评论正文）与上一轮的 `%TEMP%\cm-fix3`
   照旧只能人工清。
+
 ## 2026-10-30 retro 落地轮的 CI 实测 —— run 40918264838 两 job 全绿、deploy skipped；CI 侧 lint 也第一次 0 警告；日志正文这轮全程读得到（观测点第三次出问题，但这次是修好了）
 
 - CI run **`40918264838`**（`push` 触发、branch `master`、被测 commit `18eeac3`、attempt 1、`conclusion=success`）：
@@ -1237,8 +1249,8 @@
   不能拿一个的成败推断另一个；推送要写成重试循环，别一次失败就记「推不上去」。已写进
   `docs/agents/issue-tracker.md`。
 - 还有一条平台警告本轮没处理（原文抄在这里，免得下轮再考古）：`Node.js 20 is deprecated. The following actions
-  target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4,
-  actions/upload-artifact@v4`（`.github/workflows/ci-and-deploy.yml`；同一 workflow 里的 `download-artifact@v4`
+target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4,
+actions/upload-artifact@v4`（`.github/workflows/ci-and-deploy.yml`；同一 workflow 里的 `download-artifact@v4`
   没被点名）。升 v5 是独立的一轮，记在上一条记录的遗留 ③。
 - 本轮学到的规矩：**观测点坏了先换客户端，再换域名**。上一轮把「`gh` 打空」升级成「API 域名不通、日志正文拿不到」，
   于是整整一轮的 CI 读数只记了「不可读」；本轮同一个域名、同一个令牌、换个 HTTP 客户端就全读回来了，
@@ -1328,7 +1340,7 @@ web 侧唯一 fetch 触点 `src/platform/web/pullFetch.ts`（15s AbortController
   CI 与本机同（范围未扩，扩到 `pullFetch.ts` 是 #9）。
 - CI smoke **88/88**、`failed: []`、P 组 **13 项**全在（P0t、P0、PU1、PU2、PU3、PU4、PU4b、PU5、P1、P2、P2b、PR1、PR2），
   E1 `总请求数=17`、E3 `0`、E7 `210 个标记 x 17 个请求，零命中`、egress accounting `pull-phase requests excluded: 3;
-  baseline requests: 17`；本机拿同一份 dist 跑 `npm run smoke` 也是 **88/88**（`EXIT=0`，报告写在
+baseline requests: 17`；本机拿同一份 dist 跑 `npm run smoke` 也是 **88/88**（`EXIT=0`，报告写在
   `%TEMP%\codemap-verify-report.json`），两边逐项一致。
 - 产物：CI `index.html` sha256 **`706455aaf4c62030c59f96babf52b02d6fc1a6fd6f86f3a4750ea7d57dd68477`（1,562 B）**、
   入口 **`entry-89bf478d….js`**、`empty-module-c130aa4a….js`（38 B）、
@@ -1347,7 +1359,7 @@ web 侧唯一 fetch 触点 `src/platform/web/pullFetch.ts`（15s AbortController
   check-runs、取 jobs、拉两份日志、以及给 issue #4 发评论全部一次成功。⇒ 那条抖动是间歇的，
   不能因为这回一把过就把重试循环拆掉。
 - 平台警告照旧没处理（原文抄在这里免得下轮考古）：`Node.js 20 is deprecated. The following actions target Node.js 20
-  but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4`
+but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4`
   （本轮 checks 日志 1 命中）。升 v5 是独立的一轮。
 - 本轮学到的规矩：**「绿着但吵」的测试输出要当门看待。** act(...) 警告不改变结论，却精确指出了断言写在了状态更新
   落地之前；顺着它补 `await act(...)`，才暴露出「确认成功之后粘贴框收起」这个此前没人量的行为。另一条：
@@ -1576,5 +1588,78 @@ issue #6：仓库/目录 URL 提交后弹出勾选清单，用户自选文件批
   —— 原位更新与新增文件都算「一个勾选」，但对 20 个名额的消耗不同；先按种类分层，再谈封顶。
 - 遗留：① **#6 的 CI 实测**（推送后补）；② #7 刷新（`PullBatch.ref` 仍无读取点）；③ #9（P3/P4 +
   `audit:egress` 扩扫）；④ #8 顶栏常驻拉取入口；⑤ #3 README 三语；⑥ `FileTabs.tsx` 死文件待删；
- ⑦ workflow actions 升 v5；⑧ 解析层三句中文 UI 文案（#10 遗留 ⑧）仍在；⑨ **新**：多个批次同时撞
+  ⑦ workflow actions 升 v5；⑧ 解析层三句中文 UI 文案（#10 遗留 ⑧）仍在；⑨ **新**：多个批次同时撞
   上限时红条只能显示第一个越线的批次（单 `error` 字段的既有形态，是否要改成逐条列出待拍板）。
+
+## 2026-11-01 拉取 5/7 落地轮（批次刷新只重放本批仍在的路径 · 来源 URL 可复制 · 快照重开后批次仍可刷新 · 575 单测 · 104 项冒烟）
+
+issue #7：文件标签的悬浮提示里给出「粘贴的那条来源 URL + 拉取时刻」，并允许按批次重放刷新；
+刷新只碰本批、删掉的路径不复活、重开页面只从快照还原且零请求。ADR-0006 基线第 3、4 条
+（静默期零请求、刷新只碰本批）原登记给 #9，本轮因 #7 的 AC 明写要求取证而提前落地。
+
+- **新增一处、改四处。** 新文件 `src/pull/refresh.ts`：纯推导 `batchRefreshPlan(batch)` ——
+  直链批次只认 `pulledPathFor(sourceUrl)` 这一个身份；github 批次按 `owner/repo/` 前缀剥出仓库
+  相对路径、ref 缺失时 blob 按当初身份的拆分（首段=ref）重放；推导不出请求就返回一句理由、
+  一条都不发。`batch.ts` 加 `batchForPath`；`store.ts` 加 `refreshBatch`（先过滤
+  「仍在会话里的路径」，再逐路径 `pullOnce` + `mergeFiles`，来源 URL 不变、只更新 `pulledAt`，
+  批次时刻同步更新，全部失败时 `preserveView`）；`TopBar.tsx` 的悬浮提示加 Copy URL /
+  Refresh from source（150ms 延时隐藏以支撑点击），只有「来源 + 批次都在」的文件才显示这两个动作。
+- **没改的（判据）：** 直链/blob/清单三条拉取路径的分流与请求推导一行不动（冒烟 P/PU/PG/PL 组
+  全绿）；1MB 判据仍只在 `parser/analyze.ts`；会话快照的读写格式不变（`origins`/`batches` 早就是
+  可选字段，旧快照缺字段即视为本地文件）；顶栏常驻入口仍留给 #8。
+- 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning（零输出）；
+  jest **25 suites / 575 tests**（上一轮 556 → +19：`batchForPath` 1、刷新推导 7、store 接缝 7、
+  悬浮提示 4）；smoke **104/104**（上一轮 99 → +5：PR3、P3、P4a、P4、P4b，截图
+  `pull-04b-refreshed` / `pull-06-batch-refresh`）；`audit:egress` scanned 3 file(s)，clean。
+  本机产物：入口 `entry-63f34dc1….js`、`index.html` 1,562 B / sha256
+  `f8704cc0dcb1f0e185975c71d3e9e68731a1a3c3495ceab9b5ea4edfc0722d61`。
+- 冒烟刷新面实测（`pullBatchRefresh` + 桩侧两个观测点）：两批次（`zz_pull_probe.py` /
+  `zz_pull_alt.py`）刷新前者，窗口内 CDP 与桩侧都只有 **1 条 GET**（就是该批自身 URL，请求体 0 B）；
+  被刷新批 `data-pull-at` 由 `08:22:57.667Z` → `08:22:58.337Z`、正文变成 `return zz_pull_helper() + 100`、
+  节点仍在；另一批 `at` 保持 `08:22:57.669Z`、节点仍在、标签仍 2 个。P3 静默期 1200ms 内桩命中
+  2→2、CDP 请求 12→12。PR3：重开页面后点提示里的 Refresh，桩命中恰好 +1 且路径为该批 URL。
+- **E 组记账补了一层兜底（本轮实测踩到）。** 首跑 E5 红在两条新桩路径：P4 的两条拉取请求发生在
+  `pullIds` 快照之后、未并入，于是被 E5 当成「不属于 dist/ 的 200」。除逐窗口 `pullIds` 记账外，
+  基线计算再排除 pathname 落在 `PULL_STUB_PREFIX` 下的请求 —— 落在该前缀下就一定来自拉取动作；
+  补后 104/104。另：首跑还因端口 8099 上残留上一轮的旧静态服务器（桩没有新路径）红了 P1/P2，
+  杀掉旧进程后全绿；冒烟前先确认端口上没有残留服务。
+- CI：**本轮没有 run**（改动尚未推送，按 rule 不写结论）。推送后补记 run id 与逐 job 读数。
+- 本轮学到的规矩：**「不加请求」这类断言的计数窗口要跟着「谁在何时新增了请求」走** ——
+  断言范围（E 组基线）与记账时点（各窗口快照）一旦错位，最严的那条（E5）会替新功能背锅；
+  按来源前缀兜底比逐窗口补记账更不容易漏。
+- 遗留：① **#7 的 CI 实测**（推送后补）；② **#6 的 CI 实测**仍在（上一轮遗留）；③ #9（P3/P4 已在
+  本轮落地，剩 `audit:egress` 扩扫）；④ #8 顶栏常驻拉取入口；⑤ #3 README 三语；⑥ `FileTabs.tsx`
+  死文件待删；⑦ workflow actions 升 v5；⑧ 解析层三句中文 UI 文案（#10 遗留 ⑧）仍在；⑨ 多个批次
+  同时撞上限时红条只显示第一个越线的批次（上轮遗留，待拍板）；⑩ **新**：github 勾选批次刷新只重放
+  已勾选路径（不再出清单）—— 想「再加几个文件」只能重新粘贴目录 URL，是否要给批次提示补一条
+  入口待拍板。
+
+## 2026-11-01 #7 review 收口轮（刷新失败不清正文 · 来源动作分开门控 · 失败占位只记权威 ref · 578 单测 · 104 项冒烟）
+
+落地轮之后按 skill 又跑了一次两轴 review（fixed point `e99bcee`，工作区 diff 含未提交的 `refresh.ts`）：
+
+- **Spec 轴两条实质缺陷。** ① `refreshBatch` 原来把失败也写成空占位并入 `mergeFiles` —— 一次断网
+  就会把会话里已有正文清成红点、还会推进 `pulledAt`。改为：失败只 push 理由、`continue`；内容、
+  来源时刻、批次时刻都停在上一次成功的样子。② 顶栏动作门控原来要求「来源 + 批次都在」，旧快照
+  有 `origins` 无 `batches` 时连 Copy URL 都没了。改为 Copy 只需 `origin`，Refresh 才要
+  `origin && batch`。
+- **Standards / 门禁两条。** ① PR3 的 `!refreshedTab.marker === false` 恒真（恒等于 `false`），
+  改 `=== 'pulled'`。② E 组为过 E5 加的「桩前缀兜底」等于放宽既有门禁：改回精确记账 ——
+  P4 前快照 `idsBeforeTwoBatchPull`，窗口结束后把非 dist 请求并入 `pullIds`。
+- **新增回归 3 条 + 一处小改。** store 2 条（刷新失败保留原内容原时刻；斜杠 ref 失败占位按
+  `feature/x` 重放）+ UI 1 条（有来源无批次只见 Copy）。为让后者成立，`githubFetch` 的
+  `GithubFileResult` 带 `refResolved`（sha / matching-refs 解析出为 true，首段兜底为 false），
+  批次只记权威 ref —— 既保住 #5 的「私有仓库批次 `ref` 为 null」断言，又让 #7 的斜杠占位
+  刷新时不退回首段猜测。
+- **判定不动作**：`outcome → pulledEntry` 三处近似（抽取要连 listing 路径一起改，判断类）；
+  `web`/`View` 双分支内容重复（既有模式）；测试锁 `Refreshing…` / `Refresh from source`
+  （可见行为，有先例）；`refreshed()` 辅助函数重复；AC3 的跨文件边断言（单文件无跨文件调用，
+  节点在图中即满足）；`hoveredChip` Data Clumps。
+- 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 零输出；
+  jest **25 suites / 578 tests**（落地轮 575 → +3）；smoke **104/104**；`audit:egress` clean。
+  本机产物换成：入口 `entry-581c64e7….js`、`index.html` 1,562 B / sha256
+  `96ec8b54538872efebe79b25bd8f500bced2eb3fdcdeb834916bd924f4c15308`。
+- 本轮学到的规矩：**「失败路径只报告、不提交」要当默认纪律** —— 把失败写成空占位再合并，
+  刷新在断网时反而会清掉用户已有内容；另一条：**为了过门禁而放宽门禁（前缀兜底）会被 review
+  正确打回，精确记账更贵但保留了断言的价值。**
+- 遗留：与上一轮同（①–⑩），无新增；① **#7 的 CI 实测**仍待推送后补。

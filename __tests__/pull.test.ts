@@ -21,7 +21,9 @@ import {
   oversizeMessageOf,
 } from '../src/parser/analyze';
 import { classifyFailure, isRateLimited } from '../src/pull/errors';
-import { upsertBatch } from '../src/pull/batch';
+import { batchForPath, upsertBatch } from '../src/pull/batch';
+import { batchRefreshPlan } from '../src/pull/refresh';
+import type { PullBatch } from '../src/pull/batch';
 import {
   GITHUB_TRUNCATED_MESSAGE,
   githubDirExists,
@@ -306,6 +308,102 @@ describe('批次：一个路径同一时刻只属于一个批次', () => {
     const repo = second.find((b) => b.sourceUrl === 'https://h/repo');
     expect(repo?.paths).toEqual(['h/b.py']);
   });
+
+  it('按路径找批次：命中的那个就是刷新该文件的批次，本地文件没有批次', () => {
+    const one = batch('https://h/a.py', ['h/a.py'], 1);
+    const two = batch('https://github.com/o/r/tree/main/pkg', ['o/r/pkg/b.py'], 2);
+    expect(batchForPath([one, two], 'h/a.py')?.sourceUrl).toBe(one.sourceUrl);
+    expect(batchForPath([one, two], 'o/r/pkg/b.py')?.sourceUrl).toBe(two.sourceUrl);
+    expect(batchForPath([one, two], 'local.py')).toBeNull();
+  });
+});
+
+describe('批次刷新：请求只从批次元数据确定性推导（#7）', () => {
+  const refreshed = (sourceUrl: string, ref: string | null, paths: string[]): PullBatch => ({
+    sourceUrl,
+    ref,
+    paths,
+    pulledAt: 1,
+  });
+
+  it('直链批次：重放的就是用户当初给的那条 URL，超时仍是 15s', () => {
+    const plan = batchRefreshPlan(
+      refreshed('https://example.com/pkg/a.py', null, ['example.com/pkg/a.py'])
+    );
+    expect(plan).toEqual({
+      ok: true,
+      requests: [
+        {
+          path: 'example.com/pkg/a.py',
+          url: 'https://example.com/pkg/a.py',
+          timeoutMs: PULL_TIMEOUT_MS,
+        },
+      ],
+    });
+  });
+
+  it('直链批次里不该有第二条路径：不是这条 URL 算出来的身份就不发请求', () => {
+    // 真实路径只可能是 pulledPathFor(sourceUrl)；别的路径说明元数据已经坏了，
+    // 凭它发请求等于替一个不认识的文件拉正文。
+    const plan = batchRefreshPlan(refreshed('https://example.com/pkg/a.py', null, ['local.py']));
+    expect(plan).toEqual({ ok: true, requests: [] });
+  });
+
+  it('github 目录批次：逐路径按 owner/repo/ 前缀剥出仓库相对路径，ref 含斜杠也原样保留', () => {
+    const sourceUrl = 'https://github.com/o/r/tree/feature/x/pkg';
+    const plan = batchRefreshPlan(
+      refreshed(sourceUrl, 'feature/x', ['o/r/pkg/a.py', 'o/r/pkg/b.pyi'])
+    );
+    expect(plan).toEqual({
+      ok: true,
+      requests: [
+        {
+          path: 'o/r/pkg/a.py',
+          url: githubRawUrl('o', 'r', 'feature/x', 'pkg/a.py'),
+          timeoutMs: PULL_TIMEOUT_MS,
+        },
+        {
+          path: 'o/r/pkg/b.pyi',
+          url: githubRawUrl('o', 'r', 'feature/x', 'pkg/b.pyi'),
+          timeoutMs: PULL_TIMEOUT_MS,
+        },
+      ],
+    });
+  });
+
+  it('github blob 批次：一条路径一次 raw；ref 没解析出来时按当初身份的拆分（首段=ref）重放', () => {
+    const blob = 'https://github.com/o/r/blob/main/src/x.py';
+    const withRef = batchRefreshPlan(refreshed(blob, 'main', ['o/r/src/x.py']));
+    expect(withRef.ok && withRef.requests.map((r) => r.url)).toEqual([
+      githubRawUrl('o', 'r', 'main', 'src/x.py'),
+    ]);
+
+    // 失败占位批次可能没记住 ref（matching-refs 也失败了）——那条批次当初的身份
+    // 就是「首段当 ref」，刷新沿用同一个拆分，不另发明一种可能。
+    const noRef = batchRefreshPlan(refreshed(blob, null, ['o/r/src/x.py']));
+    expect(noRef.ok && noRef.requests.map((r) => r.url)).toEqual([
+      githubRawUrl('o', 'r', 'main', 'src/x.py'),
+    ]);
+  });
+
+  it('仓库/目录批次里没有一条路径能映射回 owner/repo 前缀：报一句，不发请求', () => {
+    const plan = batchRefreshPlan(
+      refreshed('https://github.com/o/r/tree/main/pkg', 'main', ['local.py'])
+    );
+    expect(plan.ok).toBe(false);
+    expect(plan.ok ? '' : plan.message).toMatch(/cannot be refreshed/i);
+  });
+
+  it('源 URL 已经不是可拉取形态：带原分流文案的空计划，不擅自发请求', () => {
+    const plan = batchRefreshPlan(refreshed('not a url', null, ['not.py']));
+    expect(plan.ok).toBe(false);
+    expect(plan.ok ? '' : plan.message).toMatch(/Not a URL/);
+  });
+
+  it('推导是确定性的：同一个批次反复推导得到同一组请求', () => {
+    const batch = refreshed('https://github.com/o/r/tree/main/pkg', 'main', ['o/r/pkg/a.py']);
+    expect(batchRefreshPlan(batch)).toEqual(batchRefreshPlan({ ...batch, pulledAt: 99 }));
+  });
 });
 
 describe('限速识别：403 + 限速头才算限速', () => {
@@ -434,9 +532,9 @@ describe('github 页面 URL：识别与推导（#5）', () => {
     expect(githubOf(classifyUrl('https://github.com/o/r/blob/main/pkg/stub.pyi')).kind).toBe(
       'blob'
     );
-    expect(
-      invalidOf(classifyUrl('https://github.com/o/r/blob/main/pkg/README.md')).reason
-    ).toBe('not-python');
+    expect(invalidOf(classifyUrl('https://github.com/o/r/blob/main/pkg/README.md')).reason).toBe(
+      'not-python'
+    );
   });
 
   it('github.com 上不是仓库/目录/文件页面的 URL 有单独一类文案', () => {
@@ -447,18 +545,14 @@ describe('github 页面 URL：识别与推导（#5）', () => {
   });
 
   it('非 github 主机仍然走直链（raw.githubusercontent.com 也一样）', () => {
-    expect(
-      classifyUrl('https://raw.githubusercontent.com/o/r/main/pkg/mod.py')
-    ).toEqual({
+    expect(classifyUrl('https://raw.githubusercontent.com/o/r/main/pkg/mod.py')).toEqual({
       kind: 'direct',
       url: 'https://raw.githubusercontent.com/o/r/main/pkg/mod.py',
     });
   });
 
   it('请求 URL 全部由用户 URL 确定性推出，且都是 GET 的地址（无 query 之外的参数）', () => {
-    expect(githubRepoMetaUrl('psf', 'requests')).toBe(
-      'https://api.github.com/repos/psf/requests'
-    );
+    expect(githubRepoMetaUrl('psf', 'requests')).toBe('https://api.github.com/repos/psf/requests');
     expect(githubTreeUrl('psf', 'requests', 'main')).toBe(
       'https://api.github.com/repos/psf/requests/git/trees/main?recursive=1'
     );

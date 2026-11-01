@@ -541,11 +541,13 @@ describeWasm('github 页面 URL 拉取（store 接缝 · 真 wasm · mock 传输
 
     // ref 查询只发一次（同仓库缓存），两条 raw 各一次
     expect(transport.calls.map((c) => c.url)).toEqual([refs, aRaw, bRaw]);
-    expect(s().files.map((f) => f.path).sort()).toEqual(['o/r/a.py', 'o/r/b.py']);
     expect(
-      s().graph?.edges.some(
-        (e) => e.source === 'o/r/a.py::zz_a' && e.target === 'o/r/b.py::zz_b'
-      )
+      s()
+        .files.map((f) => f.path)
+        .sort()
+    ).toEqual(['o/r/a.py', 'o/r/b.py']);
+    expect(
+      s().graph?.edges.some((e) => e.source === 'o/r/a.py::zz_a' && e.target === 'o/r/b.py::zz_b')
     ).toBe(true);
   });
 
@@ -569,7 +571,9 @@ describeWasm('github 页面 URL 拉取（store 接缝 · 真 wasm · mock 传输
 
     await s().pullFromText(one + '\n' + two, { parser, transport });
 
-    expect(s().files.map((f) => [f.path, f.content.includes('zz_one'), f.content.includes('zz_two')])).toEqual([
+    expect(
+      s().files.map((f) => [f.path, f.content.includes('zz_one'), f.content.includes('zz_two')])
+    ).toEqual([
       ['o1/r/pkg/mod.py', true, false],
       ['o2/r/pkg/mod.py', false, true],
     ]);
@@ -791,6 +795,262 @@ describeWasm('github 页面 URL 拉取（store 接缝 · 真 wasm · mock 传输
     await s().pullFromText(page, { parser, transport });
 
     expect(s().files[0]?.error).toMatch(/may have moved/i);
+  });
+});
+
+describeWasm('批次刷新（issue #7 · store 接缝 · 真 wasm · mock 传输）', () => {
+  let parser: PythonParser;
+
+  beforeAll(async () => {
+    parser = await getTestParser();
+  });
+
+  beforeEach(() => {
+    mockPersist.saved = [];
+    mockPersist.session = null;
+    useAppStore.setState({ ...INITIAL, parser: null }, true);
+  });
+
+  it('直链批次：只发原来那一条 URL，内容、来源时刻与批次时刻一起更新', async () => {
+    const url = 'https://example.com/pkg/zz_probe_live.py';
+    const path = 'example.com/pkg/zz_probe_live.py';
+    const now = jest.spyOn(Date, 'now');
+    now.mockReturnValue(1000);
+    await s().pullFromText(url, {
+      parser,
+      transport: fakeTransport({ [url]: { ok: true, text: pySource('zz_probe_live', '1') } }),
+    });
+    expect(s().origins[path]).toEqual({ url, pulledAt: 1000 });
+
+    now.mockReturnValue(2000);
+    const transport = fakeTransport({
+      [url]: { ok: true, text: pySource('zz_probe_live', '2') },
+    });
+    await s().refreshBatch(url, { parser, transport });
+    now.mockRestore();
+
+    // 重放的是批次元数据里的原来源：一条 GET、没有别的东西
+    expect(transport.calls).toEqual([{ url, timeoutMs: 15000 }]);
+    expect(s().files).toHaveLength(1);
+    expect(s().files[0]?.content).toContain('return 2');
+    expect(s().files[0]?.error).toBeUndefined();
+    // 刷新之后仍与其余会话文件一起参与调用图
+    expect(s().graph?.nodes.map((n) => n.id)).toContain(path + '::zz_probe_live');
+    expect(s().origins[path]).toEqual({ url, pulledAt: 2000 });
+    expect(s().batches[0]?.pulledAt).toBe(2000);
+    expect(s().pulling).toBe(false);
+  });
+
+  it('同一批次里删掉的文件不被刷新复活：只重放还在会话里的路径', async () => {
+    const page = 'https://github.com/o/r/tree/main/pkg';
+    const treeUrl = githubTreeUrl('o', 'r', 'main');
+    const aRaw = githubRawUrl('o', 'r', 'main', 'pkg/a.py');
+    const bRaw = githubRawUrl('o', 'r', 'main', 'pkg/b.py');
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: JSON.stringify({
+          truncated: false,
+          tree: [
+            { path: 'pkg', type: 'tree' },
+            { path: 'pkg/a.py', type: 'blob', size: 10 },
+            { path: 'pkg/b.py', type: 'blob', size: 20 },
+          ],
+        }),
+      },
+      [aRaw]: { ok: true, text: pySource('zz_a') },
+      [bRaw]: { ok: true, text: pySource('zz_b') },
+    });
+    await s().pullFromText(page, { parser, transport });
+    await s().confirmPullListing(['pkg/a.py', 'pkg/b.py'], { parser, transport });
+    await s().removeFile('o/r/pkg/b.py');
+    expect(s().batches[0]?.paths).toEqual(['o/r/pkg/a.py']);
+
+    const refresh = fakeTransport({ [aRaw]: { ok: true, text: pySource('zz_a', '2') } });
+    await s().refreshBatch(page, { parser, transport: refresh });
+
+    // b.py 不在会话里，刷新也不会替它发请求、不会把它拉回来
+    expect(refresh.calls.map((c) => c.url)).toEqual([aRaw]);
+    expect(s().files.map((f) => f.path)).toEqual(['o/r/pkg/a.py']);
+    expect(s().batches[0]?.paths).toEqual(['o/r/pkg/a.py']);
+    expect(s().origins['o/r/pkg/b.py']).toBeUndefined();
+  });
+
+  it('刷新一批不碰另一批：另一批的来源时刻与内容原样', async () => {
+    const u1 = 'https://one.example.com/a/zz_probe_one.py';
+    const u2 = 'https://two.example.com/b/zz_probe_two.py';
+    const now = jest.spyOn(Date, 'now');
+    now.mockReturnValue(1000);
+    await s().pullFromText([u1, u2].join('\n'), {
+      parser,
+      transport: fakeTransport({
+        [u1]: { ok: true, text: pySource('zz_probe_one', '1') },
+        [u2]: { ok: true, text: pySource('zz_probe_two', '1') },
+      }),
+    });
+
+    now.mockReturnValue(2000);
+    const transport = fakeTransport({ [u1]: { ok: true, text: pySource('zz_probe_one', '2') } });
+    await s().refreshBatch(u1, { parser, transport });
+    now.mockRestore();
+
+    expect(transport.calls.map((c) => c.url)).toEqual([u1]);
+    expect(s().origins['one.example.com/a/zz_probe_one.py']?.pulledAt).toBe(2000);
+    expect(s().origins['two.example.com/b/zz_probe_two.py']?.pulledAt).toBe(1000);
+    expect(
+      s().files.find((f) => f.path === 'two.example.com/b/zz_probe_two.py')?.content
+    ).toContain('return 1');
+    expect(s().batches.map((b) => [b.sourceUrl, b.pulledAt])).toEqual([
+      [u1, 2000],
+      [u2, 1000],
+    ]);
+  });
+
+  it('github 勾选批次：刷新只发逐文件 raw（不重发清单），来源 URL 仍是那条页面地址', async () => {
+    const page = 'https://github.com/o/r/tree/main/pkg';
+    const treeUrl = githubTreeUrl('o', 'r', 'main');
+    const aRaw = githubRawUrl('o', 'r', 'main', 'pkg/a.py');
+    const bRaw = githubRawUrl('o', 'r', 'main', 'pkg/b.py');
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: JSON.stringify({
+          truncated: false,
+          tree: [
+            { path: 'pkg', type: 'tree' },
+            { path: 'pkg/a.py', type: 'blob', size: 10 },
+            { path: 'pkg/b.py', type: 'blob', size: 20 },
+          ],
+        }),
+      },
+      [aRaw]: { ok: true, text: pySource('zz_a', '1') },
+      [bRaw]: { ok: true, text: pySource('zz_b', '1') },
+    });
+    await s().pullFromText(page, { parser, transport });
+    await s().confirmPullListing(['pkg/a.py', 'pkg/b.py'], { parser, transport });
+
+    const refresh = fakeTransport({
+      [aRaw]: { ok: true, text: pySource('zz_a', '2') },
+      [bRaw]: { ok: true, text: pySource('zz_b', '2') },
+    });
+    await s().refreshBatch(page, { parser, transport: refresh });
+
+    // 只有 raw：不重发 trees、不重发 matching-refs（刷新是重放，不是重新发现）
+    expect(refresh.calls.map((c) => c.url)).toEqual([aRaw, bRaw]);
+    expect(s().origins['o/r/pkg/a.py']?.url).toBe(page);
+    expect(s().files.find((f) => f.path === 'o/r/pkg/a.py')?.content).toContain('return 2');
+    expect(s().files.find((f) => f.path === 'o/r/pkg/b.py')?.content).toContain('return 2');
+  });
+
+  it('失败占位的批次：刷新成功之后错误消失、内容进图（失败位置也被重试）', async () => {
+    const url = 'https://example.com/pkg/zz_probe_retry.py';
+    const path = 'example.com/pkg/zz_probe_retry.py';
+    await s().pullFromText(url, { parser, transport: fakeTransport({}) });
+    expect(s().files[0]?.error).toMatch(/404|moved/i);
+
+    const refresh = fakeTransport({ [url]: { ok: true, text: pySource('zz_probe_retry') } });
+    await s().refreshBatch(url, { parser, transport: refresh });
+
+    expect(refresh.calls.map((c) => c.url)).toEqual([url]);
+    const f = s().files.find((x) => x.path === path);
+    expect(f?.error).toBeUndefined();
+    expect(f?.content).toContain('def zz_probe_retry');
+    expect(s().graph?.nodes.map((n) => n.id)).toContain(path + '::zz_probe_retry');
+  });
+
+  it('重开页面还原快照之后批次仍然可刷新（还原零请求，刷新才发）', async () => {
+    const url = 'https://example.com/pkg/zz_probe_reopen.py';
+    const getSpy = jest.spyOn(webPullTransport, 'get');
+    await s().pullFromText(url, {
+      parser,
+      transport: fakeTransport({
+        [url]: { ok: true, text: pySource('zz_probe_reopen', '1') },
+      }),
+    });
+    expect(mockPersist.session?.batches?.[0]?.sourceUrl).toBe(url);
+
+    // 「重开页面」= 空的 store（解析器仍按真页面那样注入）
+    useAppStore.setState({ ...INITIAL, parser }, true);
+    await s().restoreSession();
+    expect(getSpy).not.toHaveBeenCalled();
+    expect(s().batches.map((b) => b.sourceUrl)).toEqual([url]);
+
+    const refresh = fakeTransport({
+      [url]: { ok: true, text: pySource('zz_probe_reopen', '2') },
+    });
+    await s().refreshBatch(url, { parser, transport: refresh });
+    getSpy.mockRestore();
+
+    expect(refresh.calls.map((c) => c.url)).toEqual([url]);
+    expect(s().files[0]?.content).toContain('return 2');
+  });
+
+  it('没有这个批次 / 正在拉取：不发请求，也不改元数据', async () => {
+    const transport = fakeTransport({});
+    await s().refreshBatch('https://nope.example.com/zz_nope.py', { parser, transport });
+    expect(transport.calls).toEqual([]);
+
+    const url = 'https://example.com/pkg/zz_probe_alpha.py';
+    await s().pullFromText(url, {
+      parser,
+      transport: fakeTransport({ [url]: { ok: true, text: pySource('zz_probe_alpha') } }),
+    });
+    useAppStore.setState({ pulling: true });
+    await s().refreshBatch(url, { parser, transport });
+    expect(transport.calls).toEqual([]);
+  });
+
+  it('刷新失败：原内容与原时刻都留在会话里，只把失败理由交给用户', async () => {
+    const url = 'https://example.com/pkg/zz_probe_flaky.py';
+    const path = 'example.com/pkg/zz_probe_flaky.py';
+    const now = jest.spyOn(Date, 'now');
+    now.mockReturnValue(1000);
+    await s().pullFromText(url, {
+      parser,
+      transport: fakeTransport({ [url]: { ok: true, text: pySource('zz_probe_flaky', '1') } }),
+    });
+
+    now.mockReturnValue(2000);
+    // 这一轮一条线路都连不上：刷新不该把已经拿到的正文清成占位
+    const transport = fakeTransport({});
+    await s().refreshBatch(url, { parser, transport });
+    now.mockRestore();
+
+    expect(transport.calls).toEqual([{ url, timeoutMs: 15000 }]);
+    const f = s().files.find((x) => x.path === path);
+    expect(f?.error).toBeUndefined();
+    expect(f?.content).toContain('return 1');
+    // 时刻也停在上一次成功：不是「刷过但失败了」的新时刻
+    expect(s().origins[path]).toEqual({ url, pulledAt: 1000 });
+    expect(s().batches[0]?.pulledAt).toBe(1000);
+    expect(s().pullIssues).toHaveLength(1);
+    expect(s().pullIssues[0]).toMatch(/404|moved/i);
+    expect(s().pulling).toBe(false);
+  });
+
+  it('斜杠分支的失败占位：刷新按已解析的 ref 重放，不退回首段猜测', async () => {
+    const page = 'https://github.com/o/r/blob/feature/x/src/a.py';
+    const refs = githubMatchingRefsUrl('o', 'r', 'feature');
+    const raw = githubRawUrl('o', 'r', 'feature/x', 'src/a.py');
+    const meta = githubRepoMetaUrl('o', 'r');
+    const transport = fakeTransport({
+      [refs]: { ok: true, text: JSON.stringify([{ ref: 'refs/heads/feature/x' }]) },
+      [raw]: { ok: false, observation: { type: 'status', status: 404, rateLimited: false } },
+      [meta]: { ok: true, text: JSON.stringify({ default_branch: 'main' }) },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+    expect(s().files[0]?.error).toMatch(/may have moved/i);
+    // 占位也要保住拆出来的完整 ref，否则刷新会按 'feature' 去猜一条错的 raw 地址
+    expect(s().batches[0]?.ref).toBe('feature/x');
+
+    const refresh = fakeTransport({ [raw]: { ok: true, text: pySource('zz_a') } });
+    await s().refreshBatch(page, { parser, transport: refresh });
+
+    expect(refresh.calls.map((c) => c.url)).toEqual([raw]);
+    const f = s().files.find((x) => x.path === 'o/r/src/a.py');
+    expect(f?.error).toBeUndefined();
+    expect(f?.content).toContain('def zz_a');
   });
 });
 

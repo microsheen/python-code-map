@@ -10,10 +10,11 @@
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ScrollView as RNScrollView, ViewStyle } from 'react-native';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { ALL_SCOPE, DEFAULT_DEPTH, fileScope, neighborhoodScope } from '../graph/scope';
 import { pickFiles } from '../platform/web/filePick';
 import { useAppStore } from '../state/store';
+import { batchForPath } from '../pull/batch';
 import { FeedbackDialog } from './FeedbackDialog';
 import { colors, fileColor, fonts, spacing, THEMES, THEME_ORDER } from '../theme';
 import { useThemeStore } from '../state/themeStore';
@@ -43,6 +44,19 @@ const Z_INDEX_AUTO = 'auto' as unknown as number;
 
 /** RN 的类型不认 position:'fixed'，但 RNW 在 web 上就是 CSS；按 SCROLL_X / Z_INDEX_AUTO 的先例 cast。 */
 const POSITION_FIXED = 'fixed' as unknown as 'absolute';
+
+/**
+ * web 提示容器的 CSS。这里是原生 div 而不是 RN 的 View，所以不能借 RN 的样式简写
+ * （paddingHorizontal 之类 DOM 不认，React 会报警告）。top/left 由悬浮时量到的锚点覆盖。
+ */
+const CHIP_TOOLTIP_WEB: CSSProperties = {
+  position: 'fixed',
+  padding: '4px 8px',
+  background: colors.tooltipBg,
+  borderRadius: 4,
+  zIndex: 1000,
+  maxWidth: 400,
+};
 
 /** 拉取时刻的展示形态：ISO 串。标签的 data-pull-at 与悬浮提示共用一个格式化。 */
 function pulledAtIso(pulledAt: number): string {
@@ -97,6 +111,9 @@ export function TopBar(): ReactNode {
   // 拉取文件的来源（CONTEXT.md：来源 = 它被拉取的 URL 与拉取时刻）。本地文件不在这个表里，
   // 所以「有没有来源」就是 chip 上那个标识的唯一判据。
   const origins = useAppStore((s) => s.origins);
+  const batches = useAppStore((s) => s.batches);
+  const refreshBatch = useAppStore((s) => s.refreshBatch);
+  const pulling = useAppStore((s) => s.pulling);
   const progress = useAppStore((s) => s.progress);
   const activeFile = useAppStore((s) => s.activeFile);
   const selection = useAppStore((s) => s.selection);
@@ -123,6 +140,38 @@ export function TopBar(): ReactNode {
   const chipsRef = useRef<RNScrollView>(null);
   const scrollOffsetRef = useRef(0);
   const SCROLL_STEP = 200;
+
+  /**
+   * 提示要能点（Copy URL / Refresh from source），所以离开 chip 不能立刻收起来：
+   * 鼠标从 chip 走到提示上要穿过 4px 的缝，这段路程里的 mouseleave 不能算「离开」。
+   * 150ms 的延迟是给这次移动留的一口气；进入提示本身会取消这个定时器。
+   */
+  const hideChipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelHideChip = (): void => {
+    if (hideChipTimer.current !== null) {
+      clearTimeout(hideChipTimer.current);
+      hideChipTimer.current = null;
+    }
+  };
+  const showChip = (path: string, x: number, y: number): void => {
+    cancelHideChip();
+    setHoveredChip({ path, x, y });
+  };
+  const scheduleHideChip = (): void => {
+    cancelHideChip();
+    hideChipTimer.current = setTimeout(() => {
+      hideChipTimer.current = null;
+      setHoveredChip(null);
+    }, 150);
+  };
+  useEffect(() => cancelHideChip, []);
+
+  const copyOriginUrl = (url: string): void => {
+    // 剪贴板在非安全上下文里可能不存在：这时保持沉默是对的 —— URL 仍然看得见、选得中
+    const clipboard = typeof navigator === 'undefined' ? null : navigator.clipboard;
+    if (!clipboard) return;
+    void clipboard.writeText(url).catch(() => undefined);
+  };
   useEffect(() => {
     if (!ctxMenu) return;
     const h = () => setCtxMenu(null);
@@ -346,9 +395,9 @@ export function TopBar(): ReactNode {
                   }}
                   onMouseEnter={(e) => {
                     const r = e.currentTarget.getBoundingClientRect();
-                    setHoveredChip({ path: f.path, x: r.left, y: r.bottom });
+                    showChip(f.path, r.left, r.bottom);
                   }}
-                  onMouseLeave={() => setHoveredChip(null)}
+                  onMouseLeave={scheduleHideChip}
                   // data-* 只能挂在这层原生 div 上：RN-web 的 Pressable 不转发 data-*（实测过）。
                   data-pull-url={origin ? origin.url : undefined}
                   data-pull-at={pulledAt ?? undefined}
@@ -502,27 +551,76 @@ export function TopBar(): ReactNode {
         实测截图里提示被正文面板整个盖住，只露出顶栏下沿的一条边。挂到根上之后它和
         反馈遮罩一样参与全页的层叠比较（根是 z-index:auto，见文件头 Z_INDEX_AUTO 那段）。
       */}
-      {hoveredChip ? (
-        <View
-          style={[styles.chipTooltip, { top: hoveredChip.y + 4, left: hoveredChip.x }]}
-          testID={'chip-tooltip-' + hoveredChip.path}
-        >
-          <Text style={styles.chipTooltipText}>
-            {files.find((f) => f.path === hoveredChip.path)?.path}
-          </Text>
-          {(() => {
-            // 来源写在提示里而不是另开一个原生 title：一个 chip 只该有一个提示，
-            // 而这个已经在了（它本来就是为了读完整路径）。
-            const o = origins[hoveredChip.path];
-            if (!o) return null;
-            return (
-              <Text style={styles.chipTooltipText}>
-                {'Pulled from ' + o.url + ' at ' + pulledAtIso(o.pulledAt)}
-              </Text>
+      {hoveredChip
+        ? (() => {
+            const { path, x, y } = hoveredChip;
+            const origin = origins[path];
+            // 刷新是批次级的：这一批里点哪一个文件的 Refresh，重放的都是整批还在会话里的路径
+            const batch = origin ? batchForPath(batches, path) : null;
+            const actionsDisabled = busy || pulling;
+            const content = (
+              <>
+                <Text style={styles.chipTooltipText}>
+                  {files.find((f) => f.path === path)?.path}
+                </Text>
+                {origin ? (
+                  // 来源写在提示里而不是另开一个原生 title：一个 chip 只该有一个提示，
+                  // 而这个已经在了（它本来就是为了读完整路径）。
+                  <Text style={styles.chipTooltipText}>
+                    {'Pulled from ' + origin.url + ' at ' + pulledAtIso(origin.pulledAt)}
+                  </Text>
+                ) : null}
+                {origin ? (
+                  <View style={styles.chipTooltipActions}>
+                    <Pressable
+                      testID={'pull-copy-' + path}
+                      onPress={() => copyOriginUrl(origin.url)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Copy URL"
+                      style={styles.chipTooltipAction}
+                    >
+                      <Text style={styles.chipTooltipActionText}>Copy URL</Text>
+                    </Pressable>
+                    {/* 刷新是批次级动作：旧快照可能只带来来源、没带来批次，这种文件仍可复制 URL */}
+                    {batch ? (
+                      <Pressable
+                        testID={'pull-refresh-' + path}
+                        onPress={() => void refreshBatch(batch.sourceUrl)}
+                        disabled={actionsDisabled}
+                        accessibilityRole="button"
+                        accessibilityLabel="Refresh from source"
+                        style={[styles.chipTooltipAction, actionsDisabled && styles.btnDisabled]}
+                      >
+                        <Text style={styles.chipTooltipActionText}>
+                          {pulling ? 'Refreshing…' : 'Refresh from source'}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+              </>
             );
-          })()}
-        </View>
-      ) : null}
+            // web 上用原生 div：提示要接住鼠标（否则里面的按钮永远点不到）。顺带绕开 RN 样式里
+            // 那些 DOM 不认识的简写（paddingHorizontal 之类）。非 web 没有悬浮，走原样。
+            return Platform.OS === 'web' ? (
+              <div
+                data-testid={'chip-tooltip-' + path}
+                onMouseEnter={cancelHideChip}
+                onMouseLeave={scheduleHideChip}
+                style={{ ...CHIP_TOOLTIP_WEB, top: y + 4, left: x }}
+              >
+                {content}
+              </div>
+            ) : (
+              <View
+                testID={'chip-tooltip-' + path}
+                style={[styles.chipTooltip, { top: y + 4, left: x }]}
+              >
+                {content}
+              </View>
+            );
+          })()
+        : null}
 
       {warnings.length > 0 ? (
         <View style={styles.warnBar} testID="topbar-warnings">
@@ -793,6 +891,15 @@ const styles = StyleSheet.create({
     color: colors.tooltipText,
     fontSize: 12,
   },
+  chipTooltipActions: { flexDirection: 'row', gap: spacing.sm, marginTop: 6 },
+  chipTooltipAction: {
+    borderWidth: 1,
+    borderColor: colors.tooltipText,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  chipTooltipActionText: { color: colors.tooltipText, fontFamily: fonts.ui, fontSize: 11 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -209,6 +209,19 @@ describe('拉取粘贴对话框（issue #8 · 顶栏与空态面板共用的同�
       'https://two.example.com/b.py'
     );
   });
+
+  it('遮罩点击关掉对话框，点面板本身不关（stopPropagation 的另一半）', () => {
+    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog />);
+
+    // 遮罩层没有 testid（与 PullListingDialog 同惯例），按 panel 的父级取
+    const overlay = screen.getByTestId('pull-dialog').parentElement as HTMLElement;
+    fireEvent.click(screen.getByTestId('pull-dialog'));
+    expect(useAppStore.getState().pullEntryOpen).toBe(true);
+
+    fireEvent.click(overlay);
+    expect(useAppStore.getState().pullEntryOpen).toBe(false);
+  });
 });
 
 describe('顶栏：Pull from URL 常驻入口（issue #8 AC1）', () => {

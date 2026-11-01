@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { MAX_FILES, useAppStore } from '../state/store';
+import { MAX_FILES, listingQuota, useAppStore } from '../state/store';
 import { MAX_FILE_SIZE } from '../parser/analyze';
 import { colors, fonts, spacing } from '../theme';
 
@@ -197,14 +197,8 @@ export function PullListingDialog(): ReactNode {
 
   if (!listing) return null;
 
-  const remaining = Math.max(0, MAX_FILES - files.length);
-  // 已在会话里的条目重复勾选是原位更新，不占新名额：配额只对「新文件」计数。
-  const existing = new Set(files.map((f) => f.path));
-  const sessionPathByPath = new Map(listing.entries.map((e) => [e.path, e.sessionPath]));
-  const isExisting = (path: string): boolean => {
-    const sessionPath = sessionPathByPath.get(path);
-    return sessionPath !== undefined && existing.has(sessionPath);
-  };
+  // 配额判据只在 store.listingQuota 里写一份：界面只消费它，不重复实现。
+  const { remaining, isExisting } = listingQuota(files, listing);
   const newSelected = selected.filter((p) => !isExisting(p)).length;
   const needle = filter.trim().toLowerCase();
   const visible = needle

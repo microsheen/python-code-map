@@ -904,6 +904,13 @@ const HARNESS = `
       return tid(el).replace('graph-node-', '');
     });
   }
+  // 图上所有可见边：与 nodeIds 同口径，返回 'src->tgt' 串（graph-edge- 前缀去掉）。
+  // 跨文件调用连边这条 AC 要在冒烟里能断言「那条边真的画出来了」，而不只是两节点都入图。
+  function edgeIds() {
+    return allByPrefix('graph-edge-').map(function (el) {
+      return tid(el).replace('graph-edge-', '');
+    });
+  }
   function valueOf(id) {
     var el = byId(id);
     if (!el) return null;
@@ -1125,7 +1132,7 @@ const HARNESS = `
     tokenInfo: tokenInfo, drop: drop, probe: probe,
     stats: stats, activeTab: activeTab, scrollEl: scrollEl,
     themeState: themeState, themePanel: themePanel, topmostInPanel: topmostInPanel,
-    pullTabs: pullTabs, pullListing: pullListing, valueOf: valueOf, nodeIds: nodeIds
+    pullTabs: pullTabs, pullListing: pullListing, valueOf: valueOf, nodeIds: nodeIds, edgeIds: edgeIds
   };
   return 'harness-ok';
 })()
@@ -1693,7 +1700,7 @@ async function main() {
   await clickTestId(cdp, 'pull-listing-confirm');
   const afterList = await poll(
     cdp,
-    '({ tabs: window.__t.pullTabs(), nodes: window.__t.nodeIds(), listing: window.__t.pullListing(), issues: window.__t.valueOf("topbar-pull-issues") })',
+    '({ tabs: window.__t.pullTabs(), nodes: window.__t.nodeIds(), edges: window.__t.edgeIds(), listing: window.__t.pullListing(), issues: window.__t.valueOf("topbar-pull-issues") })',
     (v) =>
       !!v &&
       (v.tabs.some((t) => t.path === GITHUB_LIST_A_SESSION) ||
@@ -1705,12 +1712,15 @@ async function main() {
   note('after listing pull', afterList);
   await shot(cdp, 'pull-09-listing-pulled.png');
   check(
-    'PL5 确认之后清单关闭，勾选的文件都进会话并参与调用图',
+    'PL5 确认之后清单关闭，勾选的文件都进会话、参与调用图，且跨文件调用连边画出来',
     !afterList.listing &&
       afterList.tabs.some((t) => t.path === GITHUB_LIST_A_SESSION) &&
       afterList.tabs.some((t) => t.path === GITHUB_LIST_B_SESSION) &&
       afterList.nodes.indexOf(GITHUB_LIST_A_SESSION + '::zz_list_a') >= 0 &&
       afterList.nodes.indexOf(GITHUB_LIST_B_SESSION + '::zz_list_b') >= 0 &&
+      afterList.edges.indexOf(
+        GITHUB_LIST_A_SESSION + '::zz_list_a->' + GITHUB_LIST_B_SESSION + '::zz_list_b'
+      ) >= 0 &&
       !afterList.issues,
     JSON.stringify(afterList)
   );

@@ -250,6 +250,30 @@ function pulledEntry(path: string, text: string, error: string | null): PickedFi
   return error ? { path, name, content: '', error } : { path, name, content: text };
 }
 
+/**
+ * 勾选清单的配额判据（issue #6），界面与 store 共用同一份。
+ * 规则：已在会话里的条目（按 sessionPath 比对）不占新名额，是原位更新；
+ * 剩余名额 = MAX_FILES - 当前会话文件数，只用来装「新文件」。
+ * 改这条规则只改这里一处，界面（PullListingDialog）与 store（confirmPullListing）同步生效。
+ */
+export interface ListingQuota {
+  remaining: number;
+  /** 清单里的仓库相对路径是否已经在会话中（按 sessionPath 比对，命中即原位更新） */
+  isExisting: (path: string) => boolean;
+}
+
+export function listingQuota(files: { path: string }[], listing: GithubListing): ListingQuota {
+  const existing = new Set(files.map((f) => f.path));
+  const sessionPathByPath = new Map(listing.entries.map((e) => [e.path, e.sessionPath]));
+  return {
+    remaining: Math.max(0, MAX_FILES - existing.size),
+    isExisting: (path) => {
+      const sessionPath = sessionPathByPath.get(path);
+      return sessionPath !== undefined && existing.has(sessionPath);
+    },
+  };
+}
+
 export const useAppStore = create<AppStore>()((set, get) => {
   const runAnalysis = async (
     picked: PickedFile[],
@@ -553,15 +577,14 @@ export const useAppStore = create<AppStore>()((set, get) => {
       const transport = opts?.transport ?? webPullTransport;
       const picked = new Set(selected);
       // 剩余配额是硬顶：界面已经按它封顶，store 再兜一次，保证会话不会越过 20 个文件。
-      // 已在会话里的路径不占新名额（拉取是原位更新），所以先放行它们，再用剩余名额装新文件。
-      const existing = new Set(get().files.map((f) => f.path));
-      const remaining = Math.max(0, MAX_FILES - existing.size);
+      // 配额判据只在 listingQuota 里写一份：界面与 store 都从同一个函数拿，改规则不用两头改。
+      const quota = listingQuota(get().files, listing);
       let fresh = 0;
       const entries = listing.entries
         .filter((e) => picked.has(e.path) && e.selectable)
         .filter((e) => {
-          if (existing.has(e.sessionPath)) return true;
-          if (fresh >= remaining) return false;
+          if (quota.isExisting(e.path)) return true;
+          if (fresh >= quota.remaining) return false;
           fresh += 1;
           return true;
         });

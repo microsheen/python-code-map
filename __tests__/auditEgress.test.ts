@@ -105,9 +105,18 @@ describe('package.json 的 audit:egress 配置（#9）', () => {
   });
 
   it('两处放行按文件申报，没有全局 --allow-token（否则联系路径的保证会被一起放开）', () => {
-    expect(cmd).toContain('--allow-egress=src/platform/web/pullFetch.ts:fetch(');
+    expect(cmd).toContain('--allow-egress=src/platform/web/pullFetch.ts:fetch');
     expect(cmd).toContain('--allow-egress=src/components/TopBar.tsx:navigator.clipboard');
     expect(cmd).not.toContain('--allow-token=');
+  });
+
+  /**
+   * npm 在 Linux 上把 script 交给 `sh -c`，未加引号的 `(` 会被当成子 shell 的开头 ——
+   * CI 里报的是 `Syntax error: "(" unexpected`（exit 2），Windows 的 cmd.exe 却照传。
+   * 所以申报的 substr 不能带 shell 元字符；这里钉住，免得下次又写回 `fetch(`。
+   */
+  it('申报串里没有未加引号的 shell 元字符（否则 Linux CI 会当成语法错误）', () => {
+    expect(cmd).not.toMatch(/[()|&;<>]/);
   });
 
   it('保留了既有的 --require-href（外发路径应当长成用户点的链接）', () => {

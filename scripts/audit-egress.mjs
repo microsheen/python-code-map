@@ -17,7 +17,10 @@
 //                                   (the pull transport's fetch) is admitted without also relaxing
 //                                   the contact path. A declaration for a file that is not being
 //                                   scanned is a usage error: a declaration nobody reads is worse
-//                                   than none.
+//                                   than none. The substr must not contain shell metacharacters
+//                                   (`fetch`, not `fetch(`): npm runs a script line through `sh -c`
+//                                   on Linux, where an unquoted `(` is a syntax error (exit 2), even
+//                                   though cmd.exe on Windows passes it through.
 //
 // Exit 0 clean, 1 at least one counted finding (a file that cannot be read counts: a guard that
 // silently skipped its input is worse than a red light), 2 usage. A finding means "look at this", not

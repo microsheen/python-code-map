@@ -176,12 +176,12 @@ export function PullListingDialog(): ReactNode {
 
   const [filter, setFilter] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
-  // 清单换代（新 URL 出清单 / 关闭后重开）时清空交互状态：open 翻 false->true 那一帧就清，
-  // 放进 effect 会先画一帧上一份清单的勾选状态（FeedbackDialog 的 wasOpen 同理）。
-  const sourceUrl = listing?.sourceUrl ?? null;
-  const [wasSourceUrl, setWasSourceUrl] = useState<string | null>(null);
-  if (sourceUrl !== wasSourceUrl) {
-    setWasSourceUrl(sourceUrl);
+  // 清单换代时清空交互状态：换代判据是**对象身份**而不是 sourceUrl —— #8 的队列里两条相同
+  // URL 的清单前后顶上来，sourceUrl 不变但清单确实换了一茬。渲染那一帧就清，放进 effect
+  // 会先画一帧上一份清单的勾选状态（FeedbackDialog 的 wasOpen 同理）。
+  const [wasListing, setWasListing] = useState(listing);
+  if (listing !== wasListing) {
+    setWasListing(listing);
     setFilter('');
     setSelected([]);
   }

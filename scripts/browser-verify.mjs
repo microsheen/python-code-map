@@ -1392,8 +1392,9 @@ async function main() {
   note('harness', harness);
 
   // ================= P：拉取面取证（ADR-0006 决策 4 的前两条 · issue #4） =================
-  // 为什么排在最前面：这一段要的是**空态**（Pull from URL 入口长在上传面板上），而下面一上来
-  // 就要往会话里塞 fixtures。跑完点 Clear 回到空态，既有流程一行都不用改。
+  // 为什么排在最前面：这一段要的是**空态**。两个入口（上传面板与顶栏，issue #8）开的都是
+  // 同一个粘贴对话框，下面的 P/PU/PG/PL 组固定从面板入口进；顶栏入口与多批次队列归 PT 组。
+  // 而下面一上来就要往会话里塞 fixtures。跑完点 Clear 回到空态，既有流程一行都不用改。
   // 请求记账也在这里分家：E1–E5 是「不含拉取动作」的默认行为基线，桩请求另算一组（pullIds）。
   const idsBeforePull = new Set(netRequests.keys());
   const st0 = await evalJs(cdp, 'window.__t.stats()');
@@ -1993,6 +1994,237 @@ async function main() {
   await clickTestId(cdp, 'topbar-reset');
   await poll(cdp, 'window.__t.stats()', (v) => !!v && v.empty, 15000, 'empty after listing pull');
   note('after listing Clear', 'back to the empty upload panel');
+
+  // ---- PT：顶栏入口与多 URL 多批次混合导入（issue #8） ----
+  // AC 的冒烟版：空态与有文件态都能从顶栏开**同一个**粘贴对话框（AC1）；一次粘贴
+  // 「直链 + 目录 + 非法行」= 直链成批、目录出清单、非法行只进告警，谁也不拖垮谁（AC2/AC3）；
+  // 多条目录 URL 排队，确认/取消一条下一条顶上来（AC2）；新批次不碰既有批次的来源时刻（AC5）。
+  // 整段的请求面在 PT5 逐条对账：URL 都能由用户输入推导、全程 GET、请求体恒空。
+  const idsBeforePT = new Set(netRequests.keys());
+  const hitsBeforePT = pullStubHits.length;
+
+  // PT1：空态下两个入口各点一次 —— 全屏永远只有一份 pull-dialog，且行为一致。
+  await clickTestId(cdp, 'upload-pull');
+  const dlgFromPanel = await poll(
+    cdp,
+    'document.querySelectorAll(\'[data-testid="pull-dialog"], [testid="pull-dialog"]\').length',
+    (v) => v >= 1,
+    5000,
+    'shared dialog from panel entry'
+  ).then((r) => r.value);
+  check(
+    'PT1a 空态面板入口打开共用粘贴对话框（全屏只有一份 pull-dialog）',
+    dlgFromPanel === 1,
+    'dialogs=' + dlgFromPanel
+  );
+  await clickTestId(cdp, 'pull-cancel');
+  await poll(
+    cdp,
+    'document.querySelectorAll(\'[data-testid="pull-dialog"], [testid="pull-dialog"]\').length',
+    (v) => v === 0,
+    5000,
+    'shared dialog closed by cancel'
+  );
+  await clickTestId(cdp, 'topbar-pull');
+  const dlgFromTopbar = await poll(
+    cdp,
+    'document.querySelectorAll(\'[data-testid="pull-dialog"], [testid="pull-dialog"]\').length',
+    (v) => v >= 1,
+    5000,
+    'shared dialog from topbar entry'
+  ).then((r) => r.value);
+  check(
+    'PT1b 空态顶栏入口打开的是同一个对话框（AC1：空态可用，行为与面板入口一致）',
+    dlgFromTopbar === 1,
+    'dialogs=' + dlgFromTopbar
+  );
+  await shot(cdp, 'pull-10-topbar-entry.png');
+
+  // PT2：一次粘贴「直链 + 目录 + 非法行」（沿用顶栏这次打开的对话框）。三类来源各自解析：
+  // 直链直接成批进会话、目录弹勾选清单、非法行一个请求都不发只进告警条。
+  await typeIntoTestId(
+    cdp,
+    'pull-input',
+    PULL_STUB_URL + '\n' + GITHUB_LIST_URL + '\n' + 'not a url at all'
+  );
+  await clickTestId(cdp, 'pull-submit');
+  const afterMixed = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), listing: window.__t.pullListing(),' +
+      ' issues: window.__t.valueOf("topbar-pull-issues"), nodes: window.__t.nodeIds() })',
+    (v) =>
+      !!v &&
+      v.tabs.some((t) => t.path === PULL_STUB_SESSION_PATH) &&
+      !!v.listing &&
+      v.listing.rows.length > 0 &&
+      /Not a URL/i.test(v.issues || ''),
+    30000,
+    'mixed paste: direct batch + listing + invalid-line issue'
+  ).then((r) => r.value);
+  note('after mixed paste', afterMixed);
+  await shot(cdp, 'pull-11-mixed.png');
+  const mixedProbe = afterMixed.tabs.find((t) => t.path === PULL_STUB_SESSION_PATH) || null;
+  check(
+    'PT2 混合来源各自成败（AC2/AC3）：直链成批进图、目录清单照弹、非法行只进告警',
+    !!mixedProbe &&
+      mixedProbe.marker === 'pulled' &&
+      mixedProbe.url === PULL_STUB_URL &&
+      afterMixed.nodes.indexOf(PULL_STUB_SESSION_PATH + '::zz_pull_probe') >= 0 &&
+      afterMixed.listing.rows.length === 3 &&
+      /Not a URL/i.test(afterMixed.issues),
+    JSON.stringify({
+      probe: mixedProbe,
+      rows: afterMixed.listing.rows.length,
+      issues: afterMixed.issues,
+    })
+  );
+
+  // PT3：确认清单 = 第二批进会话；然后**有文件态**下从顶栏入口再拉第三批（AC1 的有文件态半边）。
+  // 新批次合入不许碰既有批次的来源时刻 —— 第一批的 at 原样就是「批次级刷新粒度」的拼版（AC5）。
+  await clickTestId(cdp, 'pull-listing-select-all');
+  await clickTestId(cdp, 'pull-listing-confirm');
+  const afterConfirm = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), listing: window.__t.pullListing() })',
+    (v) =>
+      !!v &&
+      !v.listing &&
+      v.tabs.some((t) => t.path === GITHUB_LIST_A_SESSION) &&
+      v.tabs.some((t) => t.path === GITHUB_LIST_B_SESSION),
+    30000,
+    'listing confirmed: second batch in session'
+  ).then((r) => r.value);
+  const probeBeforeThird =
+    afterConfirm.tabs.find((t) => t.path === PULL_STUB_SESSION_PATH) || null;
+  check(
+    'PT3a 确认清单：勾选的两个文件成第二批进会话，清单收起来（与第一批次并存）',
+    !!probeBeforeThird && afterConfirm.tabs.length === 3,
+    JSON.stringify(afterConfirm.tabs)
+  );
+
+  await clickTestId(cdp, 'topbar-pull');
+  await typeIntoTestId(cdp, 'pull-input', PULL_STUB_ALT_URL);
+  await clickTestId(cdp, 'pull-submit');
+  const afterThird = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), issues: window.__t.valueOf("topbar-pull-issues") })',
+    (v) =>
+      !!v && v.tabs.some((t) => t.path === PULL_STUB_ALT_SESSION_PATH) && !v.issues,
+    30000,
+    'third batch via topbar entry with files present'
+  ).then((r) => r.value);
+  note('after third batch (topbar entry, with files)', afterThird);
+  await shot(cdp, 'pull-12-second-batch.png');
+  const probeThird = afterThird.tabs.find((t) => t.path === PULL_STUB_SESSION_PATH) || null;
+  const altThird = afterThird.tabs.find((t) => t.path === PULL_STUB_ALT_SESSION_PATH) || null;
+  check(
+    'PT3b 有文件态顶栏入口照样开同一对话框：新批次进会话，既有批次的来源时刻与报错条原样（AC1/AC3/AC5）',
+    !!altThird &&
+      altThird.marker === 'pulled' &&
+      altThird.url === PULL_STUB_ALT_URL &&
+      !!probeThird &&
+      !!probeBeforeThird &&
+      probeThird.at === probeBeforeThird.at &&
+      afterThird.tabs.some((t) => t.path === GITHUB_LIST_A_SESSION) &&
+      afterThird.tabs.length === 4 &&
+      !afterThird.issues,
+    JSON.stringify({
+      alt: altThird,
+      probeAtBefore: probeBeforeThird && probeBeforeThird.at,
+      probeAtAfter: probeThird && probeThird.at,
+      tabs: afterThird.tabs.length,
+      issues: afterThird.issues,
+    })
+  );
+
+  // PT4：一次粘两条相同目录 URL = 两个清单排队。取消第一条，第二条原样顶上来
+  // （行一模一样，唯一能看出的区别是「它还在」）；再取消才真正关掉。取消全程不发请求。
+  await clickTestId(cdp, 'topbar-pull');
+  await typeIntoTestId(cdp, 'pull-input', GITHUB_LIST_URL + '\n' + GITHUB_LIST_URL);
+  await clickTestId(cdp, 'pull-submit');
+  const queue0 = await poll(
+    cdp,
+    'window.__t.pullListing()',
+    (v) => !!v && v.rows.length > 0,
+    30000,
+    'first of two queued listings'
+  ).then((r) => r.value);
+  check(
+    'PT4a 两条目录 URL 各发各的 trees，先弹第一条清单（第二条在队列里等着）',
+    queue0.rows.length === 3,
+    JSON.stringify(queue0.rows.map((r) => r.path))
+  );
+  await clickTestId(cdp, 'pull-listing-cancel');
+  const queue1 = await poll(
+    cdp,
+    'window.__t.pullListing()',
+    (v) => !!v && v.rows.length === 3,
+    5000,
+    'second listing pops from queue after dismiss'
+  ).then((r) => r.value);
+  check(
+    'PT4b 取消第一条：队列里的第二条清单顶上来（不是关闭，是换下一条）',
+    !!queue1 && queue1.rows.length === 3,
+    JSON.stringify(queue1 && queue1.rows.length)
+  );
+  await clickTestId(cdp, 'pull-listing-cancel');
+  const queue2 = await poll(
+    cdp,
+    'window.__t.pullListing() ? 1 : 0',
+    (v) => v === 0,
+    5000,
+    'second dismiss closes the listing dialog'
+  ).then((r) => r.value);
+  check(
+    'PT4c 再取消才真正清空：队列里没有了，清单对话框收起来',
+    queue2 === 0,
+    'listing=' + queue2
+  );
+
+  // PT5：整段 PT 的请求面对账（与 P1/P2 同一套取证，两个观测点）。顺序 = 处理顺序：
+  // 直链、目录 trees、勾选的两个 raw、顶栏第三批的直链、排队的两次 trees。
+  const ptIds = new Set([...netRequests.keys()].filter((id) => !idsBeforePT.has(id)));
+  const ptReqs = [...ptIds].map((id) => netRequests.get(id)).filter(Boolean);
+  const ptFace = ptReqs.filter((r) => !distFileFor(pathnameOf(r.url)));
+  const ptHits = pullStubHits.slice(hitsBeforePT);
+  note(
+    'PT requests (cdp)',
+    ptReqs.map((r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED:' + (r.failed || '?')))
+  );
+  note('PT requests (stub side)', ptHits);
+  report.pullMultiNetwork = ptReqs;
+  report.pullMultiStubHits = ptHits;
+  const treeWire = pullBase + GITHUB_LIST_TREE_PATH + '?recursive=1';
+  const expectedPTFace = [
+    pullBase + PULL_STUB_PATH,
+    treeWire,
+    pullBase + GITHUB_LIST_RAW_A,
+    pullBase + GITHUB_LIST_RAW_B,
+    pullBase + PULL_STUB_ALT_PATH,
+    treeWire,
+    treeWire,
+  ];
+  check(
+    'PT5 多批次混合导入全程 GET、请求体恒空；每张面孔都能由用户输入确定性推导，顺序与处理顺序一致',
+    ptFace.length === expectedPTFace.length &&
+      expectedPTFace.every((u, i) => !!ptFace[i] && ptFace[i].url === u) &&
+      ptReqs.every((r) => r.method === 'GET' && !r.hasPostData && r.postDataBytes === 0) &&
+      ptHits.length === expectedPTFace.length &&
+      ptHits.every(
+        (h) => h.method === 'GET' && h.contentLength === null && h.transferEncoding === null
+      ),
+    JSON.stringify({
+      face: ptFace.map((r) => r.url),
+      expected: expectedPTFace,
+      stub: ptHits.map((h) => h.method + ' ' + h.path),
+    })
+  );
+  // PT 整段都是拉取动作：并入 pullIds，E 组基线（不含拉取动作）不许把它们算进去。
+  for (const id of ptIds) pullIds.add(id);
+
+  await clickTestId(cdp, 'topbar-reset');
+  await poll(cdp, 'window.__t.stats()', (v) => !!v && v.empty, 15000, 'empty after PT');
+  note('after PT Clear', 'back to the empty upload panel');
 
   const probe0 = await evalJs(cdp, 'window.__t.probe()');
   note('probe(before upload)', probe0);

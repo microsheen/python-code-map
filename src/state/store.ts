@@ -154,8 +154,15 @@ export interface AppStore {
   pullIssues: string[];
   /** 拉取进行中：禁用按钮，免得连点发出重复请求 */
   pulling: boolean;
+  /** 拉取粘贴框（顶栏与空态上传面板共用的那个对话框，issue #8）是否打开 */
+  pullEntryOpen: boolean;
   /** github 仓库/目录 URL 解析出的候选清单；勾选界面的输入（界面在 #6） */
   pullListing: GithubListing | null;
+  /**
+   * 一次粘贴多条仓库/目录 URL 时，排在当前清单后面等待确认的清单（issue #8）。
+   * pullListing 永远是队头，这里只存队头之后的；确认/关闭一条，下一条顶上来。
+   */
+  pullQueue: GithubListing[];
   /** 勾选清单确认后的逐文件拉取进度（第 done 个 / 共 total 个）；拉取未进行时 total=0 */
   pullProgress: Progress;
 
@@ -177,8 +184,10 @@ export interface AppStore {
    * 只碰这一批：其他批次不动，删掉的路径不复活；来源 URL 不变，只把拉取时刻推到这一次。
    */
   refreshBatch: (sourceUrl: string, opts?: PullOptions) => Promise<void>;
-  /** 关闭勾选清单：不清会话、不发请求，只把 pullListing 置空。 */
+  /** 关闭勾选清单：不清会话、不发请求；队列里还有下一条就顶上来。 */
   dismissPullListing: () => void;
+  /** 打开/关上拉取粘贴框：顶栏入口与空态上传面板入口共用这个开关（issue #8） */
+  setPullEntryOpen: (open: boolean) => void;
   removeFile: (path: string) => Promise<void>;
   removeFiles: (paths: string[]) => Promise<void>;
   setActiveFile: (path: string) => void;
@@ -303,6 +312,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         origins: {},
         batches: [],
         pullListing: null,
+        pullQueue: [],
         pullProgress: NO_PROGRESS,
         selection: NO_SELECTION,
         edgeSelection: null,
@@ -425,7 +435,9 @@ export const useAppStore = create<AppStore>()((set, get) => {
     batches: [],
     pullIssues: [],
     pulling: false,
+    pullEntryOpen: false,
     pullListing: null,
+    pullQueue: [],
     pullProgress: NO_PROGRESS,
 
     loadFiles: async (files, parser) => {
@@ -450,14 +462,17 @@ export const useAppStore = create<AppStore>()((set, get) => {
           pullIssues: empty.kind === 'invalid' ? [empty.message] : [],
           pulling: false,
           pullListing: null,
+          pullQueue: [],
           pullProgress: NO_PROGRESS,
         });
         return;
       }
-      set({ pulling: true, pullIssues: [], pullListing: null, pullProgress: NO_PROGRESS });
+      // 新一次粘贴换掉还挂着的旧清单（含队列）：粘贴框重来就是「上一批不看了」
+      set({ pulling: true, pullIssues: [], pullListing: null, pullQueue: [], pullProgress: NO_PROGRESS });
       try {
         const issues: string[] = [];
-        let listing: GithubListing | null = null;
+        // 一次粘贴可能解析出多条清单（每条仓库/目录 URL 一条，issue #8）：排队逐个确认
+        const listings: GithubListing[] = [];
         // 逐批合并（issue #11）：每一行先算自己那一批，再单独问一次「放得进去吗」。
         // 放得进去的进 accepted，放不进去的只影响它自己 —— 上限那条失败路径也不例外。
         const accepted: PickedFile[] = [];
@@ -515,7 +530,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
               continue;
             }
             const result = await fetchGithubListing(triage.target, transport);
-            if (result.ok) listing = result.listing;
+            if (result.ok) listings.push(result.listing);
             else issues.push(result.message);
             continue;
           }
@@ -547,7 +562,8 @@ export const useAppStore = create<AppStore>()((set, get) => {
           set({
             pullIssues: issues,
             pulling: false,
-            pullListing: listing,
+            pullListing: listings[0] ?? null,
+            pullQueue: listings.slice(1),
             ...(overflow ? { error: overflow } : {}),
           });
           return;
@@ -561,7 +577,8 @@ export const useAppStore = create<AppStore>()((set, get) => {
             batches,
             pullIssues: issues,
             pulling: false,
-            pullListing: listing,
+            pullListing: listings[0] ?? null,
+            pullQueue: listings.slice(1),
           },
           { preserveView: !anyContent }
         );
@@ -569,7 +586,13 @@ export const useAppStore = create<AppStore>()((set, get) => {
         // error，所以这句必须写在合并之后）。
         if (overflow) set({ error: overflow });
         // 合并整体被拒（理论上不会：accepted 已经逐批验过上限）时把拉取状态收干净
-        if (!merged) set({ pullIssues: issues, pulling: false, pullListing: listing });
+        if (!merged)
+          set({
+            pullIssues: issues,
+            pulling: false,
+            pullListing: listings[0] ?? null,
+            pullQueue: listings.slice(1),
+          });
       } finally {
         // 兜底：任何意料之外的异常都不许把 pulling 留成 true（那样按钮会永久禁用）。
         if (get().pulling) set({ pulling: false });
@@ -631,7 +654,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
           paths,
           pulledAt: Date.now(),
         });
-        await mergeFiles(
+        const merged = await mergeFiles(
           incoming,
           opts?.parser,
           {
@@ -644,6 +667,11 @@ export const useAppStore = create<AppStore>()((set, get) => {
           },
           { preserveView: !anyContent }
         );
+        // 合并生效才轮到下一条清单（issue #8 的队列）；合并被拒时当前清单保留，不丢队列
+        if (merged) {
+          const [next, ...rest] = get().pullQueue;
+          set({ pullListing: next ?? null, pullQueue: rest });
+        }
       } finally {
         if (get().pulling) set({ pulling: false });
       }
@@ -710,7 +738,13 @@ export const useAppStore = create<AppStore>()((set, get) => {
       }
     },
 
-    dismissPullListing: () => set({ pullListing: null, pullProgress: NO_PROGRESS }),
+    dismissPullListing: () => {
+      // 关的只是当前这一条：一次粘贴解析出多条清单时（#8），下一条顶上来继续确认
+      const [next, ...rest] = get().pullQueue;
+      set({ pullListing: next ?? null, pullQueue: rest, pullProgress: NO_PROGRESS });
+    },
+
+    setPullEntryOpen: (open) => set({ pullEntryOpen: open }),
 
     removeFile: async (path) => {
       const rest = get()
@@ -907,6 +941,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         pullIssues: [],
         pulling: false,
         pullListing: null,
+        pullQueue: [],
         pullProgress: NO_PROGRESS,
       }));
     },

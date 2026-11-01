@@ -5,6 +5,7 @@
  * 来源 URL 与拉取时刻。样式与布局不进断言（那是冒烟截图的活）。
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { PullEntryDialog } from '../src/components/PullEntryDialog';
 import { PullListingDialog } from '../src/components/PullListingDialog';
 import { UploadPanel } from '../src/components/UploadPanel';
 import { TopBar } from '../src/components/TopBar';
@@ -24,10 +25,14 @@ afterEach(() => {
   useAppStore.setState({ ...INITIAL }, true);
 });
 
-/** 把 pullFromText 换成可断言的假实现，返回它收到的调用。 */
-function stubPull(impl?: (text: string) => Promise<void>): { calls: string[] } {
+/** 把 pullFromText 换成可断言的假实现，返回它收到的调用；extra 与假实现同一次 preset 进 store。 */
+function stubPull(
+  impl?: (text: string) => Promise<void>,
+  extra?: Partial<AppStore>
+): { calls: string[] } {
   const calls: string[] = [];
   preset({
+    ...extra,
     pullFromText: async (text: string) => {
       calls.push(text);
       await (impl ? impl(text) : Promise.resolve());
@@ -43,72 +48,12 @@ describe('空态上传面板：Pull from URL 入口', () => {
     expect(screen.getByTestId('upload-pull').textContent).toBe('Pull from URL');
   });
 
-  it('点开之前没有粘贴框，点开之后有 —— 而且这时候还没发任何东西', () => {
-    const pull = stubPull();
-    render(<UploadPanel />);
-    expect(screen.queryByTestId('pull-input')).toBeNull();
-    fireEvent.click(screen.getByTestId('upload-pull'));
-    expect(screen.queryByTestId('pull-input')).not.toBeNull();
-    expect(screen.queryByTestId('pull-submit')).not.toBeNull();
-    expect(pull.calls).toEqual([]);
-  });
-
-  it('粘贴多行再确认：store 收到的就是那段原文（多行 = 多个批次，切分是 store 的事）', async () => {
-    const pull = stubPull();
-    render(<UploadPanel />);
-    fireEvent.click(screen.getByTestId('upload-pull'));
-    const text = 'https://one.example.com/a.py\nhttps://two.example.com/b.py';
-    fireEvent.change(screen.getByTestId('pull-input'), { target: { value: text } });
-    // 确认之后的收尾（清空粘贴框、收起面板）落在 .then 的微任务里，要跟点击一起裹进 act
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('pull-submit'));
-    });
-    expect(pull.calls).toEqual([text]);
-  });
-
-  it('拉取收尾：确认之后粘贴框自己收起来（跟取消按钮那条对称）', async () => {
-    stubPull();
-    render(<UploadPanel />);
-    fireEvent.click(screen.getByTestId('upload-pull'));
-    fireEvent.change(screen.getByTestId('pull-input'), {
-      target: { value: 'https://one.example.com/a.py' },
-    });
-    expect(screen.queryByTestId('pull-box')).not.toBeNull();
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('pull-submit'));
-    });
-    expect(screen.queryByTestId('pull-box')).toBeNull();
-    expect(screen.queryByTestId('pull-input')).toBeNull();
-  });
-
-  it('空粘贴点确认：不触发拉取（连一句提示都不必发请求）', () => {
-    const pull = stubPull();
-    render(<UploadPanel />);
-    fireEvent.click(screen.getByTestId('upload-pull'));
-    fireEvent.change(screen.getByTestId('pull-input'), { target: { value: '   ' } });
-    fireEvent.click(screen.getByTestId('pull-submit'));
-    expect(pull.calls).toEqual([]);
-  });
-
-  it('拉取进行中：确认按钮禁用，免得连点发出重复请求', () => {
-    const pull = stubPull();
-    preset({ pulling: true } as Partial<AppStore>);
-    render(<UploadPanel />);
-    fireEvent.click(screen.getByTestId('upload-pull'));
-    fireEvent.change(screen.getByTestId('pull-input'), {
-      target: { value: 'https://one.example.com/a.py' },
-    });
-    fireEvent.click(screen.getByTestId('pull-submit'));
-    expect(pull.calls).toEqual([]);
-  });
-
-  it('取消按钮把粘贴框收起来，不发请求', () => {
-    const pull = stubPull();
-    render(<UploadPanel />);
-    fireEvent.click(screen.getByTestId('upload-pull'));
-    fireEvent.click(screen.getByTestId('pull-cancel'));
-    expect(screen.queryByTestId('pull-input')).toBeNull();
-    expect(pull.calls).toEqual([]);
+  it('面板的提示写明两个入口：这里与顶栏，开的是同一个对话框（issue #8 AC6）', () => {
+    preset({});
+    const { container } = render(<UploadPanel />);
+    const text = container.textContent ?? '';
+    expect(text).toContain('Pull from URL');
+    expect(text).toContain('top bar');
   });
 
   it('既有的窄事实文案没被挤掉（承诺面那道门读的就是这段文本）', () => {
@@ -119,6 +64,179 @@ describe('空态上传面板：Pull from URL 入口', () => {
     expect(text).toContain('explicitly pull');
     expect(text).toContain('never sent anywhere');
     expect(text).not.toContain('never leaves the browser');
+  });
+
+  it('点面板入口：打开的是共用对话框（store 的 pullEntryOpen 置真，对话框本体在 PullEntryDialog）', () => {
+    preset({});
+    render(<UploadPanel />);
+    expect(useAppStore.getState().pullEntryOpen).toBe(false);
+    fireEvent.click(screen.getByTestId('upload-pull'));
+    expect(useAppStore.getState().pullEntryOpen).toBe(true);
+  });
+});
+
+describe('拉取粘贴对话框（issue #8 · 顶栏与空态面板共用的同一个）', () => {
+  it('默认关着：点开之前没有粘贴框，也不采集任何输入', () => {
+    const pull = stubPull();
+    render(<PullEntryDialog />);
+    expect(screen.queryByTestId('pull-dialog')).toBeNull();
+    expect(screen.queryByTestId('pull-input')).toBeNull();
+    expect(pull.calls).toEqual([]);
+  });
+
+  it('打开之后有粘贴框与确认按钮', () => {
+    stubPull();
+    preset({ pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog />);
+    expect(screen.queryByTestId('pull-dialog')).not.toBeNull();
+    expect(screen.queryByTestId('pull-input')).not.toBeNull();
+    expect(screen.queryByTestId('pull-submit')).not.toBeNull();
+  });
+
+  it('粘贴多行再确认：store 收到的就是那段原文（多行 = 多个批次，切分是 store 的事）', async () => {
+    const pull = stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog />);
+    const text = 'https://one.example.com/a.py\nhttps://two.example.com/b.py';
+    fireEvent.change(screen.getByTestId('pull-input'), { target: { value: text } });
+    // 确认之后的收尾（清空粘贴框、收起对话框）落在 .then 的微任务里，要跟点击一起裹进 act
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pull-submit'));
+    });
+    expect(pull.calls).toEqual([text]);
+  });
+
+  it('拉取收尾：确认之后对话框自己收起来（跟取消按钮那条对称）', async () => {
+    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog />);
+    fireEvent.change(screen.getByTestId('pull-input'), {
+      target: { value: 'https://one.example.com/a.py' },
+    });
+    expect(screen.queryByTestId('pull-dialog')).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pull-submit'));
+    });
+    expect(useAppStore.getState().pullEntryOpen).toBe(false);
+    expect(screen.queryByTestId('pull-dialog')).toBeNull();
+    expect(screen.queryByTestId('pull-input')).toBeNull();
+  });
+
+  it('空粘贴点确认：不触发拉取（连一句提示都不必发请求）', () => {
+    const pull = stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog />);
+    fireEvent.change(screen.getByTestId('pull-input'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByTestId('pull-submit'));
+    expect(pull.calls).toEqual([]);
+  });
+
+  it('拉取进行中：确认按钮禁用，免得连点发出重复请求', () => {
+    const pull = stubPull(undefined, {
+      pullEntryOpen: true,
+      pulling: true,
+    } as Partial<AppStore>);
+    render(<PullEntryDialog />);
+    fireEvent.change(screen.getByTestId('pull-input'), {
+      target: { value: 'https://one.example.com/a.py' },
+    });
+    fireEvent.click(screen.getByTestId('pull-submit'));
+    expect(pull.calls).toEqual([]);
+  });
+
+  it('取消按钮把对话框收起来，不发请求', () => {
+    const pull = stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog />);
+    fireEvent.click(screen.getByTestId('pull-cancel'));
+    expect(screen.queryByTestId('pull-input')).toBeNull();
+    expect(useAppStore.getState().pullEntryOpen).toBe(false);
+    expect(pull.calls).toEqual([]);
+  });
+
+  it('Escape 也把对话框收起来（与勾选清单模态同一套键盘习惯）', () => {
+    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog />);
+    expect(screen.queryByTestId('pull-dialog')).not.toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(useAppStore.getState().pullEntryOpen).toBe(false);
+  });
+
+  it('顶栏入口与空态入口打开同一个对话框：全屏永远只有一份 pull-dialog', () => {
+    stubPull();
+    render(
+      <>
+        <TopBar />
+        <UploadPanel />
+        <PullEntryDialog />
+      </>
+    );
+    fireEvent.click(screen.getByTestId('upload-pull'));
+    expect(screen.getAllByTestId('pull-dialog')).toHaveLength(1);
+    fireEvent.click(screen.getByTestId('pull-cancel'));
+    expect(screen.queryByTestId('pull-dialog')).toBeNull();
+    fireEvent.click(screen.getByTestId('topbar-pull'));
+    expect(screen.getAllByTestId('pull-dialog')).toHaveLength(1);
+    expect(screen.queryByTestId('pull-input')).not.toBeNull();
+  });
+
+  it('拉取途中关掉再重开：旧提交的收尾不许收掉新对话框、清掉新草稿（review 竞态）', async () => {
+    let resolvePull: (() => void) | null = null;
+    stubPull(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvePull = resolve;
+        }),
+      { pullEntryOpen: true } as Partial<AppStore>
+    );
+    render(<PullEntryDialog />);
+    fireEvent.change(screen.getByTestId('pull-input'), {
+      target: { value: 'https://one.example.com/a.py' },
+    });
+    fireEvent.click(screen.getByTestId('pull-submit'));
+
+    // 拉取还在飞：Escape 关掉，再从入口重开、输入新草稿 —— 对话框已经换过一茬
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(useAppStore.getState().pullEntryOpen).toBe(false);
+    act(() => {
+      useAppStore.getState().setPullEntryOpen(true);
+    });
+    fireEvent.change(screen.getByTestId('pull-input'), {
+      target: { value: 'https://two.example.com/b.py' },
+    });
+
+    await act(async () => {
+      resolvePull!();
+    });
+    expect(useAppStore.getState().pullEntryOpen).toBe(true);
+    expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
+      'https://two.example.com/b.py'
+    );
+  });
+});
+
+describe('顶栏：Pull from URL 常驻入口（issue #8 AC1）', () => {
+  it('空态与有文件态入口都在（双入口并存，不随会话有无消失）', () => {
+    preset({});
+    const { unmount } = render(<TopBar />);
+    expect(screen.getByTestId('topbar-pull').textContent).toBe('Pull from URL');
+    unmount();
+
+    preset({
+      files: [{ path: 'a.py', name: 'a.py', content: 'def a():\n    pass\n', lines: [] }],
+    } as Partial<AppStore>);
+    render(<TopBar />);
+    expect(screen.getByTestId('topbar-pull').textContent).toBe('Pull from URL');
+  });
+
+  it('点顶栏入口：打开共用对话框', () => {
+    preset({});
+    render(<TopBar />);
+    fireEvent.click(screen.getByTestId('topbar-pull'));
+    expect(useAppStore.getState().pullEntryOpen).toBe(true);
+  });
+
+  it('解析中入口禁用：busy 时点不开对话框（与空态入口同一套门控）', () => {
+    preset({ status: 'parsing', progress: { done: 1, total: 2 } } as Partial<AppStore>);
+    render(<TopBar />);
+    fireEvent.click(screen.getByTestId('topbar-pull'));
+    expect(useAppStore.getState().pullEntryOpen).toBe(false);
   });
 });
 
@@ -422,6 +540,28 @@ describe('勾选清单模态（issue #6）', () => {
 
     fireEvent.click(screen.getByTestId('pull-listing-cancel'));
     expect(dismissed).toEqual([true]);
+  });
+
+  it('确认后顶上来的是另一条清单（哪怕 URL 相同）：勾选与过滤词清零（issue #8 队列）', async () => {
+    // 两条相同 URL 的清单排队时 sourceUrl 不变，但清单确实换了一茬 —— 换代判据是对象身份
+    const next: GithubListing = { ...listing };
+    preset({
+      pullListing: listing,
+      confirmPullListing: async () => {
+        useAppStore.setState({ pullListing: next } as Partial<AppStore>);
+      },
+    } as Partial<AppStore>);
+    render(<PullListingDialog />);
+
+    fireEvent.click(screen.getByTestId('pull-listing-check-pkg/a.py'));
+    fireEvent.change(screen.getByTestId('pull-listing-filter'), { target: { value: 'a.py' } });
+    expect(screen.getByTestId('pull-listing-quota').textContent).toContain('Selected 1');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pull-listing-confirm'));
+    });
+    expect((screen.getByTestId('pull-listing-filter') as HTMLInputElement).value).toBe('');
+    expect(screen.getByTestId('pull-listing-quota').textContent).toContain('Selected 0');
   });
 });
 

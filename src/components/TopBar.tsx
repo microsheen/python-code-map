@@ -113,6 +113,7 @@ export function TopBar(): ReactNode {
   const origins = useAppStore((s) => s.origins);
   const batches = useAppStore((s) => s.batches);
   const refreshBatch = useAppStore((s) => s.refreshBatch);
+  const setPullEntryOpen = useAppStore((s) => s.setPullEntryOpen);
   const pulling = useAppStore((s) => s.pulling);
   const progress = useAppStore((s) => s.progress);
   const activeFile = useAppStore((s) => s.activeFile);
@@ -306,6 +307,21 @@ export function TopBar(): ReactNode {
             style={[styles.btnPrimary, busy && styles.btnDisabled]}
           >
             <Text style={styles.btnPrimaryText}>{busy ? 'Parsing…' : 'Select .py Files'}</Text>
+          </Pressable>
+
+          {/*
+            拉取的常驻入口（issue #8）：空态与有文件态都在，与空态上传面板的入口开同一个
+            对话框（PullEntryDialog）。与上传入口同一套 busy 门控 —— 拉取进来的文件同样
+            要走解析通道，解析中再开一轮只会互相踩踏。
+          */}
+          <Pressable
+            testID="topbar-pull"
+            onPress={() => setPullEntryOpen(true)}
+            disabled={busy}
+            accessibilityRole="button"
+            style={[styles.btnGhost, busy && styles.btnDisabled]}
+          >
+            <Text style={styles.btnGhostText}>Pull from URL</Text>
           </Pressable>
 
           <View style={styles.segment} testID="topbar-scope">

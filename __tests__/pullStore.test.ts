@@ -1286,3 +1286,151 @@ describeWasm('勾选清单确认（issue #6 · store 接缝 · 真 wasm · mock 
     expect(s().files).toEqual([]);
   });
 });
+
+describeWasm('多 URL 多批次混合导入（issue #8 · store 接缝）', () => {
+  let parser: PythonParser;
+
+  beforeAll(async () => {
+    parser = await getTestParser();
+  });
+
+  beforeEach(() => {
+    mockPersist.saved = [];
+    mockPersist.session = null;
+    useAppStore.setState({ ...INITIAL, parser: null }, true);
+  });
+
+  const treeWith = (entries: { path: string; type: string; size?: number }[], truncated = false) =>
+    JSON.stringify({ truncated, tree: entries });
+
+  const pageA = 'https://github.com/oa/ra/tree/main/pkg';
+  const pageB = 'https://github.com/ob/rb/tree/main/src';
+  const treeA = githubTreeUrl('oa', 'ra', 'main');
+  const treeB = githubTreeUrl('ob', 'rb', 'main');
+  const rawA = githubRawUrl('oa', 'ra', 'main', 'pkg/a.py');
+
+  function twoListingTransport(): FakeTransport {
+    return fakeTransport({
+      [treeA]: {
+        ok: true,
+        text: treeWith([
+          { path: 'pkg', type: 'tree' },
+          { path: 'pkg/a.py', type: 'blob', size: 1 },
+        ]),
+      },
+      [treeB]: {
+        ok: true,
+        text: treeWith([
+          { path: 'src', type: 'tree' },
+          { path: 'src/b.py', type: 'blob', size: 2 },
+        ]),
+      },
+      [rawA]: { ok: true, text: pySource('zz_mix_a') },
+    });
+  }
+
+  it('一次粘两条目录 URL：两个清单各自解析，先弹第一条，第二条在队列里等着', async () => {
+    const transport = twoListingTransport();
+
+    await s().pullFromText(pageA + '\n' + pageB, { parser, transport });
+
+    // 各发各的 trees，谁也不替谁重试；清单还不是批次，一个文件请求都不许发
+    expect(transport.calls.map((c) => c.url)).toEqual([treeA, treeB]);
+    expect(s().files).toEqual([]);
+    expect(s().pullIssues).toEqual([]);
+    expect(s().pullListing?.sourceUrl).toBe(pageA);
+    expect(s().pullQueue.map((l) => l.sourceUrl)).toEqual([pageB]);
+  });
+
+  it('确认第一条清单之后：勾选文件进会话成一批，第二条清单顶上来', async () => {
+    const transport = twoListingTransport();
+    await s().pullFromText(pageA + '\n' + pageB, { parser, transport });
+
+    await s().confirmPullListing(['pkg/a.py'], { parser, transport });
+
+    expect(s().files.map((f) => f.path)).toEqual(['oa/ra/pkg/a.py']);
+    expect(s().batches).toEqual([
+      { sourceUrl: pageA, ref: 'main', paths: ['oa/ra/pkg/a.py'], pulledAt: expect.any(Number) },
+    ]);
+    // 队列顶上来的不是「下一条消息」，是完整的第二条清单：用户接着勾
+    expect(s().pullListing?.sourceUrl).toBe(pageB);
+    expect(s().pullListing?.entries.map((e) => e.path)).toEqual(['src/b.py']);
+    expect(s().pullQueue).toEqual([]);
+  });
+
+  it('dismiss 第一条：第二条顶上来；再 dismiss 才真正清空', async () => {
+    const transport = twoListingTransport();
+    await s().pullFromText(pageA + '\n' + pageB, { parser, transport });
+
+    s().dismissPullListing();
+    expect(s().pullListing?.sourceUrl).toBe(pageB);
+    expect(s().pullQueue).toEqual([]);
+
+    s().dismissPullListing();
+    expect(s().pullListing).toBeNull();
+    // dismiss 全程不发任何请求（仍只有起初那两次 trees）
+    expect(transport.calls.map((c) => c.url)).toEqual([treeA, treeB]);
+  });
+
+  it('混合来源（直链 + 目录 + 非法行）各自成败：直链成批、清单照弹、非法行只进告警', async () => {
+    const direct = 'https://example.com/pkg/zz_mix.py';
+    const transport = fakeTransport({
+      [direct]: { ok: true, text: pySource('zz_mix') },
+      [treeB]: {
+        ok: true,
+        text: treeWith([
+          { path: 'src', type: 'tree' },
+          { path: 'src/b.py', type: 'blob', size: 2 },
+        ]),
+      },
+    });
+
+    await s().pullFromText(direct + '\n' + pageB + '\n' + 'not a url at all', {
+      parser,
+      transport,
+    });
+
+    // 非法行连请求都不发；三类来源各走各的路，谁也不拖垮谁
+    expect(transport.calls.map((c) => c.url)).toEqual([direct, treeB]);
+    expect(s().files.map((f) => f.path)).toEqual(['example.com/pkg/zz_mix.py']);
+    expect(s().files[0]?.content).toContain('def zz_mix');
+    expect(s().batches.map((b) => b.sourceUrl)).toEqual([direct]);
+    expect(s().pullListing?.sourceUrl).toBe(pageB);
+    expect(s().pullQueue).toEqual([]);
+    expect(s().pullIssues).toHaveLength(1);
+    expect(s().pullIssues[0]).toMatch(/Not a URL/i);
+  });
+
+  it('挂着清单时再粘一批新 URL：旧清单与队列一起被换掉', async () => {
+    const direct = 'https://example.com/pkg/zz_mix.py';
+    const transport = twoListingTransport();
+    await s().pullFromText(pageA + '\n' + pageB, { parser, transport });
+    expect(s().pullListing?.sourceUrl).toBe(pageA);
+
+    await s().pullFromText(direct, { parser, transport });
+
+    expect(s().pullListing).toBeNull();
+    expect(s().pullQueue).toEqual([]);
+    expect(s().files.map((f) => f.path)).toEqual(['example.com/pkg/zz_mix.py']);
+  });
+
+  it('两条目录 URL 里失败的那条只进告警，成功的那条照样出清单', async () => {
+    const transport = fakeTransport({
+      [treeA]: { ok: false, observation: { type: 'status', status: 403, rateLimited: true } },
+      [treeB]: {
+        ok: true,
+        text: treeWith([
+          { path: 'src', type: 'tree' },
+          { path: 'src/b.py', type: 'blob', size: 2 },
+        ]),
+      },
+    });
+
+    await s().pullFromText(pageA + '\n' + pageB, { parser, transport });
+
+    expect(s().pullIssues).toHaveLength(1);
+    expect(s().pullIssues[0]).toMatch(/try again later/i);
+    expect(s().pullListing?.sourceUrl).toBe(pageB);
+    expect(s().pullQueue).toEqual([]);
+  });
+});

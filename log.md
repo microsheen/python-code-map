@@ -1716,3 +1716,13 @@ browser-smoke ✓ 38s、deploy 跳过 —— master 当前 HEAD 同样全绿。
 [实测] 推送 `9f9444e..eeaf73f` 后 run **41309550390** —— checks ✓ 1m19s（13:05:25→13:06:44）、
 browser-smoke ✓ 49s（13:06:46→13:07:35）、deploy `-` 0s（分支 master 而生产分支 main，按设计跳过）。
 #8 验收七条至此全部有实测支撑，issue 已关闭。
+
+## 2026-11-01 #8 评审收口补记（提交后重审两轴 + 两件小事 · 595 单测）
+
+#8 关闭后按惯例跑了一轮 code-review 两轴（fixed point `9f9444e`，即提交后视角）：Standards 无硬违规
+（三处判断类维持原判，busy 推导第三拷贝记为下次抽 `useBusy()` 的由头）；Spec 确认七条 AC 无产品缺口，
+抓出两件小事，本轮一并做掉——① 遮罩点击关闭补测（`64e75f9`，测试按 panel 父级取遮罩，不新增 testid）；
+② ADR-0006 追加「#8 决策补记」：重复行经 `upsertBatch` 按 sourceUrl 并批（#2 既有去重语义的延伸）
+与新粘贴换掉挂起清单的「上一批不看了」语义，均已记录在案。门禁实测：tsc 0 错、eslint 0、
+jest **25 suites / 595 tests**（594 → +1）；无产品代码改动，dist 与冒烟不受影响。
+[实测] run **41315244257**（`c944606..64e75f9`）checks/browser-smoke 全绿。

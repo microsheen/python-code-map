@@ -289,6 +289,16 @@ const GITHUB_STUB_URL = 'https://github.com/psf/requests/blob/main/probe/zz_gh_p
 const GITHUB_STUB_REFS_PATH = 'repos/psf/requests/git/matching-refs/heads/main';
 const GITHUB_STUB_RAW_PATH = 'psf/requests/main/probe/zz_gh_probe.py';
 const GITHUB_STUB_SESSION_PATH = 'psf/requests/probe/zz_gh_probe.py';
+/**
+ * 勾选清单的桩场景（issue #6）：目录 URL -> 一次 trees 出清单 -> 用户勾选 -> 逐文件 raw。
+ * 清单里放一个超 1MB 的条目（只出现在 JSON 里，永远不发 GET），用来验「置灰不可选」。
+ */
+const GITHUB_LIST_URL = 'https://github.com/psf/requests/tree/main/listprobe';
+const GITHUB_LIST_TREE_PATH = 'repos/psf/requests/git/trees/main';
+const GITHUB_LIST_RAW_A = 'psf/requests/main/listprobe/a.py';
+const GITHUB_LIST_RAW_B = 'psf/requests/main/listprobe/b.py';
+const GITHUB_LIST_A_SESSION = 'psf/requests/listprobe/a.py';
+const GITHUB_LIST_B_SESSION = 'psf/requests/listprobe/b.py';
 const PULL_STUB_FILES = {
   [PULL_STUB_PATH]: [
     'def zz_pull_probe():',
@@ -300,6 +310,20 @@ const PULL_STUB_FILES = {
   ].join('\n'),
   [GITHUB_STUB_REFS_PATH]: JSON.stringify([{ ref: 'refs/heads/main' }]),
   [GITHUB_STUB_RAW_PATH]: ['def zz_gh_probe():', '    return 7', ''].join('\n'),
+  [GITHUB_LIST_TREE_PATH]: JSON.stringify({
+    truncated: false,
+    tree: [
+      { path: 'listprobe', type: 'tree' },
+      { path: 'listprobe/a.py', type: 'blob', size: 12 },
+      { path: 'listprobe/b.py', type: 'blob', size: 34 },
+      { path: 'listprobe/huge.py', type: 'blob', size: 2 * 1024 * 1024 },
+      { path: 'listprobe/README.md', type: 'blob', size: 1 },
+    ],
+  }),
+  [GITHUB_LIST_RAW_A]: ['import b', '', 'def zz_list_a():', '    return b.zz_list_b()', ''].join(
+    '\n'
+  ),
+  [GITHUB_LIST_RAW_B]: ['def zz_list_b():', '    return 5', ''].join('\n'),
 };
 /** 用户会粘进面板的那条直链（https + .py 结尾，符合分流规则） */
 const PULL_STUB_URL = 'https://' + PULL_STUB_HOST + '/' + PULL_STUB_PATH;
@@ -909,6 +933,29 @@ const HARNESS = `
     }
     return out;
   }
+  // 勾选清单的可见状态：行（路径/体积/勾没勾/禁没禁）、配额文案、进度文案。
+  // 只读用户能看到的元素属性，不读 React/store 内部状态。
+  function pullListing() {
+    var dialog = byId('pull-listing-dialog');
+    if (!dialog) return null;
+    var rows = allByPrefix('pull-listing-row-').map(function (el) {
+      var p = tid(el).replace('pull-listing-row-', '');
+      var cb = byId('pull-listing-check-' + p);
+      return {
+        path: p,
+        size: txt(byId('pull-listing-size-' + p)),
+        checked: !!(cb && cb.checked),
+        disabled: !!(cb && cb.disabled)
+      };
+    });
+    var confirm = byId('pull-listing-confirm');
+    return {
+      rows: rows,
+      quota: txt(byId('pull-listing-quota')),
+      progress: txt(byId('pull-listing-progress')),
+      confirmDisabled: !!(confirm && confirm.disabled)
+    };
+  }
   function themeState(prefKey) {
     var inline = document.documentElement.style;
     var vars = {};
@@ -1078,7 +1125,7 @@ const HARNESS = `
     tokenInfo: tokenInfo, drop: drop, probe: probe,
     stats: stats, activeTab: activeTab, scrollEl: scrollEl,
     themeState: themeState, themePanel: themePanel, topmostInPanel: topmostInPanel,
-    pullTabs: pullTabs, valueOf: valueOf, nodeIds: nodeIds
+    pullTabs: pullTabs, pullListing: pullListing, valueOf: valueOf, nodeIds: nodeIds
   };
   return 'harness-ok';
 })()
@@ -1569,6 +1616,139 @@ async function main() {
   await clickTestId(cdp, 'topbar-reset');
   await poll(cdp, 'window.__t.stats()', (v) => !!v && v.empty, 15000, 'empty after github pull');
   note('after github Clear', 'back to the empty upload panel');
+
+  // ---- PL：目录 URL -> 勾选清单（issue #6） ----
+  // 一次 trees 出清单 -> 用户勾选 -> 逐文件 raw。清单只收 .py/.pyi；超 1MB 的条目置灰，
+  // 全选只勾可选项。整个清单拉取的请求面仍然是 GET、零请求体。
+  const idsBeforeList = new Set(netRequests.keys());
+  const hitsBeforeList = pullStubHits.length;
+  await clickTestId(cdp, 'upload-pull');
+  await typeIntoTestId(cdp, 'pull-input', GITHUB_LIST_URL);
+  await clickTestId(cdp, 'pull-submit');
+  const list0 = await poll(
+    cdp,
+    'window.__t.pullListing()',
+    (v) => !!v && v.rows.length > 0,
+    30000,
+    'pull listing dialog'
+  ).then((r) => r.value);
+  note('pull listing (initial)', list0);
+  await shot(cdp, 'pull-06-listing.png');
+  check(
+    'PL1 目录 URL 弹出勾选清单：只列 .py/.pyi，每项带体积，超 1MB 的条目置灰不可选',
+    list0.rows.length === 3 &&
+      list0.rows.every((r) => /\.pyi?$/i.test(r.path)) &&
+      list0.rows.every((r) => /B|KB|MB/.test(r.size)) &&
+      list0.rows.some((r) => r.path === 'listprobe/huge.py' && r.disabled) &&
+      list0.rows.some((r) => r.path === 'listprobe/a.py' && !r.disabled),
+    JSON.stringify(list0.rows)
+  );
+  check(
+    'PL2 清单显示剩余配额，未勾选时确认按钮不可点',
+    /0 of 20/.test(list0.quota) && list0.confirmDisabled,
+    JSON.stringify({ quota: list0.quota, disabled: list0.confirmDisabled })
+  );
+
+  await clickTestId(cdp, 'pull-listing-select-all');
+  const listSelected = await poll(
+    cdp,
+    'window.__t.pullListing()',
+    (v) => !!v && v.rows.filter((r) => r.checked).length === 2,
+    5000,
+    'listing select all'
+  ).then((r) => r.value);
+  note('pull listing (select all)', listSelected);
+  await shot(cdp, 'pull-07-selected.png');
+  const hugeRow = listSelected.rows.find((r) => r.path === 'listprobe/huge.py');
+  check(
+    'PL3 全选只勾可选项（超 1MB 的条目仍然不可勾），配额与确认按钮跟着更新',
+    listSelected.rows.filter((r) => r.checked).length === 2 &&
+      !!hugeRow &&
+      !hugeRow.checked &&
+      /Selected 2/.test(listSelected.quota) &&
+      !listSelected.confirmDisabled,
+    JSON.stringify(listSelected)
+  );
+
+  const filterValue = await typeIntoTestId(cdp, 'pull-listing-filter', 'a.py');
+  await poll(
+    cdp,
+    'window.__t.pullListing()',
+    (v) => !!v && v.rows.length === 1 && v.rows[0].path === 'listprobe/a.py',
+    5000,
+    'listing filtered by keyword'
+  );
+  const listFiltered = await evalJs(cdp, 'window.__t.pullListing()');
+  note('pull listing (filtered)', listFiltered);
+  await shot(cdp, 'pull-08-listing-filtered.png');
+  check(
+    'PL4 关键字过滤只收窄可见行，已勾选集合不被过滤抹掉',
+    filterValue === 'a.py' &&
+      listFiltered.rows.length === 1 &&
+      listFiltered.rows[0].checked &&
+      /Selected 2/.test(listFiltered.quota),
+    JSON.stringify({ filterValue, filtered: listFiltered })
+  );
+
+  await clickTestId(cdp, 'pull-listing-confirm');
+  const afterList = await poll(
+    cdp,
+    '({ tabs: window.__t.pullTabs(), nodes: window.__t.nodeIds(), listing: window.__t.pullListing(), issues: window.__t.valueOf("topbar-pull-issues") })',
+    (v) =>
+      !!v &&
+      (v.tabs.some((t) => t.path === GITHUB_LIST_A_SESSION) ||
+        v.tabs.some((t) => t.path === GITHUB_LIST_B_SESSION) ||
+        !!v.issues),
+    30000,
+    'listing confirmed and pulled'
+  ).then((r) => r.value);
+  note('after listing pull', afterList);
+  await shot(cdp, 'pull-09-listing-pulled.png');
+  check(
+    'PL5 确认之后清单关闭，勾选的文件都进会话并参与调用图',
+    !afterList.listing &&
+      afterList.tabs.some((t) => t.path === GITHUB_LIST_A_SESSION) &&
+      afterList.tabs.some((t) => t.path === GITHUB_LIST_B_SESSION) &&
+      afterList.nodes.indexOf(GITHUB_LIST_A_SESSION + '::zz_list_a') >= 0 &&
+      afterList.nodes.indexOf(GITHUB_LIST_B_SESSION + '::zz_list_b') >= 0 &&
+      !afterList.issues,
+    JSON.stringify(afterList)
+  );
+
+  const listIds = new Set([...netRequests.keys()].filter((id) => !idsBeforeList.has(id)));
+  const listReqs = [...listIds].map((id) => netRequests.get(id)).filter(Boolean);
+  const listFace = listReqs.filter((r) => !distFileFor(pathnameOf(r.url)));
+  const listHits = pullStubHits.slice(hitsBeforeList);
+  note(
+    'listing requests (cdp)',
+    listReqs.map(
+      (r) => r.method + ' ' + r.url + ' -> ' + (r.status || 'FAILED:' + (r.failed || '?'))
+    )
+  );
+  note('listing requests (stub side)', listHits);
+  report.pullListingNetwork = listReqs;
+  report.pullListingStubHits = listHits;
+  check(
+    'PL6 清单拉取的请求面：一次 trees + 每个勾选文件一次 raw，全程 GET、请求体恒空',
+    listFace.length === 3 &&
+      listFace.every((r) => r.method === 'GET' && !r.hasPostData && r.postDataBytes === 0) &&
+      listHits.length === 3 &&
+      listHits.every(
+        (h) => h.method === 'GET' && h.contentLength === null && h.transferEncoding === null
+      ) &&
+      listFace[0].url === pullBase + GITHUB_LIST_TREE_PATH + '?recursive=1' &&
+      listFace[1].url === pullBase + GITHUB_LIST_RAW_A &&
+      listFace[2].url === pullBase + GITHUB_LIST_RAW_B,
+    JSON.stringify({
+      face: listFace.map((r) => r.url),
+      hits: listHits.map((h) => h.path),
+    })
+  );
+  for (const id of listIds) pullIds.add(id);
+
+  await clickTestId(cdp, 'topbar-reset');
+  await poll(cdp, 'window.__t.stats()', (v) => !!v && v.empty, 15000, 'empty after listing pull');
+  note('after listing Clear', 'back to the empty upload panel');
 
   const probe0 = await evalJs(cdp, 'window.__t.probe()');
   note('probe(before upload)', probe0);

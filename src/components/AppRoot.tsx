@@ -11,6 +11,7 @@ import type { ReactNode } from 'react';
 import { subscribeDrop } from '../platform/web/filePick';
 import { useAppStore } from '../state/store';
 import { colors, fonts, spacing } from '../theme';
+import { PullListingDialog } from './PullListingDialog';
 import { SplitLayout } from './SplitLayout';
 import { TopBar } from './TopBar';
 import { UploadPanel } from './UploadPanel';
@@ -46,6 +47,7 @@ export function AppRoot(): ReactNode {
       <View style={styles.body}>
         {empty ? <UploadPanel dragging={dragging} /> : <SplitLayout />}
       </View>
+      <PullListingDialog />
       {dragging ? (
         <View style={styles.overlay} testID="drop-overlay">
           <View style={styles.overlayBox}>

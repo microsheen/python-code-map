@@ -223,7 +223,7 @@ describeWasm('拉取进会话（store 接缝 · 真 wasm · mock 传输）', () 
     expect(s().graph?.nodes ?? []).toHaveLength(0);
   });
 
-  it('撞上 20 文件上限：沿用现有那句文案，这一批一个都不合并，元数据也不写', async () => {
+  it('撞上 20 文件上限：放得进去的批次先入会话，放不进去的那一批单独报超限（#11）', async () => {
     const local: PickedFile[] = Array.from({ length: MAX_FILES - 1 }, (_, i) => ({
       path: 'local/f' + i + '.py',
       name: 'f' + i + '.py',
@@ -242,6 +242,10 @@ describeWasm('拉取进会话（store 接缝 · 真 wasm · mock 传输）', () 
       }),
     });
 
+    // 逐批独立成败：第一条正好填满 20，第二条自己那一批报超限；沿用现有那句文案
+    expect(s().files).toHaveLength(MAX_FILES);
+    expect(s().files.map((f) => f.path)).toContain('example.com/x/zz_probe_one.py');
+    expect(s().files.map((f) => f.path)).not.toContain('example.com/y/zz_probe_two.py');
     expect(s().error).toBe(
       'Too many files: ' +
         (MAX_FILES + 1) +
@@ -249,9 +253,9 @@ describeWasm('拉取进会话（store 接缝 · 真 wasm · mock 传输）', () 
         MAX_FILES +
         '. Please remove some files before adding more.'
     );
-    expect(s().files).toHaveLength(MAX_FILES - 1);
-    expect(s().origins).toEqual({});
-    expect(s().batches).toEqual([]);
+    // 元数据只写成功合并的那一批：被上限拒掉的位置不在会话里，来源与批次也不留
+    expect(Object.keys(s().origins)).toEqual(['example.com/x/zz_probe_one.py']);
+    expect(s().batches.map((b) => b.sourceUrl)).toEqual([u1]);
   });
 
   it('重复粘贴同一 URL：原位更新，文件与批次都不产生副本', async () => {
@@ -787,5 +791,238 @@ describeWasm('github 页面 URL 拉取（store 接缝 · 真 wasm · mock 传输
     await s().pullFromText(page, { parser, transport });
 
     expect(s().files[0]?.error).toMatch(/may have moved/i);
+  });
+});
+
+describeWasm('勾选清单确认（issue #6 · store 接缝 · 真 wasm · mock 传输）', () => {
+  let parser: PythonParser;
+
+  beforeAll(async () => {
+    parser = await getTestParser();
+  });
+
+  beforeEach(() => {
+    mockPersist.saved = [];
+    mockPersist.session = null;
+    useAppStore.setState({ ...INITIAL, parser: null }, true);
+  });
+
+  const page = 'https://github.com/o/r/tree/main/pkg';
+  const treeUrl = githubTreeUrl('o', 'r', 'main');
+  const treeWith = (entries: { path: string; type: string; size?: number }[]) =>
+    JSON.stringify({ truncated: false, tree: [{ path: 'pkg', type: 'tree' }, ...entries] });
+  const rawOf = (path: string) => githubRawUrl('o', 'r', 'main', path);
+
+  it('确认选中项：不再发清单请求，逐文件 GET，一个批次、进度走完、清单关闭', async () => {
+    const aRaw = rawOf('pkg/a.py');
+    const bRaw = rawOf('pkg/b.py');
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: treeWith([
+          { path: 'pkg/a.py', type: 'blob', size: 10 },
+          { path: 'pkg/b.py', type: 'blob', size: 20 },
+          { path: 'pkg/c.py', type: 'blob', size: 30 },
+          { path: 'pkg/big.py', type: 'blob', size: MAX_FILE_SIZE + 1 },
+        ]),
+      },
+      [aRaw]: {
+        ok: true,
+        text: ['import b', '', 'def zz_a():', '    return b.zz_b()', ''].join('\n'),
+      },
+      [bRaw]: { ok: true, text: pySource('zz_b') },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+    expect(s().pullListing?.entries.map((e) => e.path)).toEqual([
+      'pkg/a.py',
+      'pkg/b.py',
+      'pkg/c.py',
+      'pkg/big.py',
+    ]);
+    expect(s().pullListing?.entries.find((e) => e.path === 'pkg/big.py')?.selectable).toBe(false);
+
+    await s().confirmPullListing(['pkg/a.py', 'pkg/b.py'], { parser, transport });
+
+    // 清单请求只发生在 paste 那一次；确认只发逐文件 GET
+    expect(transport.calls.map((c) => c.url)).toEqual([treeUrl, aRaw, bRaw]);
+    expect(
+      s()
+        .files.map((f) => f.path)
+        .sort()
+    ).toEqual(['o/r/pkg/a.py', 'o/r/pkg/b.py']);
+    expect(s().pullProgress).toEqual({ done: 2, total: 2 });
+    expect(s().pullListing).toBeNull();
+    expect(s().pulling).toBe(false);
+    // 勾选集合进批次：sourceUrl 是清单来源 URL，paths 就是这一批的会话身份
+    expect(s().batches).toEqual([
+      {
+        sourceUrl: page,
+        ref: 'main',
+        paths: ['o/r/pkg/a.py', 'o/r/pkg/b.py'],
+        pulledAt: expect.any(Number),
+      },
+    ]);
+    expect(s().origins['o/r/pkg/a.py']?.url).toBe(page);
+    expect(s().origins['o/r/pkg/b.py']?.url).toBe(page);
+    // 勾选集合随会话快照持久化（重开页面内容还在，且还原不发请求）
+    expect(mockPersist.session?.batches).toEqual([
+      {
+        sourceUrl: page,
+        ref: 'main',
+        paths: ['o/r/pkg/a.py', 'o/r/pkg/b.py'],
+        pulledAt: expect.any(Number),
+      },
+    ]);
+    // 同批多文件之间跨文件调用自动连边
+    expect(
+      s().graph?.edges.some(
+        (e) => e.source === 'o/r/pkg/a.py::zz_a' && e.target === 'o/r/pkg/b.py::zz_b'
+      )
+    ).toBe(true);
+  });
+
+  it('单文件失败只降级该文件：其余文件照常进会话，批次路径仍然包含失败位置', async () => {
+    const aRaw = rawOf('pkg/a.py');
+    const bRaw = rawOf('pkg/b.py');
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: treeWith([
+          { path: 'pkg/a.py', type: 'blob', size: 10 },
+          { path: 'pkg/b.py', type: 'blob', size: 20 },
+        ]),
+      },
+      [aRaw]: { ok: true, text: pySource('zz_a') },
+      [bRaw]: { ok: false, observation: { type: 'blocked', reachable: true } },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+    await s().confirmPullListing(['pkg/a.py', 'pkg/b.py'], { parser, transport });
+
+    const byPath = new Map(s().files.map((f) => [f.path, f]));
+    expect(byPath.get('o/r/pkg/a.py')?.error).toBeUndefined();
+    expect(byPath.get('o/r/pkg/b.py')?.error).toMatch(/CORS/);
+    expect(s().warnings.join(' | ')).toMatch(/CORS/);
+    expect(s().graph?.nodes.map((n) => n.id)).not.toContain('o/r/pkg/b.py::zz_b');
+    expect(s().batches[0]?.paths).toEqual(['o/r/pkg/a.py', 'o/r/pkg/b.py']);
+    expect(s().origins['o/r/pkg/b.py']?.url).toBe(page);
+  });
+
+  it('空勾选：不发请求、不清清单（用户只是关了面板不算确认）', async () => {
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: treeWith([{ path: 'pkg/a.py', type: 'blob', size: 10 }]),
+      },
+    });
+    await s().pullFromText(page, { parser, transport });
+    const callsBefore = transport.calls.length;
+
+    await s().confirmPullListing([], { parser, transport });
+
+    expect(transport.calls.length).toBe(callsBefore);
+    expect(s().pullListing).not.toBeNull();
+    expect(s().files).toEqual([]);
+    expect(s().pulling).toBe(false);
+  });
+
+  it('剩余配额封顶：会话已有 19 个文件时只拉得进 1 个，其余的这次不碰', async () => {
+    const local: PickedFile[] = Array.from({ length: MAX_FILES - 1 }, (_, i) => ({
+      path: 'local/f' + i + '.py',
+      name: 'f' + i + '.py',
+      content: pySource('zz_local_' + i),
+    }));
+    await s().loadFiles(local, parser);
+
+    const aRaw = rawOf('pkg/a.py');
+    const bRaw = rawOf('pkg/b.py');
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: treeWith([
+          { path: 'pkg/a.py', type: 'blob', size: 10 },
+          { path: 'pkg/b.py', type: 'blob', size: 20 },
+        ]),
+      },
+      [aRaw]: { ok: true, text: pySource('zz_a') },
+      [bRaw]: { ok: true, text: pySource('zz_b') },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+    await s().confirmPullListing(['pkg/a.py', 'pkg/b.py'], { parser, transport });
+
+    // 只剩 1 个空位：只发第一条 raw，文件总数封在 20
+    expect(transport.calls.map((c) => c.url)).toEqual([treeUrl, aRaw]);
+    expect(s().files).toHaveLength(MAX_FILES);
+    expect(s().files.map((f) => f.path)).toContain('o/r/pkg/a.py');
+    expect(s().files.map((f) => f.path)).not.toContain('o/r/pkg/b.py');
+  });
+
+  it('重复拉同一目录：已在会话里的勾选项不占新名额，剩下的空位留给新文件', async () => {
+    // 会话已有 19 个文件，其中 a.py 就是这次清单里的第一个（重复勾选它是原位更新）
+    const local: PickedFile[] = Array.from({ length: MAX_FILES - 1 }, (_, i) => ({
+      path: i === 0 ? 'o/r/pkg/a.py' : 'local/f' + i + '.py',
+      name: i === 0 ? 'a.py' : 'f' + i + '.py',
+      content: pySource('zz_local_' + i),
+    }));
+    await s().loadFiles(local, parser);
+
+    const aRaw = rawOf('pkg/a.py');
+    const bRaw = rawOf('pkg/b.py');
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: treeWith([
+          { path: 'pkg/a.py', type: 'blob', size: 10 },
+          { path: 'pkg/b.py', type: 'blob', size: 20 },
+        ]),
+      },
+      [aRaw]: { ok: true, text: pySource('zz_a') },
+      [bRaw]: { ok: true, text: pySource('zz_b') },
+    });
+
+    await s().pullFromText(page, { parser, transport });
+    await s().confirmPullListing(['pkg/a.py', 'pkg/b.py'], { parser, transport });
+
+    // 只剩 1 个新名额：a.py 原位更新不占名额，b.py 正好填满
+    expect(transport.calls.map((c) => c.url)).toEqual([treeUrl, aRaw, bRaw]);
+    expect(s().files).toHaveLength(MAX_FILES);
+    expect(s().files.map((f) => f.path)).toContain('o/r/pkg/b.py');
+  });
+
+  it('超过 1MB 的条目即使被选中也不进会话（store 兜住 selectable）', async () => {
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: treeWith([{ path: 'pkg/big.py', type: 'blob', size: MAX_FILE_SIZE + 1 }]),
+      },
+    });
+    await s().pullFromText(page, { parser, transport });
+    const callsBefore = transport.calls.length;
+
+    await s().confirmPullListing(['pkg/big.py'], { parser, transport });
+
+    expect(transport.calls.length).toBe(callsBefore);
+    expect(s().files).toEqual([]);
+    expect(s().pullListing).not.toBeNull();
+  });
+
+  it('dismissPullListing 只关清单：不发请求、不碰会话', async () => {
+    const transport = fakeTransport({
+      [treeUrl]: {
+        ok: true,
+        text: treeWith([{ path: 'pkg/a.py', type: 'blob', size: 10 }]),
+      },
+    });
+    await s().pullFromText(page, { parser, transport });
+    const callsBefore = transport.calls.length;
+
+    s().dismissPullListing();
+
+    expect(transport.calls.length).toBe(callsBefore);
+    expect(s().pullListing).toBeNull();
+    expect(s().pullProgress).toEqual({ done: 0, total: 0 });
+    expect(s().files).toEqual([]);
   });
 });

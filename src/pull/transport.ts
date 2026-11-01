@@ -18,3 +18,18 @@ export type PullOutcome =
 export interface PullTransport {
   get(req: PullRequest): Promise<PullOutcome>;
 }
+
+/**
+ * 一次 GET，把「传输外壳自己 reject」也收成单文件失败（crash 观测）。
+ * 这一层是唯一把异常转成结果的判据：绝不让一个异常把 pulling 卡成 true、把整轮拉取带走。
+ */
+export async function pullOnce(transport: PullTransport, req: PullRequest): Promise<PullOutcome> {
+  try {
+    return await transport.get(req);
+  } catch (e) {
+    return {
+      ok: false,
+      observation: { type: 'crash', detail: e instanceof Error ? e.message : String(e) },
+    };
+  }
+}

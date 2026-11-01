@@ -26,17 +26,19 @@ import type {
 } from '../parser/types';
 import { saveSession, loadSession, clearSession } from '../platform/web/persist';
 import { webPullTransport } from '../platform/web/pullFetch';
-import { classifyUrl, directRequest, pulledPathFor, splitPastedUrls } from '../pull/urls';
+import {
+  PULL_TIMEOUT_MS,
+  classifyUrl,
+  directRequest,
+  pulledPathFor,
+  splitPastedUrls,
+} from '../pull/urls';
 import { classifyFailure } from '../pull/errors';
 import { pruneBatches, pruneOrigins, upsertBatch } from '../pull/batch';
 import type { OriginMap, PullBatch } from '../pull/batch';
-import type { PullOutcome, PullTransport } from '../pull/transport';
-import { githubSessionPath, type GithubListing } from '../pull/github';
-import {
-  createGithubFetchCache,
-  fetchGithubFile,
-  fetchGithubListing,
-} from '../pull/githubFetch';
+import { pullOnce, type PullTransport } from '../pull/transport';
+import { githubRawUrl, githubSessionPath, type GithubListing } from '../pull/github';
+import { createGithubFetchCache, fetchGithubFile, fetchGithubListing } from '../pull/githubFetch';
 
 export type SelectionSource = 'code' | 'graph' | 'scope' | 'nav';
 
@@ -87,6 +89,8 @@ export const MIN_SPLIT = 0.25;
 export const MAX_SPLIT = 0.75;
 export const MAX_FILES = 20;
 export const NO_SELECTION: Selection = { funcId: null, source: 'scope', nonce: 0 };
+/** 「没有进行中的工作」的进度：分析进度与拉取进度共用这一个零值。 */
+const NO_PROGRESS: Progress = { done: 0, total: 0 };
 
 export function funcFile(funcId: FuncId): string {
   const i = funcId.indexOf('::');
@@ -151,6 +155,8 @@ export interface AppStore {
   pulling: boolean;
   /** github 仓库/目录 URL 解析出的候选清单；勾选界面的输入（界面在 #6） */
   pullListing: GithubListing | null;
+  /** 勾选清单确认后的逐文件拉取进度（第 done 个 / 共 total 个）；拉取未进行时 total=0 */
+  pullProgress: Progress;
 
   loadFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
   addFiles: (files: PickedFile[], parser?: PythonParser | null) => Promise<void>;
@@ -159,6 +165,14 @@ export interface AppStore {
    * 非法 URL 一律不发请求；单文件失败只降级那一个文件，会话既有内容不动。
    */
   pullFromText: (text: string, opts?: PullOptions) => Promise<void>;
+  /**
+   * 勾选清单确认：把用户选中的那一组仓库相对路径按 raw URL 逐个拉进会话。
+   * 一次清单确认 = 一个批次（sourceUrl 就是清单的来源 URL）；逐文件失败走既有坏文件降级路径，
+   * 不拖垮整批。selected 为空时什么都不做（也不清清单）。
+   */
+  confirmPullListing: (selected: string[], opts?: PullOptions) => Promise<void>;
+  /** 关闭勾选清单：不清会话、不发请求，只把 pullListing 置空。 */
+  dismissPullListing: () => void;
   removeFile: (path: string) => Promise<void>;
   removeFiles: (paths: string[]) => Promise<void>;
   setActiveFile: (path: string) => void;
@@ -227,6 +241,15 @@ function tooManyFilesMessage(count: number): string {
   return `Too many files: ${count}/${MAX_FILES}. Please remove some files before adding more.`;
 }
 
+/**
+ * 拉进来的条目只有一种形状：有正文，或者带一句 error。直链、github blob、清单逐文件
+ * 三种来源共用这一个构造函数，免得「超限句 + 空正文 + 名字」这三件套写三遍。
+ */
+function pulledEntry(path: string, text: string, error: string | null): PickedFile {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  return error ? { path, name, content: '', error } : { path, name, content: text };
+}
+
 export const useAppStore = create<AppStore>()((set, get) => {
   const runAnalysis = async (
     picked: PickedFile[],
@@ -250,10 +273,11 @@ export const useAppStore = create<AppStore>()((set, get) => {
         origins: {},
         batches: [],
         pullListing: null,
+        pullProgress: NO_PROGRESS,
         selection: NO_SELECTION,
         edgeSelection: null,
         scope: ALL_SCOPE,
-        progress: { done: 0, total: 0 },
+        progress: NO_PROGRESS,
       });
       return;
     }
@@ -355,7 +379,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
     status: 'idle',
     error: null,
     warnings: [],
-    progress: { done: 0, total: 0 },
+    progress: NO_PROGRESS,
     activeFile: null,
     selection: NO_SELECTION,
     edgeSelection: null,
@@ -372,6 +396,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
     pullIssues: [],
     pulling: false,
     pullListing: null,
+    pullProgress: NO_PROGRESS,
 
     loadFiles: async (files, parser) => {
       if (files.length > MAX_FILES) {
@@ -395,21 +420,33 @@ export const useAppStore = create<AppStore>()((set, get) => {
           pullIssues: empty.kind === 'invalid' ? [empty.message] : [],
           pulling: false,
           pullListing: null,
+          pullProgress: NO_PROGRESS,
         });
         return;
       }
-      set({ pulling: true, pullIssues: [], pullListing: null });
+      set({ pulling: true, pullIssues: [], pullListing: null, pullProgress: NO_PROGRESS });
       try {
-        const incoming: PickedFile[] = [];
         const issues: string[] = [];
+        let listing: GithubListing | null = null;
+        // 逐批合并（issue #11）：每一行先算自己那一批，再单独问一次「放得进去吗」。
+        // 放得进去的进 accepted，放不进去的只影响它自己 —— 上限那条失败路径也不例外。
+        const accepted: PickedFile[] = [];
+        let acceptedPaths = new Set(get().files.map((f) => f.path));
         let origins: OriginMap = { ...get().origins };
         let batches: PullBatch[] = get().batches;
-        let listing: GithubListing | null = null;
-        // 拉进来的条目只有一种形状：有正文，或者带一句 error。两种来源（github blob / 直链）
-        // 共用这一个构造函数，免得「超限句 + 空正文 + 名字」这三件套写两遍。
-        const pushPulled = (path: string, text: string, error: string | null): void => {
-          const name = path.slice(path.lastIndexOf('/') + 1);
-          incoming.push(error ? { path, name, content: '', error } : { path, name, content: text });
+        let overflow: string | null = null;
+        const admit = (file: PickedFile, lineOrigins: OriginMap, batch: PullBatch): void => {
+          const nextPaths = new Set(acceptedPaths);
+          nextPaths.add(file.path);
+          if (nextPaths.size > MAX_FILES) {
+            // 红条只有一行：只落第一个真正越线的批次，后面的超限批次也按「放不进去」处理
+            overflow = overflow ?? tooManyFilesMessage(nextPaths.size);
+            return;
+          }
+          acceptedPaths = nextPaths;
+          accepted.push(file);
+          origins = { ...origins, ...lineOrigins };
+          batches = upsertBatch(batches, batch);
         };
         // 一次粘贴共享一份 ref 解析缓存：同一仓库的多条 blob URL 只查一次分支
         const githubCache = createGithubFetchCache();
@@ -424,21 +461,25 @@ export const useAppStore = create<AppStore>()((set, get) => {
           }
           if (triage.kind === 'github') {
             // github 页面 URL 走另一条分流（issue #5）：blob 直接拉单文件，仓库/目录只出清单。
-            // 清单的勾选界面在 #6；这一票先把 pullListing 填好，不让它在这里发任何文件请求。
+            // 清单本身不是批次：用户勾选之后由 confirmPullListing 逐文件拉取并记成一个批次。
             if (triage.target.kind === 'blob') {
               const file = await fetchGithubFile(triage.target, transport, githubCache);
               // 失败占位也用已解析的拆分：refs 已说 ref=feature/x 时，身份不许退回 x/... 的猜测
               const path = githubSessionPath(triage.target.owner, triage.target.repo, file.path);
               const pulledAt = Date.now();
-              if (file.ok) pushPulled(path, file.text, oversizeMessageOf(file.text));
-              else pushPulled(path, '', file.message);
-              origins = { ...origins, [path]: { url: triage.target.url, pulledAt } };
-              batches = upsertBatch(batches, {
-                sourceUrl: triage.target.url,
-                ref: file.ok ? file.ref : null,
-                paths: [path],
-                pulledAt,
-              });
+              const entry = file.ok
+                ? pulledEntry(path, file.text, oversizeMessageOf(file.text))
+                : pulledEntry(path, '', file.message);
+              admit(
+                entry,
+                { [path]: { url: triage.target.url, pulledAt } },
+                {
+                  sourceUrl: triage.target.url,
+                  ref: file.ok ? file.ref : null,
+                  paths: [path],
+                  pulledAt,
+                }
+              );
               continue;
             }
             const result = await fetchGithubListing(triage.target, transport);
@@ -447,48 +488,41 @@ export const useAppStore = create<AppStore>()((set, get) => {
             continue;
           }
           const path = pulledPathFor(triage.url);
-          let outcome: PullOutcome;
-          try {
-            outcome = await transport.get(directRequest(triage.url));
-          } catch (e) {
-            // 传输外壳自己 reject（不该发生：webPullTransport 内部把异常全接住了）。真发生了就按
-            // 这一个文件失败处理 —— 绝不让一个异常把 pulling 卡成 true、把整轮拉取带走。
-            outcome = {
-              ok: false,
-              observation: {
-                type: 'crash',
-                detail: e instanceof Error ? e.message : String(e),
-              },
-            };
-          }
+          const outcome = await pullOnce(transport, directRequest(triage.url));
           const pulledAt = Date.now();
-          if (outcome.ok) {
-            // 超 1MB 的文件不进会话（更不该把几 MB 正文写进 IndexedDB），但占一个带红点的位置，
-            // 文案与上传路径共用解析层那一句（#10 之后是英文）：一处判据、一句话。
-            pushPulled(path, outcome.text, oversizeMessageOf(outcome.text));
-          } else {
-            // 单文件失败只降级该文件：留一个带 error 的条目，走既有的坏文件降级路径
-            pushPulled(path, '', classifyFailure(outcome.observation, triage.url).message);
-          }
+          // 超 1MB 的文件不进会话（更不该把几 MB 正文写进 IndexedDB），但占一个带红点的位置，
+          // 文案与上传路径共用解析层那一句（#10 之后是英文）：一处判据、一句话。
+          // 单文件失败只降级该文件：留一个带 error 的条目，走既有的坏文件降级路径。
+          const entry = outcome.ok
+            ? pulledEntry(path, outcome.text, oversizeMessageOf(outcome.text))
+            : pulledEntry(path, '', classifyFailure(outcome.observation, triage.url).message);
           // 失败也记来源：这个位置确实属于这条 URL，刷新（#7）时要连它一起重试
-          origins = { ...origins, [path]: { url: triage.url, pulledAt } };
-          batches = upsertBatch(batches, {
-            sourceUrl: triage.url,
-            ref: null,
-            paths: [path],
-            pulledAt,
-          });
+          admit(
+            entry,
+            { [path]: { url: triage.url, pulledAt } },
+            {
+              sourceUrl: triage.url,
+              ref: null,
+              paths: [path],
+              pulledAt,
+            }
+          );
         }
 
-        if (incoming.length === 0) {
-          // 全是非法 URL / 只有清单：一个文件都没得合并。这时候走 mergeFiles 会把既有文件白白重解析
-          // 一遍，顺带把用户当前的选择/范围/视图重置掉 —— 那不是「拉取失败」该有的副作用。
-          set({ pullIssues: issues, pulling: false, pullListing: listing });
+        if (accepted.length === 0) {
+          // 全是非法 URL / 只有清单 / 每一批都撞上限：一个文件都没得合并。这时候走 mergeFiles
+          // 会把既有文件白白重解析一遍，顺带把用户当前的选择/范围/视图重置掉。
+          set({
+            pullIssues: issues,
+            pulling: false,
+            pullListing: listing,
+            ...(overflow ? { error: overflow } : {}),
+          });
           return;
         }
-        const anyContent = incoming.some((f) => !f.error);
+        const anyContent = accepted.some((f) => !f.error);
         const merged = await mergeFiles(
-          incoming,
+          accepted,
           opts?.parser,
           {
             origins,
@@ -499,13 +533,92 @@ export const useAppStore = create<AppStore>()((set, get) => {
           },
           { preserveView: !anyContent }
         );
-        // 撞上 20 文件上限：红条已经是现有那句文案，这里只把拉取自己的状态收干净
+        // 撞上 20 文件上限的批次：红条用它自己那一批的计数（mergeFiles 里 runAnalysis 会先清空
+        // error，所以这句必须写在合并之后）。
+        if (overflow) set({ error: overflow });
+        // 合并整体被拒（理论上不会：accepted 已经逐批验过上限）时把拉取状态收干净
         if (!merged) set({ pullIssues: issues, pulling: false, pullListing: listing });
       } finally {
         // 兜底：任何意料之外的异常都不许把 pulling 留成 true（那样按钮会永久禁用）。
         if (get().pulling) set({ pulling: false });
       }
     },
+
+    confirmPullListing: async (selected, opts) => {
+      const listing = get().pullListing;
+      // 空勾选不是一次拉取：不清清单、不发请求（用户可能只是关掉了没点确认的那一下）
+      if (!listing || selected.length === 0) return;
+      // 正在拉取（连点确认 / 上一轮还没跑完）就不开第二轮：同一批勾选会被发两遍 GET
+      if (get().pulling) return;
+      const transport = opts?.transport ?? webPullTransport;
+      const picked = new Set(selected);
+      // 剩余配额是硬顶：界面已经按它封顶，store 再兜一次，保证会话不会越过 20 个文件。
+      // 已在会话里的路径不占新名额（拉取是原位更新），所以先放行它们，再用剩余名额装新文件。
+      const existing = new Set(get().files.map((f) => f.path));
+      const remaining = Math.max(0, MAX_FILES - existing.size);
+      let fresh = 0;
+      const entries = listing.entries
+        .filter((e) => picked.has(e.path) && e.selectable)
+        .filter((e) => {
+          if (existing.has(e.sessionPath)) return true;
+          if (fresh >= remaining) return false;
+          fresh += 1;
+          return true;
+        });
+      if (entries.length === 0) return;
+
+      const total = entries.length;
+      set({ pulling: true, pullIssues: [], pullProgress: { done: 0, total } });
+      try {
+        const incoming: PickedFile[] = [];
+        const origins: OriginMap = { ...get().origins };
+        const paths: string[] = [];
+        let anyContent = false;
+        for (let i = 0; i < total; i += 1) {
+          const entry = entries[i] as (typeof entries)[number];
+          const url = githubRawUrl(listing.owner, listing.repo, listing.ref, entry.path);
+          const outcome = await pullOnce(transport, { url, timeoutMs: PULL_TIMEOUT_MS });
+          const pulledAt = Date.now();
+          if (outcome.ok) {
+            const error = oversizeMessageOf(outcome.text);
+            if (!error) anyContent = true;
+            incoming.push(pulledEntry(entry.sessionPath, outcome.text, error));
+          } else {
+            // 单文件失败只降级该文件：走既有的坏文件降级路径，不拖垮整批
+            incoming.push(
+              pulledEntry(entry.sessionPath, '', classifyFailure(outcome.observation, url).message)
+            );
+          }
+          origins[entry.sessionPath] = { url: listing.sourceUrl, pulledAt };
+          paths.push(entry.sessionPath);
+          set({ pullProgress: { done: i + 1, total } });
+        }
+        // 这一批的会话身份：清单来源 URL + 本次确认的勾选集合
+        const batches = upsertBatch(get().batches, {
+          sourceUrl: listing.sourceUrl,
+          ref: listing.ref,
+          paths,
+          pulledAt: Date.now(),
+        });
+        await mergeFiles(
+          incoming,
+          opts?.parser,
+          {
+            origins,
+            batches,
+            pullIssues: [],
+            pulling: false,
+            pullListing: null,
+            pullProgress: { done: total, total },
+          },
+          { preserveView: !anyContent }
+        );
+      } finally {
+        if (get().pulling) set({ pulling: false });
+      }
+    },
+
+    dismissPullListing: () => set({ pullListing: null, pullProgress: NO_PROGRESS }),
 
     removeFile: async (path) => {
       const rest = get()
@@ -687,7 +800,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         status: 'idle',
         error: null,
         warnings: [],
-        progress: { done: 0, total: 0 },
+        progress: NO_PROGRESS,
         activeFile: null,
         selection: NO_SELECTION,
         edgeSelection: null,
@@ -702,6 +815,7 @@ export const useAppStore = create<AppStore>()((set, get) => {
         pullIssues: [],
         pulling: false,
         pullListing: null,
+        pullProgress: NO_PROGRESS,
       }));
     },
   };

@@ -1529,3 +1529,52 @@ issue #5：github.com 的页面 URL 直接可用，用户不必自己找 raw 直
 browser-smoke ✓ 42s、deploy `-` 0s（分支是 master 而生产分支是 main，跳过符合设计）。
 #5 验收十条至此全部有实测支撑，issue 已关闭（本段追加在收口轮之后，不改写上面「本轮没有 run」的原文 ——
 当时确实没有）。
+
+## 2026-11-01 拉取 4/7 落地轮（目录 URL → 勾选清单：过滤/全选/配额封顶/逐文件进度 · 上限路径改为「放得进去的先进」 · 556 单测 · 99 项冒烟）
+
+issue #6：仓库/目录 URL 提交后弹出勾选清单，用户自选文件批量拉取；顺带把 #11（上限路径整段拒收）
+按已选定的选项 2 收口 —— 逐批依次尝试，能放进去的进会话，放不进去的那一批单独报超限。
+
+- **新增一处、改若干既有文件。** 新文件 `src/components/PullListingDialog.tsx`（受控模态：过滤词/勾选集合是
+  本地状态，可勾性来自 `entries.selectable`，硬顶留给 store）与 `AppRoot.tsx` 的一行挂载；
+  `store.ts` 加 `pullProgress`、`confirmPullListing`、`dismissPullListing`，并把 `pullFromText` 的合并
+  改成逐批 `admit`（每行单独验一次 20 文件上限，最后只走一次 `mergeFiles`）。
+- **清单只出一次、确认只发 raw。** 粘贴目录 URL 时一次递归 trees 出清单（#5 既有分流），确认阶段
+  只对勾选文件逐个 GET；进度写「Pulling n / N」，失败仍走既有坏文件降级路径。批次身份是清单来源
+  URL，勾选集合进 `paths`（随会话快照持久化）；同批多文件在解析层自动连边。
+- **配额只对新文件计数。** review 指出原实现先按 `files.length` 截断、再让已在会话里的勾选项占名额：
+  会话 19 个文件、清单里第一个就是旧文件时，唯一的新文件会被挤掉。改为先放行已是会话路径的条目
+  （原位更新不占新名额），新文件逐个吃剩余配额；界面侧同样按「新勾选数」判 disabled。
+- **连点确认不再发两轮 GET。** `confirmPullListing` 入口加 `get().pulling` 守卫；其余失败兜底仍由
+  `finally` 收干净。
+- **#11 的文案取第一个越线的批次。** 红条只有一行，`overflow` 用 `??` 保留第一次真正越过 20 的
+  那一批（后续超限批次同样不合并、不写来源与批次，只是不再覆盖文案）。
+- **没改的（判据）：** 直链/blob 两条既有路径的行为不动（冒烟 P/PU/PG 组全绿）；清单解析与勾选
+  条目映射复用 #5 的 `github.ts`/`githubFetch.ts`；1MB 判据仍只在 `parser/analyze.ts`；上传面板
+  文案不动（不属本票）。
+- 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning（零输出）；
+  jest **25 suites / 556 tests**（上一轮 541 → +15：store 6+1、UI 8）；smoke **99/99**（上一轮 93
+  → +6，新增 PL1–PL6，截图 `pull-06-listing` / `pull-07-selected` / `pull-08-listing-filtered` /
+  `pull-09-listing-pulled`）；`audit:egress` scanned 3 file(s)，clean。
+  本机产物：入口 `entry-6a4850a7….js`、`index.html` 1,562 B / sha256
+  `854cdaca82b2f15ece6500f3fbc1b067e5b1cd57a0691092f474382f76a5a96f`。
+- 冒烟清单面实测（`pullListingNetwork` + 桩侧两个观测点）：请求面恰好 **3 条 GET** ——
+  `…/__pull-stub__/repos/psf/requests/git/trees/main?recursive=1` 与两个勾选文件的 raw；请求体 0 B
+  （桩侧 `content-length` / `transfer-encoding` 均 null）；清单里 2MB 的条目只出现在 JSON、从未发 GET
+  （置灰验证）；会话身份 `psf/requests/listprobe/{a,b}.py`，跨文件边 `zz_list_a -> zz_list_b` 画出来了。
+- CI：**本轮没有 run**（改动尚未推送，按 rule 不写结论）。推送后补记 run id 与逐 job 读数。
+- 两轴 review（fixed point `d68cf9c`，评的是未提交工作区 diff）处置：
+  Standards 硬性 2 条已改 —— 「导入」是 CONTEXT.md「拉取」条的避免词（store/测试/冒烟五处改回
+  「拉取」）；`formatSize` 另算 `1024*1024` 违反「判据只有一处」，改用 `MAX_FILE_SIZE`。判断类已改
+  三条：crash→`PullOutcome` 的三份 try/catch 收成 `transport.ts` 的 `pullOnce`（store 两处与
+  `githubFetch` 共用）；`{done:0,total:0}` 六处收成 `NO_PROGRESS`；`admit` 去掉没人用的数组参数与
+  布尔返回。判定不动作：模态 overlay/panel 样式与 `FeedbackDialog` 近重复（提取要连它一起改，判断类）、
+  测试里锁了几处呈现格式（AC 3 明写只断言可见行为，这些正是可见行为）、ADR 里历史读数与旧措辞不改写。
+  Spec 轴：AC 十条逐条核对成立；#11 选项 2 落地并补了回归测试；唯一措辞差异是「Pulling n / N」
+  对 AC 的「第 n 个 / 共 N 个」，属语义覆盖而非数字错误。另按先例在 ADR-0006 落地备注追加 PL 组登记。
+- 本轮学到的规矩：**配额、上限这类「硬顶」要在两个层次同时成立时，先问「被计入的是不是同一种东西」**
+  —— 原位更新与新增文件都算「一个勾选」，但对 20 个名额的消耗不同；先按种类分层，再谈封顶。
+- 遗留：① **#6 的 CI 实测**（推送后补）；② #7 刷新（`PullBatch.ref` 仍无读取点）；③ #9（P3/P4 +
+  `audit:egress` 扩扫）；④ #8 顶栏常驻拉取入口；⑤ #3 README 三语；⑥ `FileTabs.tsx` 死文件待删；
+ ⑦ workflow actions 升 v5；⑧ 解析层三句中文 UI 文案（#10 遗留 ⑧）仍在；⑨ **新**：多个批次同时撞
+  上限时红条只能显示第一个越线的批次（单 `error` 字段的既有形态，是否要改成逐条列出待拍板）。

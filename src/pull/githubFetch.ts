@@ -8,7 +8,7 @@
  * 限速（403 + 限速头）仍然走「稍后再试」那一句。
  */
 import { classifyFailure } from './errors';
-import type { PullOutcome, PullTransport } from './transport';
+import { pullOnce, type PullOutcome, type PullTransport } from './transport';
 import { PULL_TIMEOUT_MS } from './urls';
 import {
   GITHUB_BAD_RESPONSE,
@@ -40,20 +40,9 @@ export type GithubListingResult =
   | { ok: true; listing: GithubListing }
   | { ok: false; message: string };
 
-function crash(e: unknown): PullOutcome {
-  return {
-    ok: false,
-    observation: { type: 'crash', detail: e instanceof Error ? e.message : String(e) },
-  };
-}
-
-/** 传输外壳自己 reject 不该把整轮拉取带走：和 store 里直链那条路径一样按单文件失败处理。 */
-async function get(transport: PullTransport, url: string): Promise<PullOutcome> {
-  try {
-    return await transport.get({ url, timeoutMs: PULL_TIMEOUT_MS });
-  } catch (e) {
-    return crash(e);
-  }
+/** 传输外壳自己 reject 不该把整轮拉取带走：按单文件失败处理（与 store 共用 pullOnce 判据）。 */
+function get(transport: PullTransport, url: string): Promise<PullOutcome> {
+  return pullOnce(transport, { url, timeoutMs: PULL_TIMEOUT_MS });
 }
 
 function is404(outcome: PullOutcome): boolean {

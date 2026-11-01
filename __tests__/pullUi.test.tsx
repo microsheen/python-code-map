@@ -5,10 +5,13 @@
  * 来源 URL 与拉取时刻。样式与布局不进断言（那是冒烟截图的活）。
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { PullListingDialog } from '../src/components/PullListingDialog';
 import { UploadPanel } from '../src/components/UploadPanel';
 import { TopBar } from '../src/components/TopBar';
-import { useAppStore } from '../src/state/store';
+import { MAX_FILES, useAppStore } from '../src/state/store';
 import type { AppStore } from '../src/state/store';
+import { MAX_FILE_SIZE } from '../src/parser/analyze';
+import type { GithubListing } from '../src/pull/github';
 
 const INITIAL = useAppStore.getState();
 
@@ -186,6 +189,146 @@ describe('顶栏文件标签：拉取文件的来源可读', () => {
     expect(screen.queryByTestId('pull-origin-thing.py')).not.toBeNull();
     expect(screen.queryByTestId('pull-origin-pull-thing.py')).toBeNull();
     expect(screen.getAllByTestId('chip-pull-thing.py')).toHaveLength(1);
+  });
+});
+
+describe('勾选清单模态（issue #6）', () => {
+  const listing: GithubListing = {
+    sourceUrl: 'https://github.com/o/r/tree/main/pkg',
+    owner: 'o',
+    repo: 'r',
+    ref: 'main',
+    dir: 'pkg',
+    entries: [
+      { path: 'pkg/a.py', sessionPath: 'o/r/pkg/a.py', size: 120, selectable: true },
+      { path: 'pkg/b.pyi', sessionPath: 'o/r/pkg/b.pyi', size: 2048, selectable: true },
+      {
+        path: 'pkg/huge.py',
+        sessionPath: 'o/r/pkg/huge.py',
+        size: MAX_FILE_SIZE + 1,
+        selectable: false,
+      },
+    ],
+  };
+
+  function presetListing(): void {
+    preset({ pullListing: listing });
+  }
+
+  it('清单为空时整块不渲染', () => {
+    preset({ pullListing: null });
+    render(<PullListingDialog />);
+    expect(screen.queryByTestId('pull-listing-dialog')).toBeNull();
+  });
+
+  it('每项显示体积；超 1MB 的条目置灰不可选', () => {
+    presetListing();
+    render(<PullListingDialog />);
+
+    expect(screen.getByTestId('pull-listing-row-pkg/a.py').textContent).toContain('120 B');
+    expect(screen.getByTestId('pull-listing-row-pkg/b.pyi').textContent).toContain('2.0 KB');
+    expect(screen.getByTestId('pull-listing-size-pkg/huge.py').textContent).toContain('over 1 MB');
+    expect((screen.getByTestId('pull-listing-check-pkg/huge.py') as HTMLInputElement).disabled).toBe(
+      true
+    );
+    expect((screen.getByTestId('pull-listing-check-pkg/a.py') as HTMLInputElement).disabled).toBe(
+      false
+    );
+  });
+
+  it('界面显示当前剩余配额，勾选数量以它封顶', () => {
+    const files = Array.from({ length: MAX_FILES - 1 }, (_, i) => ({
+      path: 'local/f' + i + '.py',
+      name: 'f' + i + '.py',
+      content: 'def f' + i + '():\n    pass\n',
+      lines: [],
+    }));
+    preset({ files: files as AppStore['files'], pullListing: listing });
+    render(<PullListingDialog />);
+
+    expect(screen.getByTestId('pull-listing-quota').textContent).toContain('1 of ' + MAX_FILES);
+    // 唯一一个空位被 a.py 占掉之后，其余可选项全部禁用
+    fireEvent.click(screen.getByTestId('pull-listing-check-pkg/a.py'));
+    expect(screen.getByTestId('pull-listing-quota').textContent).toContain('Selected 1');
+    expect((screen.getByTestId('pull-listing-check-pkg/b.pyi') as HTMLInputElement).disabled).toBe(
+      true
+    );
+    expect((screen.getByTestId('pull-listing-check-pkg/a.py') as HTMLInputElement).disabled).toBe(
+      false
+    );
+  });
+
+  it('关键字过滤只影响可见行，勾选集合跨过滤保留', () => {
+    presetListing();
+    render(<PullListingDialog />);
+
+    fireEvent.click(screen.getByTestId('pull-listing-check-pkg/a.py'));
+    fireEvent.change(screen.getByTestId('pull-listing-filter'), { target: { value: 'b.pyi' } });
+    expect(screen.queryByTestId('pull-listing-row-pkg/a.py')).toBeNull();
+    expect(screen.queryByTestId('pull-listing-row-pkg/b.pyi')).not.toBeNull();
+
+    // 过滤后再全选：只加可见的那些，a.py 的勾选没被抹掉
+    fireEvent.click(screen.getByTestId('pull-listing-select-all'));
+    expect(screen.getByTestId('pull-listing-quota').textContent).toContain('Selected 2');
+    fireEvent.change(screen.getByTestId('pull-listing-filter'), { target: { value: '' } });
+    expect((screen.getByTestId('pull-listing-check-pkg/a.py') as HTMLInputElement).checked).toBe(
+      true
+    );
+    expect((screen.getByTestId('pull-listing-check-pkg/b.pyi') as HTMLInputElement).checked).toBe(
+      true
+    );
+
+    fireEvent.click(screen.getByTestId('pull-listing-clear'));
+    expect(screen.getByTestId('pull-listing-quota').textContent).toContain('Selected 0');
+  });
+
+  it('过滤之后没有匹配项：给出空态文案', () => {
+    presetListing();
+    render(<PullListingDialog />);
+    fireEvent.change(screen.getByTestId('pull-listing-filter'), { target: { value: 'zzz' } });
+    expect(screen.getByTestId('pull-listing-empty').textContent).toContain('match that filter');
+  });
+
+  it('确认把勾选的仓库相对路径交给 store，没勾选时按钮不可点', () => {
+    const calls: string[][] = [];
+    preset({
+      pullListing: listing,
+      confirmPullListing: async (selected: string[]) => {
+        calls.push(selected);
+      },
+    } as Partial<AppStore>);
+    render(<PullListingDialog />);
+
+    expect((screen.getByTestId('pull-listing-confirm') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('pull-listing-row-pkg/b.pyi'));
+    expect((screen.getByTestId('pull-listing-check-pkg/b.pyi') as HTMLInputElement).checked).toBe(
+      true
+    );
+    fireEvent.click(screen.getByTestId('pull-listing-confirm'));
+    expect(calls).toEqual([['pkg/b.pyi']]);
+  });
+
+  it('拉取进行中：进度按「第 n 个 / 共 N 个」显示，按钮与关闭都禁用', () => {
+    preset({ pullListing: listing, pulling: true, pullProgress: { done: 1, total: 3 } });
+    render(<PullListingDialog />);
+
+    expect(screen.getByTestId('pull-listing-progress').textContent).toBe('Pulling 1 / 3');
+    expect((screen.getByTestId('pull-listing-confirm') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('pull-listing-cancel') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('取消只关清单，不发请求（dismissPullListing 是唯一动作）', () => {
+    const dismissed: boolean[] = [];
+    preset({
+      pullListing: listing,
+      dismissPullListing: () => {
+        dismissed.push(true);
+      },
+    } as Partial<AppStore>);
+    render(<PullListingDialog />);
+
+    fireEvent.click(screen.getByTestId('pull-listing-cancel'));
+    expect(dismissed).toEqual([true]);
   });
 });
 

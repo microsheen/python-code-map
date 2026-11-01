@@ -1669,3 +1669,6 @@ issue #7：文件标签的悬浮提示里给出「粘贴的那条来源 URL + �
 [实测] 推送 `e99bcee..d859cd1` 后 run **41290839946** —— checks ✓ 1m40s（09:55:12→09:56:52）、
 browser-smoke ✓ 45s（09:56:54→09:57:39）、deploy `-` 0s（分支 master 而生产分支 main，按设计跳过）。
 #7 验收八条至此全部有实测支撑，issue 已关闭。
+
+紧接着的 docs-only 补记提交 `d1c4668` 也跑了一轮：run **41302989438** checks ✓ 1m41s、
+browser-smoke ✓ 38s、deploy 跳过 —— master 当前 HEAD 同样全绿。

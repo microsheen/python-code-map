@@ -1672,3 +1672,47 @@ browser-smoke ✓ 45s（09:56:54→09:57:39）、deploy `-` 0s（分支 master �
 
 紧接着的 docs-only 补记提交 `d1c4668` 也跑了一轮：run **41302989438** checks ✓ 1m41s、
 browser-smoke ✓ 38s、deploy 跳过 —— master 当前 HEAD 同样全绿。
+
+## 2026-11-01 拉取 6/7 落地轮（顶栏入口与多 URL 多批次混合导入：共用粘贴对话框 + 清单队列 · 594 单测 · 113 项冒烟）
+
+#8（父 spec #2 的 6/7）。排期时原以为「多行 = 多批次」在 store 已经成立，真读下来发现缺口在两头：
+**多条仓库/目录 URL**（pullListing 单槽、后到的把先到的清单顶没了）与**整个 UI 面**
+（顶栏无入口、空态提示没提双入口）。本轮两处一起补：
+
+- **store 新增清单队列**：`pullListing` 永远是队头，新字段 `pullQueue` 只存队头之后的；
+  `confirmPullListing` 在 mergeFiles 真的生效后才顶上一条（合并被拒时清单保留、队列不丢），
+  `dismissPullListing` 无条件顶上一条；新一次粘贴整体换掉挂着的清单与队列（「上一批不看了」）。
+  `runAnalysis` 空分支与 `reset()` 清队列；`pullEntryOpen` 不进 reset —— Clear 不该把开着的对话框拍掉。
+- **UI 面**：顶栏新增常驻 `topbar-pull`（空态/有文件态同在，与上传入口同一套 busy 门控），
+  与上传面板入口开同一个新组件 `PullEntryDialog`（原生 div/textarea，开/关状态在 store，
+  AppRoot 只挂一份）；UploadPanel 的内联粘贴框整体退役，提示改为「两个入口开同一个对话框」，
+  窄事实合同句（drag anywhere / explicitly pull / never sent anywhere）原样保留。
+- **TDD 两条接缝**：store 接缝 +6（双清单排队、确认/取消顶队、混合来源各自成败、新粘贴换旧、
+  失败只进告警）；UI 接缝 +8（双入口唯一对话框、提交/取消/Escape/空粘贴/进行中禁用、顶栏门控）。
+  中途修过一个测试基建 bug：`stubPull()` 之后再 `preset()` 会把 stub 冲掉（setState replace），
+  改为 extra 与 stub 同一次 preset 落进 store。
+- **冒烟新增 PT 组 9 条**（登记进 ADR-0006 落地备注，不并进 P/PL 组）：PT1 双入口唯一对话框、
+  PT2 混合粘贴（直链成批 + 清单照弹 + 'Not a URL' 告警）、PT3 有文件态顶栏再拉一批且既有批次
+  时刻原样、PT4 同 URL 双清单取消一条顶一条、PT5 整段七张面孔（直链/trees/raw×2/直链/trees×2）
+  顺序 = 处理顺序、全程 GET 零请求体。
+- **review 两轴（fixed point = 提交前工作区 diff）**：Standards 无硬违规；Spec 抓出两个真实缺陷，
+  均按 TDD 修掉并各加一条回归 —— ① `PullEntryDialog` 旧提交的 `.then(close)` 会把「拉取途中
+  关掉又重开」的新对话框连草稿一起收掉，改为提交票据（重开作废旧票据）；② `PullListingDialog`
+  换代判据从 `sourceUrl` 改为**对象身份**（队列里同 URL 清单顶上来时勾选/过滤词也清零）。
+  判定不动作：AC4 的跨批次限额由 #11 既有双批次用例兜底（同一判据同一文案）；AC2 字面
+  「N 行 = N 批次」与 #2 既有去重语义的重合行属既有行为；store 队列三处两行近似（各带不同
+  伴随动作，抽取只省三行）。
+- 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 零输出；jest
+  **25 suites / 594 tests**（上轮 578 → +16）；smoke **113/113**（104 → +9）；
+  `audit:egress` clean。本机产物：入口 `entry-6ffef9d3….js`、
+  `index.html` 1,562 B / sha256 `f47580fba213a4454c43c3021168ad270f65456146b09e7d3c0ab2d44d3ac638`。
+- 本轮学到的规矩：**冒烟第一次跑红先看端口** —— 8099 被上一轮残留的静态服务占着时，
+  「复用已有服务」会把桩侧记账留在另一个进程里，请求面八条全红但 CDP 侧全绿，
+  杀掉残留进程复跑即绿，这类红不要先改断言。
+- 遗留：与之前各轮同（①–⑩），无新增；**#8 的 CI 实测**待推送后补记。
+
+## 2026-11-01 #8 CI 实测补记（run 41309550390 三 job：checks 绿 · browser-smoke 绿 · deploy 按设计跳过）
+
+[实测] 推送 `9f9444e..eeaf73f` 后 run **41309550390** —— checks ✓ 1m19s（13:05:25→13:06:44）、
+browser-smoke ✓ 49s（13:06:46→13:07:35）、deploy `-` 0s（分支 master 而生产分支 main，按设计跳过）。
+#8 验收七条至此全部有实测支撑，issue 已关闭。

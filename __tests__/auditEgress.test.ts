@@ -104,6 +104,18 @@ describe('package.json 的 audit:egress 配置（#9）', () => {
     );
   });
 
+  /**
+   * 上面那条 `arrayContaining` 只守「列出来的还在」，守不住「新增的没漏」：
+   * 往 `src/pull/` 加一个模块而忘了进 `--files`，审计门会**静默不扫**它 —— 静默跳过的守卫比红灯更糟。
+   * 所以这里反过来数目录：目录里有几个 .ts，扫描范围里就得有几个。
+   */
+  it('src/pull/ 下的每个模块都在扫描范围内（新增一个也不会漏扫）', () => {
+    const files = (cmd.match(/--files=(\S+)/)?.[1] ?? '').split(',');
+    const modules = fs.readdirSync(path.join(ROOT, 'src/pull')).filter((n) => n.endsWith('.ts'));
+    expect(modules.length).toBeGreaterThan(5);
+    for (const n of modules) expect(files).toContain('src/pull/' + n);
+  });
+
   it('两处放行按文件申报，没有全局 --allow-token（否则联系路径的保证会被一起放开）', () => {
     expect(cmd).toContain('--allow-egress=src/platform/web/pullFetch.ts:fetch');
     expect(cmd).toContain('--allow-egress=src/components/TopBar.tsx:navigator.clipboard');

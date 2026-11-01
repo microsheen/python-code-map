@@ -124,7 +124,8 @@ describe('上传面板提示：新口径，旧宣称零残留', () => {
    * "nothing leaves the browser until you do" 是**限定式**的（外发以用户动作为条件），今天为真、
    * 也不属于被撤回的那一档，不该一刀切禁掉；该禁的是不带任何限定的同款说法。所以改成：扫全部
    * /leaves the browser/，要求每一处都带着用户动作限定。
-   * 记账给 #9：拉取落地后 FeedbackDialog 那句「页面对外只有你点的 href」不再为真，要一并重写。
+   * #9 已收口：FeedbackDialog 那句改成「本面板」口径（"from this panel until you do"），限定仍在，
+   * 断言继续生效；README 三语的反馈章节同步改成「面板 ≠ 页面」。
    */
   it('整个 src/ 里没有不带限定的「东西不会离开浏览器」式全称宣称', () => {
     const unqualified = sourceFiles(path.join(ROOT, 'src')).flatMap((f) =>
@@ -246,5 +247,27 @@ describe('browser-verify：E1–E5 从「承诺证明」降级为「默认行为
   it('E7 / E8 仍然是承诺（内容不外发、生产 CSP 下零违规），没被一起降级掉', () => {
     expect(labelOf('E7')).toContain('URL 里没有用户内容');
     expect(labelOf('E8')).toContain('生产 CSP 下零违规');
+  });
+});
+
+/**
+ * 组名去重（issue #9）。ADR-0006 决策 4 的「F 组」是拉取面取证（脚本里叫 P），图标链路曾叫 F1/F2。
+ * 重名让「F 组」在脚本与文档里指两样东西，所以 #9 把**图标那组**改名 IC；ADR 正文里的 F 组
+ * 按 ADR 落地备注的对照表读成 P。这里钉住改名结果，防止哪天又漂回去。
+ */
+describe('组名去重（#9）：图标链路叫 IC，脚本里没有叫 F 的断言组', () => {
+  const src = read('scripts/browser-verify.mjs');
+
+  it('IC1 / IC2 两条标签在脚本里', () => {
+    expect(src).toContain("'IC1 ");
+    expect(src).toContain("'IC2 ");
+  });
+
+  it('没有任何 check(\'F<n> …) 形状的标签（图标组不再与 ADR 的 F 组重名）', () => {
+    expect(src).not.toMatch(/check\(\s*'F[0-9]/);
+  });
+
+  it.each(['README.md', 'README.zh-CN.md', 'README.ja.md'])('%s 的冒烟组表里图标那行写的是 IC', (file) => {
+    expect(read(file)).toMatch(/\| IC (icon chain|图标链路|アイコン連鎖)\s*\|/);
   });
 });

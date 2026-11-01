@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
  *   - 目录段本身打错（锚点目录不存在时整条跳过，否则 React Native 内部的 `View/index.js`
  *     这类第三方路径会天天报假阳性）；
  *   - **专名**歧义（例如冒烟脚本的 F 组曾是图标链路、ADR-0006 的 F 组是拉取面，后者 2026-10-30
- *     落地为 P 组）—— 那是语义冲突，
+ *     落地为 P 组、图标那组 #9 改名 IC）—— 那是语义冲突，
  *     不是路径问题，归 CODING_STANDARDS.md 管。
  *
  * 扫描用 `git ls-files -z` 而不是走目录树：只查**已提交**的文件，未入版本库的草稿不会把门弄红。
@@ -81,5 +81,47 @@ describe('已提交文档里的仓库路径', () => {
    */
   it('扫描器没有空转：本轮实际核对了 200 条以上路径字面量', () => {
     expect(checked).toBeGreaterThan(200);
+  });
+});
+
+/**
+ * 部署后校验的路径集（issue #9 AC5、ops §8）。
+ *
+ * 探针只证明它列出来的东西：漏一条，线上那一条就没有「被测字节 == 上线字节」的证据。
+ * 拉取功能本轮不新增页面或静态资源，所以上面那 11 条必须仍然覆盖 `public/` 的每个可请求资源。
+ * 反过来，`/index.html` 与 Pages 的 SPA 回退名（`/sw.js`、`/manifest.webmanifest`）**不能**进去：
+ * 前者 308 不跟随会打成假阳性，后两者本仓不存在、答的是 index.html 的字节，属空断言。
+ */
+describe('部署探针覆盖（#9 · ops §8）', () => {
+  const ops = fs.readFileSync(path.join(ROOT, 'docs/ops-deployment.md'), 'utf8');
+  const raw = ops.split(/\r?\n/).find((l) => l.trim().startsWith('--paths='));
+  if (!raw) throw new Error('docs/ops-deployment.md §8 里找不到 --paths= 那一行');
+  const paths = raw
+    .replace(/^\s*--paths=/, '')
+    .replace(/\\$/, '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  it('public/ 里每个可请求资源（图标四件 + svg 主档 + robots.txt）都在探针集里', () => {
+    const assets = fs
+      .readdirSync(path.join(ROOT, 'public'))
+      .filter((n) => /\.(svg|ico|png|txt)$/.test(n))
+      .map((n) => '/' + n);
+    expect(assets.length).toBeGreaterThan(4);
+    for (const a of assets) expect(paths).toContain(a);
+  });
+
+  it('两个 wasm 与入口 / empty-module 占位都在', () => {
+    expect(paths).toContain('/wasm/tree-sitter.wasm');
+    expect(paths).toContain('/wasm/tree-sitter-python.wasm');
+    expect(paths.some((p) => p.includes('/_expo/static/js/web/entry-'))).toBe(true);
+    expect(paths.some((p) => p.includes('/_expo/static/js/web/empty-module-'))).toBe(true);
+  });
+
+  it('不含 /index.html、/sw.js、/manifest.webmanifest（前者假阳性、后两者空断言）', () => {
+    expect(paths).not.toContain('/index.html');
+    expect(paths).not.toContain('/sw.js');
+    expect(paths).not.toContain('/manifest.webmanifest');
   });
 });

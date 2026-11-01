@@ -1726,3 +1726,52 @@ browser-smoke ✓ 49s（13:06:46→13:07:35）、deploy `-` 0s（分支 master �
 与新粘贴换掉挂起清单的「上一批不看了」语义，均已记录在案。门禁实测：tsc 0 错、eslint 0、
 jest **25 suites / 595 tests**（594 → +1）；无产品代码改动，dist 与冒烟不受影响。
 [实测] run **41315244257**（`c944606..64e75f9`）checks/browser-smoke 全绿。
+
+## 2026-11-01 拉取 7/7 门禁收口轮（F 组四条 = P1/P2/P2b/P3/P4 · 审计按文件申报 · 611 单测 · 113 项冒烟）
+
+本轮把 issue #9 的八条 AC 全部落成「可复读的读数」，产品行为只动了两句文案。
+
+**改了什么**
+
+- 组名去重：`browser-verify.mjs` 的图标链路 F1/F2 → **IC1/IC2**。不选单字母 `I`，因为「边 → 调用点」
+  组已占 I1–I9（起名前全仓 grep）；ADR 正文的「F 组」是历史名，按 ADR-0006 新追的 #9 对照表读成
+  P1/P2/P2b/P3/P4。README 三语、ops §1/§4/§8、CODING_STANDARDS、docPaths 注释同步。
+- 外发审计扩扫：`scripts/audit-egress.mjs` 新增 `--allow-egress=<file>:<substr>`（按文件申报；
+  申报了未扫描文件 exit 2）；`audit:egress` 扫描范围从联系路径 3 文件扩到联系路径 + 拉取模块
+  共 15 文件，拉取传输层 `fetch(` 与 TopBar `navigator.clipboard` 各按文件申报，保留 `--require-href`。
+- 文案口径：`FeedbackDialog` 头注与 intro、README 三语反馈章节、ops §1/§9 从「页面」改成「面板」；
+  「页面整体另一处外发只有你自己发起的拉取（ADR-0006）」写进括注。`leaves the browser` 断言的
+  `until you do` 限定仍在，继续生效。
+- 门禁补强：新增 `__tests__/auditEgress.test.ts`（申报只对本文件生效 / 未申报照红 / 空转申报 exit 2 /
+  package.json 不含全局 `--allow-token`）；`promiseSurface` 加组名去重断言；`docPaths` 加 ops §8
+  探针覆盖断言（`public/` 每个可请求资源都在 `--paths`，且不含 `/index.html`、`/sw.js`、
+  `/manifest.webmanifest`）。
+- 归档四张勾选清单关键帧 `pull-06-listing / 07-selected / 08-listing-filtered / 09-listing-pulled.png`
+  到 `docs/screenshots/pull/`（同一轮冒烟产出）。
+
+**没改什么**：拉取逻辑、冒烟断言条数（上一轮已 113）、`public/_headers`、产物结构均未动；
+本轮不发布，所以 AC5/AC6 的「被测字节 == 上线字节 / 声明 == 生效」仍顺延到下一次 main 发布（ops §8 已写明）。
+
+**门禁实测**
+
+[实测] 2026-11-01 本机：
+
+- `npm run typecheck` → exit 0（`tsc --noEmit`）
+- `npm run lint` → exit 0（`--max-warnings=0`，0 error / 0 warning）
+- `npm test` → **26 suites / 611 tests** 全过
+- `npm run export` → entry `2eeb47ec…`，`index.html` 1562B，sha256 `9bbae1a5…`
+- `npm run smoke` → **113/113 PASS**，exit 0（IC1/IC2、P0/PU/P/PG/PL/PT、E1–E8、G1–G6、H1–H6 全在）
+- `npm run audit:egress` → scanned 15 file(s)，2 条 ALLOWED（`pullFetch.ts:97` `fetch(`、
+  `TopBar.tsx:172` `navigator.clipboard`），OK，exit 0
+
+**CI**：本轮提交后追加一条「#9 CI 实测补记」，run id 与逐 job 结论写在那里。
+
+**学到的一条**：专名冲突时先问「这个名字写进决策文本了没有」——写进去的那一方属于历史（不改写），
+该改的是还在脚本/文档里活着的那一方；改前把候选的每个单字母/编号都 grep 一遍（`I` 就是被 I1–I9 挡住的）。
+
+**遗留**
+
+1. 生产发布仍按「main 单提交覆盖」专线另行执行：那时才验 AC5「被测字节 == 上线字节」与
+   AC6「生效 CSP 已是 `connect-src 'self' https:`」（ops §8）。
+2. 未跟踪 `git-flow-zh/`（4 张 PNG）与本项目无关，未提交。
+3. `pullUi.test.tsx` 的遮罩点击用例与 ADR #8 补记已在 #8 收口轮提交（`64e75f9`），本轮不重复。

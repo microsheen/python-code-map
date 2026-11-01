@@ -12,7 +12,7 @@
 | 无第三方代码 | 产物 HTML 里**零个** `https?://`（含被剥掉的注释）；线上新增第三方引用按 counted finding 处理 | `polish-dist.mjs` + `check-deploy.mjs` |
 | 没有服务端存储 | 托管是 Direct Upload 的纯文件站点，没有 Functions / KV / D1 / DO | 选平台时就决定了 |
 | 会话只在你机器上 | 写本机 IndexedDB（`code-map` / `session` / `current`），Clear 即删 | ADR-0001 Amendment |
-| 页面对外的动作只有**用户点的 `href`** | 无 fetch / beacon / `<form>` / 剪贴板写入：`audit-egress.mjs` 逐字扫那三个文件（注释也算）+ jest 金丝雀 + 冒烟 G2「开→关请求数不变」 | CI blocking 步骤 `npm run audit:egress`（`checks` job） |
+| 反馈面板对外的动作只有**用户点的 `href`**（页面整体另一处外发是用户自己发起的拉取，见 ADR-0006，不属于面板） | 无 fetch / beacon / `<form>` / 剪贴板写入：`audit-egress.mjs` 逐字扫联系路径那三个文件 **与拉取模块**（注释也算），拉取传输层那一条 `fetch(` 与顶栏用户点击才发生的剪贴板写入按文件申报 + jest 金丝雀 + 冒烟 G2「开→关请求数不变」 | CI blocking 步骤 `npm run audit:egress`（`checks` job） |
 
 第三条是"host 物理上没有写的能力"，比任何"我们不会滥用"的承诺都强。代价是必须能设响应头，
 所以 GitHub Pages 出局（它不能设 CSP）。
@@ -23,7 +23,8 @@
 「承诺证明」降级为「默认行为基线」—— 主冒烟里没有任何拉取动作，所以它们仍然必须全绿；拉取面另有一组断言
 （ADR-0006「回归基线」，落地时改名 **P 组**）。重名怎么解的、改名方向为什么那么选，全文只写在
 `docs/adr/0006-url-pull-egress.md` 的落地备注里；这里只留读法：**「E/P 组是外发防线」** —— E 组是
-默认行为基线，P 组是拉取面取证。`__tests__/promiseSurface.test.tsx` 把这条口径钉住：README 三语里
+默认行为基线，P 组是拉取面取证。**自 #9 起图标链路改名为 IC 组（IC1/IC2）**：脚本与 README 里不再有
+叫 F 的断言组，ADR 正文里的「F 组」按 ADR 落地备注的对照表读成 P 组。`__tests__/promiseSurface.test.tsx` 把这条口径钉住：README 三语里
 被撤回的宣称零残留（含本轮真犯过的那三个整行旧标签）、窄事实一条不少、E1–E5 带着「默认行为基线」
 这个限定且 E6–E8 仍然被写成承诺。
 
@@ -228,6 +229,10 @@ npm run smoke  -> 41/41 PASS，退出码 0（比上轮多 F1/F2 两项图标链�
 同日补注：图标母版在 2026-10-14 内又改版一次（v3 单笔 S 形 -> v4 四色实心节点 + 三条连线，即现行版），
 四个派生物字节数随之变为 3005 / 5500 / 5680 / 16197 B，但文件名、缓存档、上面 9 个请求集与
 `index.html` 的 sha 均未变 —— 注入写进去的只是固定 href，与图标字节无关。
+
+**名字对照（#9，不改写上面的历史读数）**：以上两段 [实测] 里的「F 组 / F1/F2」是当时的组名，
+自 #9 起改叫 **IC 组 / IC1/IC2**（拉取面取证那条「F 组」在脚本里本来就叫 P）。读老日志时按这张表换，
+不要以为断言消失。
 
 **[实测] 2026-10-15 反馈轮基线（请求集与 sha 取代上面两次）**
 
@@ -461,6 +466,12 @@ node <skill>/scripts/check-deploy.mjs \
 是"声明 == 生效"最容易漏验的两条（§5 的 zone TTL 覆写对它们同样成立），而且改 `_headers`
 的图标档之后只有逐路径核对才能发现线上没跟上。
 
+**拉取功能落地（#9）不新增页面或静态资源**：拉取面只改 `src/` 与 `_headers` 的 `connect-src`，
+产物里没有新的 html/js chunk/图片路径，所以上面那 11 条 `--paths` 仍是全覆盖（入口与
+empty-module 的哈希每轮重取）。本轮同样**不发布**，因此「声明 == 见效」的判据依旧顺延到下一次
+走 main 的单提交发布：那一次除 11 路径 × 2 host 之外，还必须逐 host 比对生效 CSP 已是
+`connect-src 'self' https:`（判据见下一段，§5 同样适用）。
+
 **改了 `_headers` 的那一轮，`--paths` 之外还要单独核对生效的 CSP。** 判据（全仓只写这一份）：逐 host 把
 `content-security-policy` 抓回来，和**当轮** `dist/_headers` 逐字比对 —— §5「声明 ≠ 生效」对安全头同样成立，
 不能只比 `/` 一个路径。
@@ -488,8 +499,9 @@ DNS、证书、部署 —— 是**验证机上面的中间设备**替 Cloudflare
 ## 9. 反馈渠道（已实现；邮件别名门控关闭中）
 
 **[实测] 2026-10-15 已落地**：顶栏 `Feedback` → 只读面板 → **两枚由用户点击的 `<a href>`**
-（GitHub Issues + mailto 别名），携带一份白名单 8 字段、只有计数的诊断文本。页面自己发不出
-任何东西：没有 `fetch` / beacon / `<form>` / `window.open` / 剪贴板写入。理由与取舍见
+（GitHub Issues + mailto 别名），携带一份白名单 8 字段、只有计数的诊断文本。**反馈面板自己发不出
+任何东西**：没有 `fetch` / beacon / `<form>` / `window.open` / 剪贴板写入（页面整体另一处外发
+只有用户自己发起的拉取，见 ADR-0006，不属于这个面板）。理由与取舍见
 ADR-0003；代码在 `src/feedback/contact.ts`（规则层）与 `src/components/FeedbackDialog.tsx`（面板）。
 
 **Email Routing 目前是「未开通」**（[实测] 2026-10-15：本机无 Cloudflare 凭据、无 `wrangler`，

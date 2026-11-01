@@ -154,10 +154,11 @@ npm run web          # 启动 dev server 并打开浏览器（默认 http://loca
 
 ## 反馈渠道
 
-顶栏的 `Feedback` 打开一个只读面板。**页面对外只有两枚链接**：GitHub Issues 与邮件别名，
-两枚都是普通 `<a href>` —— 只有你点下去才会发生事。没有 `fetch`、没有 beacon、没有 `<form>`、
-没有 `window.open`、不写剪贴板。理由是：反馈是全站唯一一个天生要「往外搬信息」的功能，
-也就是「代码内容从不被发往任何地方」那条承诺唯一真正的反例风险，所以它被做成「页面上根本发不出东西」的形状。
+顶栏的 `Feedback` 打开一个只读面板。**反馈面板对外只有两枚链接**：GitHub Issues 与邮件别名，
+两枚都是普通 `<a href>` —— 只有你点下去才会发生事。面板自己不发起 `fetch`、不发 beacon、
+没有 `<form>`、没有 `window.open`、不写剪贴板（页面整体的另一处外发只有你自己发起的拉取，
+见 ADR-0006，不属于这个面板的承诺）。理由是：反馈是全站唯一一个天生要「往外搬信息」的功能，
+也就是「代码内容从不被发往任何地方」那条承诺唯一真正的反例风险，所以它被做成「面板上根本发不出东西」的形状。
 
 | 渠道 | 隐私 | 说明 |
 | --- | --- | --- |
@@ -181,10 +182,13 @@ build / ua / files / funcs / edges / unresolved / warnings / persisted
 
 三道闸门把上面那句话变成事实，而不是靠 review 自觉：
 
-1. `npm run audit:egress`（CI `checks` 里的 blocking 步骤）逐字读 `src/feedback/contact.ts`、
-   `src/components/FeedbackDialog.tsx`、`src/platform/web/buildStamp.ts`：出现任何请求原语
-   （`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …）或任何未公开的邮箱字面量就红 ——
-   **注释里也算**，因为它是纯文本匹配。
+1. `npm run audit:egress`（CI `checks` 里的 blocking 步骤）逐字读联系路径
+   （`src/feedback/contact.ts`、`src/components/FeedbackDialog.tsx`、`src/platform/web/buildStamp.ts`）
+   **与拉取模块**（`src/pull/*`、`src/platform/web/pullFetch.ts`、两个拉取对话框、`TopBar.tsx`）：
+   出现任何请求原语（`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …）或任何未公开的
+   邮箱字面量就红 —— **注释里也算**，因为它是纯文本匹配。拉取传输层唯一那一处 `fetch(` 与顶栏
+   用户点击才发生的剪贴板写入按**文件**申报（`--allow-egress=<file>:<token>`），所以放行它们
+   不会顺带把联系路径「没有任何请求原语」这条保证一起放开。
 2. jest 金丝雀：把塞满显眼秘密的诊断来源喂进去，断言它们在文本、Issues href、mailto 三种输出里
    一个都不出现。
 3. 冒烟 G1–G6：真 headless Chrome 里开→关整个来回，断言**请求数一个都没多**，并且面板真的
@@ -258,7 +262,7 @@ Chromium 就能跑。
 
 ```bash
 npm run export                  # 先产出 dist/
-node scripts/browser-verify.mjs # 75 项断言（含 16 项 E/F/G 基线与契约、22 项边 → 调用点），全绿退出码 0
+node scripts/browser-verify.mjs # 113 项断言（含 E 基线与契约、IC 图标链路、P/PT 拉取面、G 反馈面板、H 主题、22 项边 → 调用点），全绿退出码 0
 ```
 
 脚本自己起一个静态服务器托管 `dist/`，并把 `dist/_headers` 里的规则原样套到每个响应上
@@ -278,7 +282,8 @@ node scripts/browser-verify.mjs # 75 项断言（含 16 项 E/F/G 基线与契�
 | 稳定性       | 控制台无 error、页面无未捕获异常                                                                        |
 | S 产物一致性 | 服务端返回的字节 == `dist/index.html` 的字节（sha256 相同）；响应头里真的带着 `_headers` 的 CSP；产物 HTML 里零绝对 URL |
 | E 请求与 CSP | 分两档（ADR-0006）。**E1–E5 是默认行为基线** —— 冒烟里没有任何拉取动作，所以它们必须成立：全部请求同源 / 全部 GET / 零请求体 / 无 4xx·5xx / 每个 200 都对应 `dist/` 里真实存在的文件。**E6–E8 是承诺** —— 与有没有拉取无关：跑的就是 `dist` 那个入口 JS / URL 里没有用户内容 / 生产 CSP 下零 `securitypolicyviolation` |
-| F 图标链路   | `<head>` 里真有注入的四个图标 link；每个 href 都能当 `<img>` 解码（同源 + CSP `img-src` + MIME 全对） |
+| IC 图标链路  | `<head>` 里真有注入的四个图标 link；每个 href 都能当 `<img>` 解码（同源 + CSP `img-src` + MIME 全对） |
+| P / PT 拉取面 | 拉取场景全部打在**本地同源桩**上（base URL 覆盖只在回环源生效，CI 因此不依赖外网、也不吃 GitHub 匿名限速）：ADR-0006 的四条基线在主冒烟里成立 —— 全程 GET、请求体恒空；每个出站 URL 都能由用户输入确定性推导；拉取完成后的静默期**零**新请求；刷新只重放本批。多 URL 混合粘贴与清单排队（直链 + 目录 + 非法行、一次两条）整段请求面按处理顺序逐条对账 |
 | G 反馈面板   | 顶栏入口开得出面板、且面板**真浮在最上面**（关闭按钮中心的命中测试就是它自己）；开→关整个来回**请求数一个都没多**；诊断块恰好 8 行、第 i 行是第 i 个白名单字段、`build` == 被测入口哈希前 8 位；计数与页面上真实渲染的数字自洽；`<a>` 数 == 门控期望且 Issues 锚点 `target`/`rel` 正确 |
 | H 主题       | 首访 = 默认主题（54 条变量逐条 == 源码调色板、`theme-color` 与壳层 `<style>` 同字面 hex、localStorage 无偏好键）；`Theme` 面板开得出且**真浮在最上面**、六行按 `THEME_ORDER`、预览块是各主题的字面 rgb（零 `var(`）；切到 GitHub Light 后 `<html>` 变量 / `app-root` 计算背景 / `theme-color` / `color-scheme` / localStorage 五处同时变，**请求总数一个都没多**；写在 SVG 表现属性上的 `fill="var(--cm-node-fill)"` 真浏览器算得出 rgb；刷新后不点任何东西仍是亮色且新文档零 CSP 违规；切回默认全部复原 |
 
@@ -290,9 +295,11 @@ node scripts/browser-verify.mjs # 75 项断言（含 16 项 E/F/G 基线与契�
 | `CODEMAP_CDP_PORT` | `9333`   | Chrome 远程调试端口                                                |
 | `CHROME_PATH`      | 自动探测 | 浏览器可执行文件路径（Windows / macOS / Linux 常见位置都会试一遍） |
 
-截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`、`11-edge-callsite.png`（I 组期间落的图）、`07-feedback-panel.png`、
+截图（`codemap-shots/01-initial.png` … `06-deep-crossfile.png`、拉取面 `pull-01-form.png` … `pull-12-second-batch.png`、`11-edge-callsite.png`（I 组期间落的图）、`07-feedback-panel.png`、
 `08-theme-panel.png`、`09-theme-light.png`、`10-theme-default-restored.png`）与 JSON 报告
-（`codemap-verify-report.json`）都写在系统临时目录，不入库。跑完脚本会关掉自己起的服务器。
+（`codemap-verify-report.json`）都写在系统临时目录，不入库。例外是勾选清单的四张关键帧 ——
+`pull-06-listing.png`、`pull-07-selected.png`、`pull-08-listing-filtered.png`、`pull-09-listing-pulled.png` ——
+它们随同一次运行生成，并归档在仓库的 `docs/screenshots/pull/` 下。跑完脚本会关掉自己起的服务器。
 
 ## 站点图标
 
@@ -307,7 +314,7 @@ checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 p
 图标配色只允许来自 `src/theme.ts` 的**默认主题**（`__tests__/icons.test.ts` 锁死这条不变量）。
 界面有 6 套主题，图标和品牌色没有：切主题时图标**不动**（品牌固定），只有地址栏的
 `theme-color` 跟随当前主题；headless Chrome 不抓 `<link rel="icon">`，所以冒烟里用 `<img>`
-主动把每个注入 href 拉一遍（F 组），这些请求同样被 E 组的基线断言 E1/E2/E4/E5 覆盖。
+主动把每个注入 href 拉一遍（IC 组），这些请求同样被 E 组的基线断言 E1/E2/E4/E5 覆盖。
 
 ## 命令
 
@@ -322,7 +329,7 @@ checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 p
 | `npm run format`                  | prettier 写入                                           |
 | `npm run verify`                  | typecheck + lint + test，提交前跑这个                   |
 | `npm run icons`                   | 从 `public/icon.svg` 重生成 ico / 180 / 192 / 512 栅格档  |
-| `npm run audit:egress`            | 静态扫描联系路径那三个文件：出现请求原语或未公开邮箱字面量就红（CI blocking） |
+| `npm run audit:egress`            | 静态扫描联系路径 + 拉取模块：出现请求原语或未公开邮箱字面量就红；拉取传输层的 `fetch(` 与顶栏剪贴板写入按文件申报（CI blocking） |
 | `npm run smoke`                   | 真 Chrome + CDP 自动化验收（先 `npm run export`）        |
 | `npm run serve:dist`              | 托管 `dist/` 并回放 `_headers`，服务一直挂着 —— 用浏览器手工核对生产 CSP 与缓存档（dev server 不套 `_headers`，在 dev 上验头等于没验）；不跑断言 |
 | `node scripts/browser-verify.mjs` | 同上，直接跑脚本                                        |

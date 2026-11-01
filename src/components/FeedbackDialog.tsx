@@ -2,7 +2,8 @@
  * 反馈面板：受控展示组件。不写 store，也不订阅 store ——
  * 解析失败、恢复出旧会话这些降级态里，它同样必须能渲染（盯着旧版本看的人最需要报 bug）。
  *
- * 对外动作只有下面这两枚 a 的 href：页面自己不发起任何请求。诊断原料的白名单、
+ * 对外动作只有下面这两枚 a 的 href：面板自己不发起请求（页面级的唯一其它外发是用户显式发起的
+ * 拉取，见 ADR-0006；那是别的模块，不属于本面板的承诺）。诊断原料的白名单、
  * 计数化、长度上限全部收口在 src/feedback/contact.ts；本文件同样被
  * scripts/audit-egress.mjs 逐字扫描（注释也算），所以这里不出现任何请求原语。
  *
@@ -257,8 +258,8 @@ export function FeedbackDialog(props: FeedbackDialogProps): ReactNode {
 
         <div style={bodyStyle}>
           <div style={introStyle} data-testid="feedback-intro">
-            This page cannot send anything by itself. The only outward action is a link you click
-            below - nothing leaves the browser until you do.
+            This feedback panel cannot send anything by itself. Its only outward actions are the
+            links you click below - nothing leaves the browser from this panel until you do.
           </div>
 
           <div data-testid="feedback-lines">

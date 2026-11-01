@@ -2819,7 +2819,10 @@ async function main() {
     'before=' + reqsBeforeEdge + ' after=' + netRequests.size
   );
 
-  // ---- F：注入进 <head> 的图标必须在真浏览器 + 真 CSP 下真的能加载 ----
+  // ---- IC：注入进 <head> 的图标必须在真浏览器 + 真 CSP 下真的能加载 ----
+  // 组名从 F 改成 IC（issue #9）：ADR-0006 决策 4 的 F 组是**拉取面取证**，同一份 run 里两组同名
+  // 会让「F 组全绿」无法从字面判断说的是哪一组。没选单字母 I 是因为它已被边/调用点那组占用
+  // （见上方 I 组的 I1–I9），起名之前全仓 grep 过一遍（CODING_STANDARDS「专名先 grep」）。
   // headless Chrome 不抓 <link rel="icon">（标签页图标属于浏览器 UI，不在无头渲染路径上），
   // 所以 E1-E8 的请求集里天然没有 /icon.svg。这里用 <img> 把每个注入 href 主动拉一遍：
   // 请求同样进 netRequests，于是 E1/E2/E4/E5 顺带覆盖图标 —— 同源、GET、200、且是 dist 真文件；
@@ -2847,14 +2850,14 @@ async function main() {
   );
   note('icon link probe', iconProbe);
   check(
-    'F1 <head> 里真有注入的四个图标 link（svg 主档 + ico 兜底 + 192 + apple-touch）',
+    'IC1 <head> 里真有注入的四个图标 link（svg 主档 + ico 兜底 + 192 + apple-touch）',
     JSON.stringify(iconProbe.links) ===
       JSON.stringify(['/icon.svg', '/favicon.ico', '/icon-192.png', '/apple-touch-icon.png']),
     JSON.stringify(iconProbe.links)
   );
   const iconBroken = (iconProbe.results || []).filter((r) => !r.loaded);
   check(
-    'F2 每个注入 href 都能当 <img> 解码（同源 + CSP img-src + MIME 全对）',
+    'IC2 每个注入 href 都能当 <img> 解码（同源 + CSP img-src + MIME 全对）',
     iconBroken.length === 0,
     iconBroken.map((r) => r.href).join(', ') || 'ok'
   );

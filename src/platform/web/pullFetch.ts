@@ -7,10 +7,10 @@
  * 它依赖浏览器语义（TypeError、opaque 响应、AbortController），所以由真浏览器冒烟整体覆盖，
  * 不写 jsdom 单测（jsdom 里 typeof fetch === 'undefined'，测了也是在测 polyfill）。
  *
- * 外发申报：这里的 fetch 就是 ADR-0006 决策 4 说的那个「以 --allow-token 显式申报的合法外发点」。
- * 本轮（issue #4）还没把本文件加进 npm run audit:egress 的扫描范围 —— 那是 issue #9「外发审计扩扫」
- * 的活；提前加会连带需要放宽 --allow-token，而那个参数是全局的，一放宽就把 contact.ts
- * 「没有任何请求原语」这条既有保证一起放掉了。#9 需要的是按文件申报的能力。
+ * 外发申报：这里的 fetch 就是 ADR-0006 决策 4 说的那个显式申报的合法外发点。
+ * 申报方式在 issue #9 落地为**按文件**的 --allow-egress（见 package.json 的 audit:egress，
+ * 扫描器在 scripts/audit-egress.mjs）：文件级 token 只对申报的这一份文件生效。
+ * 不用全局 --allow-token —— 那个参数一放宽，contact.ts「没有任何请求原语」这条既有保证会一起放掉。
  */
 import { isRateLimited } from '../../pull/errors';
 import type { PullFailureObservation } from '../../pull/errors';

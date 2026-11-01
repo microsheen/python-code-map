@@ -1775,3 +1775,22 @@ jest **25 suites / 595 tests**（594 → +1）；无产品代码改动，dist �
    AC6「生效 CSP 已是 `connect-src 'self' https:`」（ops §8）。
 2. 未跟踪 `git-flow-zh/`（4 张 PNG）与本项目无关，未提交。
 3. `pullUi.test.tsx` 的遮罩点击用例与 ADR #8 补记已在 #8 收口轮提交（`64e75f9`），本轮不重复。
+
+## 2026-11-01 #9 CI 实测补记（首个 run 在审计步骤红 · 修 sh 元字符后三 job 全绿 · deploy 按设计跳过）
+
+[实测] **run 41345929495**（`acaff0c..de3f3fa`）checks 在「Contact path cannot send anything」这一步
+红，exit code **2**（用法错，不是 finding）。本地 `npm run audit:egress` 是绿的，差别在 shell：
+npm 在 Linux 把 script 交给 `sh -c`，`--allow-egress=src/platform/web/pullFetch.ts:fetch(` 里那个
+**未加引号的 `(`** 被当成子 shell 的开头，报 `Syntax error: "(" unexpected`；Windows 的 cmd.exe
+照传，所以只在 CI 现形。修法是把申报串降到 `--allow-egress=src/platform/web/pullFetch.ts:fetch`
+（脚本的判定是 `token.includes(substr)`，`fetch(` 里本来就含 `fetch`），并新增一条断言钉住
+「npm script 里不出现未加引号的 shell 元字符」（`a184901`）。
+
+[实测] **run 41346166453**（`de3f3fa..a184901`）三 job 全绿：checks 1m48s（typecheck + lint +
+jest + audit:egress + export + 产物自检）、browser-smoke **51s**（同一份 build artifact，实浏览器
+113/113）、deploy `-` 0s（分支 master 而生产分支 main，按设计跳过）。唯一噪声是两条平台弃用提示
+（Node 20 动作被强推到 24、ubuntu-latest 将迁 26），与本次改动无关。
+
+**学到的一条（补）**：跨平台门禁要在 CI 的 shell 里看，不是在本地绿的就算——npm script 里凡是
+会被 shell 解析的字符（`(`、`|`、`&`、`;`、`<`、`>`），要么加引号，要么换一个不需要它的写法；
+本例两个平台行为不同，只有 Linux 会红。

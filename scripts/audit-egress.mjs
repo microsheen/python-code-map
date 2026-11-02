@@ -1,38 +1,30 @@
 #!/usr/bin/env node
-// audit-egress.mjs - guard the files that could make the page send something on its own.
+// audit-egress.mjs —— 逐字扫描受审文件，抓页面自己可能发请求 / 存数据 / 越权的形状，
+// 同时核对文件里每个邮箱字面量是不是那个你要公开的地址。
 //
 //   node audit-egress.mjs --files=<a.js,b.jsx>[,...] [--public-address=<email>]
-//        [--require-href] [--allow-token=<substr>]... [--allow-egress=<file>:<substr>]... [--json]
+//        [--require-href] [--allow-egress=<file>:<substr>]... [--json]
 //
-// Two questions, both answerable by reading the files - no browser, no build, no credentials:
-//   1. Can these files make the page send something on its own?   (egress primitives)
-//   2. Is every email-shaped literal in them the one address you meant to publish?
+// 两件事都只读文件就能答，不需浏览器、不需构建、不需凭据：
+//   1. 这些文件里有没有页面能自己发请求 / 存持久化数据的原语（请求形状、剪贴板、storage 等）？
+//   2. 文件里每个长得像邮箱的字面量是不是那个你要公开的地址？
 //
-// Two kinds of allowed findings, deliberately different in blast radius:
-//   --allow-token=<substr>          global: applies to every scanned file. Only for a promise that
-//                                   is meant to hold scanner-wide (the contact path's "no request
-//                                   primitive at all").
-//   --allow-egress=<file>:<substr>  file-scoped: applies only to that file (exact path as passed to
-//                                   --files). This is how a module with one declared outbound point
-//                                   (the pull transport's fetch) is admitted without also relaxing
-//                                   the contact path. A declaration for a file that is not being
-//                                   scanned is a usage error: a declaration nobody reads is worse
-//                                   than none. The substr must not contain shell metacharacters
-//                                   (`fetch`, not `fetch(`): npm runs a script line through `sh -c`
-//                                   on Linux, where an unquoted `(` is a syntax error (exit 2), even
-//                                   though cmd.exe on Windows passes it through.
+// 放行按文件，两种形状故意不同爆炸半径：
+//   --allow-egress=<file>:<substr> 只限那个文件（必须精确等于 --files 里给的路径）。
+//   模块里有一处声明的外发点（比如拉取传输层的 fetch）放行，不会顺带放开联系路径「没有任何请求
+//   原语」那条更窄的保证。声明了一个不在扫描范围内的文件是用法错（exit 2）——没人读的声明不如
+//   没有。substr 里不能含 shell 元字符（`fetch`，不要 `fetch(`）：npm 在 Linux 上把 script 交给
+//   `sh -c`，未加引号的 `(` 会被当成子 shell 开头报语法错误；Windows 的 cmd.exe 却照传。
 //
-// Exit 0 clean, 1 at least one counted finding (a file that cannot be read counts: a guard that
-// silently skipped its input is worse than a red light), 2 usage. A finding means "look at this", not
-// "delete this": a deliberate exception is declared and then printed as allowed, never silenced.
-// Email literals are printed masked (local part truncated) so this scanner cannot itself become
-// the leak it is looking for.
+// 退出码：0 干净、1 至少一个 counted finding（文件读不出来也算——静默跳过的守卫比红灯更糟）、
+// 2 用法错。finding 的意思是「去看一下」，不是「删掉」——刻意的例外被声明后会打印成 allowed，
+// 绝不会被静默吞掉。邮箱字面量打印时会遮罩（本地部分截断），扫描器本身不能变成它在找的那个
+// 泄露渠道。
 
 import { readFileSync } from 'node:fs';
 
 const argv = process.argv.slice(2);
 const files = [];
-const allowed = [];
 const scopedAllows = [];
 let publicAddress = null;
 let requireHref = false;
@@ -48,7 +40,6 @@ for (const a of argv) {
         .filter(Boolean)
     );
   else if (a.startsWith('--public-address=')) publicAddress = a.slice(17).trim().toLowerCase();
-  else if (a.startsWith('--allow-token=')) allowed.push(a.slice(14));
   else if (a.startsWith('--allow-egress=')) {
     const value = a.slice(15);
     const at = value.indexOf(':');
@@ -72,7 +63,7 @@ for (const a of argv) {
 
 function usage() {
   console.error(
-    'usage: node audit-egress.mjs --files=<a,b> [--public-address=<email>] [--require-href] [--allow-token=<substr>]... [--allow-egress=<file>:<substr>]... [--json]'
+    'usage: node audit-egress.mjs --files=<a,b> [--public-address=<email>] [--require-href] [--allow-egress=<file>:<substr>]... [--json]'
   );
 }
 
@@ -138,9 +129,7 @@ for (const rel of files) {
       if (i < 0) break;
       from = i + token.length;
       const line = code.slice(0, i).split('\n').length;
-      const isAllowed =
-        allowed.some((t) => t && token.includes(t)) ||
-        scopedAllows.some((s) => s.file === rel && token.includes(s.token));
+      const isAllowed = scopedAllows.some((s) => s.file === rel && token.includes(s.token));
       findings.push({
         file: rel,
         kind: isAllowed ? 'allowed-egress-token' : 'egress-token',

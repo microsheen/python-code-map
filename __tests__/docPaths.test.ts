@@ -114,9 +114,19 @@ describe('部署探针覆盖（#9 · ops §8）', () => {
     for (const a of assets) expect(paths).toContain(a);
   });
 
-  it('两个 wasm 与入口 / empty-module 占位都在', () => {
-    expect(paths).toContain('/wasm/tree-sitter.wasm');
-    expect(paths).toContain('/wasm/tree-sitter-python.wasm');
+  it('public/wasm/ 下每个文件都在探针集里（wasm 目录将来多一个不会静默漏检）', () => {
+    const wasmDir = path.join(ROOT, 'public', 'wasm');
+    let files: string[] = [];
+    try {
+      files = fs.readdirSync(wasmDir).map((n) => '/wasm/' + n);
+    } catch {
+      files = [];
+    }
+    expect(files.length).toBeGreaterThanOrEqual(2);
+    for (const p of files) expect(paths).toContain(p);
+  });
+
+  it('_expo/static 下的入口 / empty-module 占位路径都在', () => {
     expect(paths.some((p) => p.includes('/_expo/static/js/web/entry-'))).toBe(true);
     expect(paths.some((p) => p.includes('/_expo/static/js/web/empty-module-'))).toBe(true);
   });

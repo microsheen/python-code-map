@@ -117,11 +117,10 @@ describe('package.json 的 audit:egress 配置（#9）', () => {
     for (const n of modules) expect(files).toContain('src/pull/' + n);
   });
 
-  it('三处放行按文件申报，没有全局 --allow-token（否则联系路径的保证会被一起放开）', () => {
+  it('三处放行都按文件申报，没有全局放行（全局放行会顺带把联系路径的保证一起放开）', () => {
     expect(cmd).toContain('--allow-egress=src/platform/web/pullFetch.ts:fetch');
     expect(cmd).toContain('--allow-egress=src/parser/treeSitter.ts:fetch');
     expect(cmd).toContain('--allow-egress=src/components/TopBar.tsx:navigator.clipboard');
-    expect(cmd).not.toContain('--allow-token=');
   });
 
   /**

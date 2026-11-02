@@ -1877,3 +1877,55 @@ deploy skipped（master 非生产分支）。与上一轮相同，deploy 的跳�
 **学到的一条**：残留进程是本地 smoke 的头号假阳性源——上一轮 `browser-verify.mjs` 退出时 server 未 `close()`，进程留在后台；重跑就撞端口。下次写 smoke 脚本先确保 `server.close()` 有 `finally`。
 
 **遗留**：清完。#9 至此没有新的判断题留在 log.md 里；审计门 / 冒烟 / CI 三 job 全绿。
+
+## 2026-11-02 第八轮发布（#9 拉取功能上线 · run 41399152496 三 job 全绿 · 审计脚本重建 + master 历史两轮改写）
+
+- **干了什么**：按 ops §11 走完整轮公开镜像，把含 #9 URL 拉取功能的 master 发到线上。没改任何 runtime 代码；
+  上线前只在 master 上做了两笔发布前 scrub 提交（后文），候选树与 master 的树差**恰好一个 blob**（`AGENTS.md` 第 7 行
+  issue tracker 指回本仓 Issues，scrub 唯一性硬证照旧成立）。
+- **候选**（临时目录 `cm-pub-17`）：master HEAD clone（`--no-hardlinks`）→ 删 origin → scrub → `--orphan main` →
+  noreply 单提交 `782828a`（parents=[]）→ 删 master + `reflog expire` + `gc --prune=now`（in-pack 163、loose 0、
+  只剩 `refs/heads/main`）。强推远端报 `+ 9b20a79...782828a main -> main (forced update)`。推前快照：远端
+  `main=9b20a79`、`master=0abf564`。
+- **[实测] 门禁（本机，推之前）**：`npm run verify` = typecheck exit 0 + lint 0 error/0 warning + jest **26 suites /
+  614 tests** exit 0；`npm run audit:egress` = 16 file(s) / 3 条 ALLOWED / OK。本地 smoke 本轮未重跑（上一轮 113/113
+  刚绿过，本轮 CI 里真 Chrome 复跑，见下）。
+- **[实测] CI**：run `41399152496`（push 触发，`782828a`）`completed / success`：checks `125126949099` /
+  browser-smoke `125127522319`（真 Chrome，**113 passed / failed []**、console errors 0、page exceptions 0）/
+  deploy `125127781963`。不可变 URL 按 §2 只从 wrangler stdout 那行取：**https://9755737c.python-code-map.pages.dev**。
+  日志里 `already exists [code: 8000002]` 照旧是幂等建项目的分支，不是故障（§13 已立）。
+- **[实测] 线上 == CI 产物（6 条路径 × 2 host 全 MATCH）**：产物用 `gh run download 41399152496 -n dist` 取回
+  （artifact `13120119374`，31 个文件，入口 `entry-6b7e0b47…js` = 1,458,443 B）；`9755737c.…`（不可变 host）与
+  生产别名 `python-code-map.pages.dev` 上 `/`、`/metadata.json`、`/robots.txt`、两个 wasm、入口 JS 全部 `200` 且
+  sha256 与产物逐一同哈希、全部带 `cf-ray`。apex `python-code-map.com` 从本机拿到的是 `307` + 无 `cf-ray` —
+  按 §8/§13 判成中间设备，不算站点故障，仍欠一张异网复测。
+- **[实测] 审计脚本丢失与重建**：原 `audit-public-repo.mjs` 随某个 skill 一起不在本机了（`.agents/skills` 与
+  `%TEMP%\cm-pub-*` 残留都搜不到）。按 §11 类别与 §13 的 9 类手工清单重建（路径 `%TEMP%\cm-pub-17\tools\`，
+  按纪律不进公开树）：内容规则拦内网主机名/公司域/代理完整主机名/用户目录绝对路径/本机用户名/真实姓名/IDE 配置目录/
+  32 位连续 hex/`ghp_` 等 token 形状/消费级邮箱，commit 元数据只放行 noreply。校准靠「与已公开版本对读」：
+  `C:/Program Files/…chrome.exe` 与 64 位 sha256 在上一轮公开树里就有（放行），`el.style.cursor`（CSS）与
+  package-lock 的 base64 不许命中（词边界），`git@github.com` 是 SSH 远端用户名不是邮箱（放行）。
+- **[实测] 重建的审计一上场就抓到真东西，而且分两层**：
+  ① **master 工作树**（发布前）：log.md 有一行本机用户目录下的 IDE 配置路径原文（路径+用户名+IDE 配置目录三合一，值不复述）与
+  **14 处** `entry-/empty-module-` 完整 32 位哈希（上一轮公开树 0 处、64 位 sha256 有 4 处 —— 所以截 8 位是既有口径，
+  这两笔已作为发布前 scrub 提交落在 master 上，公开候选树因此 findings 0）；
+  ② **master 公开历史**（落地后全量 `--history` 才发现）：**20 个提交**（10-30 起的 #5/#8/#9 时代）的 committer 是
+  IDE 注入的 agent 身份（noreply 之外的第二个邮箱域，具体值按 scrub 纪律不复述），同一段历史的 log.md blob 带着上面那两类内容、旧版 ops 文档 blob 带 4 处
+  完整 32 位哈希 —— 共 **244 条** findings，全部只在 master 历史，main（线上服务的那份）始终干净。
+- **[实测] master 两轮改写（用户两次都明确批了强推）**：第一轮把 agent committer 区间（`0632fb1~1` 起 20 个 + 我的
+  两个 scrub 提交压成的一个）改写成 noreply（`filter-branch --env-filter`，树不动，tip 树改写前后同为
+  `560937d9…`）；第二轮全历史内容改写（`filter-branch --tree-filter` 跑 `rewrite-content.js`：99/99 提交，
+  路径括号改安全句式、32 位 bundle 哈希截 8 位），`+ 01d9445...4a62c32 master -> master (forced update)`。
+  终验按 §13 纪律审「落地的树」：另起干净匿名克隆（`commits_ALL=100`、486 个历史 blob、refs 只剩 main+master）
+  全量 `--history` = **findings 0 / exit 0**。
+- **学到的规矩（四条，都可复用）**：
+  ① 这台 IDE 的 shell 全局注入 `GIT_COMMITTER_NAME/EMAIL`（agent 身份，值不复述），`-c user.*` 只管 author ——
+  **凡在这个环境里提交，必须同时覆盖 `$env:GIT_COMMITTER_*`**，否则 committer 就带着 IDE 身份进历史；
+  ② `gh api …/artifacts/<id>/zip > file` 在 Windows PowerShell 下会被加重定向 BOM 写坏 —— 二进制一律
+  `gh run download`（且必须显式 `-R`，§13 旧戒）；
+  ③ PowerShell 会把 `--json a,b,c` 的逗号拆成数组，gh 报 `unknown command` —— 字段列表要加引号；
+  ④ 「审计只扫候选树」不够 —— master 全历史一旦公开，落地克隆的 `--history` 才是终验； scrub 闸门每轮重跑，
+  不拿「上轮扫过」当依据（§11 第 4 条本意）。
+- **遗留**：① 重建的审计脚本住在 `%TEMP%\cm-pub-17\tools\`，需要一个永久住处（下轮发布前找不到就按本轮记录重建）；
+  ② apex 与 `www` 的异网真浏览器复测仍欠（同 §13）；③ `DEPLOY_ENABLED` 回退路径依旧没实测（照旧，本轮没动它）；
+  ④ GitHub 侧被改写顶替的旧对象在 refs 里已不可达，但服务端可能按对象保留策略残留 —— 判据只看 refs，不猜服务端。

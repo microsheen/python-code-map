@@ -1822,3 +1822,38 @@ jest + audit:egress + export + 产物自检）、browser-smoke **51s**（同一�
 
 **学到的一条**：给一组断言起名之后，改名要在**同一轮**把文档里所有引用处（含历史 [实测] 块）一次扫到，
 否则对照表自己会写错覆盖范围；同理，审计门「扫了哪些文件」也要有反向断言，否则新增模块会静默漏扫。
+
+## 2026-11-02 #9 二轮评审收口（审计 16 文件 · 三处申报 · 613 单测 · run 41374232223 三 job 全绿）
+
+第二轮 `code-review`（同一固定点 `acaff0c`，范围已扩到 `7d5f9a1`）抓到的是**上一轮收口留下的口径空当**：
+
+1. **审计扫描漏了页面第二个 `fetch` 点**：解析器的 wasm 懒加载（`src/parser/treeSitter.ts:86`）。
+   于是「每个 `fetch` 点显式申报」只对拉取面成立。现扫 **16 文件**（联系路径 3 + 拉取面 12 +
+   解析器 1），三处按文件申报：`pullFetch.ts:fetch`、`parser/treeSitter.ts:fetch`、
+   `TopBar.tsx:navigator.clipboard`。`auditEgress.test.ts` 同步改成「三处放行」。
+2. **CI 步骤名与注释停在扩扫前**：`Contact path cannot send anything` 改成
+   `No undeclared outbound point`，注释写明 16 文件与两个 `fetch` 点。
+3. **同一口径散在四处陈旧的「那三个文件」**：`CODING_STANDARDS.md` 门表、ops §11 表格、
+   README 三语（反馈章节 + 命令表 + 文件树）全部改成「联系路径 + 拉取面 + 解析器 wasm 加载点」。
+4. **ops §8 的触发句与顺延对不上**：「改了 `_headers` 的那一轮」改成「CSP 的改动还没上线时」，
+   本轮这种「改过但没发布」的状况才有对应判据。
+5. **名字对照只写「[实测] 块」**：ops §1 正文 224/227 行也有「F 组」；改成「正文与所有 [实测] 块」。
+6. **部署探针的资产清单按扩展名挑**（`svg|ico|png|txt`）：改成 `public/` 根目录除 `_headers`
+   外的每个文件都必须在 `--paths` 里，将来多一个 `.json` / `.webmanifest` 也不会静默漏检。
+
+**没改什么**：不发布、不动 runtime 源码、不动冒烟脚本；`_headers` 仍保持 #3 那轮的写法。
+
+**[实测] 2026-11-02**：typecheck exit 0；lint 0 error / 0 warning；jest **26 suites / 613 tests**；
+`npm run audit:egress` → **16 file(s)**、3 条 ALLOWED、`OK`、exit 0。冒烟本轮未重跑（只动 docs /
+tests / CI 配置，运行期字节不变），复跑由 CI 的 browser-smoke 完成。
+
+**[实测] run 41374232223**（`7d5f9a1..ac9db9f`）三 job 全绿：checks success、browser-smoke success、
+deploy skipped（master 非生产分支）。与上一轮相同，deploy 的跳过是设计，不是失败。
+
+**学到的一条**：审计门的扫描清单是**白名单**，白名单要靠两条反向断言撑着 ——
+目录反查（新增模块不会漏扫）+ 页面内「请求原语点」全量核对（本例补出了 wasm 那一个）。
+只写「列出来的还在」的断言，守不住「该列的没列」。
+
+**遗留**：① `audit-egress.mjs` 的注释仍是英文（该文件一直如此，与 CODING_STANDARDS「代码注释用中文」
+字面不符，属判断题）；② `--allow-token` 已无调用者，测试明确禁止使用，暂留作扫描器通用接口；
+③ 部署探针的资产断言只覆盖 `public/` 根目录，`public/wasm/` 由「两个 wasm 都在」那条单独守。

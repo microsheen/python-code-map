@@ -1306,7 +1306,7 @@ web 侧唯一 fetch 触点 `src/platform/web/pullFetch.ts`（15s AbortController
   （删它是清理动作，不挂在这张功能票上，遗留里记着）。
 - 门禁实测：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning；jest **25 suites / 503 tests**
   全过（比上轮 +66：pull 39 + pullStore 16 + pullUi 11）；smoke **88/88**（上轮 75，+13 即 P 组）；
-  `audit:egress` scanned 3 file(s) clean（范围未变）。产物：入口 `entry-675e439b….js`，
+  `audit:egress` scanned 3 file(s) clean（范围未变）。产物：入口 `….js`，
   `index.html` 1,562 B、sha256 `0c102f9dc4ed42721f1bcfdf418f5bea79127f1a80b609747a03a878e515c4b7`。
 - CI：本轮提交后另起一轮记读数（沿用「CI 实测单独成轮」的惯例）。
 - 本轮学到的规矩：**DOM 里读得到不等于用户看得见** —— 冒烟里截图是唯一替用户看屏幕的观测点，
@@ -1343,11 +1343,11 @@ web 侧唯一 fetch 触点 `src/platform/web/pullFetch.ts`（15s AbortController
 baseline requests: 17`；本机拿同一份 dist 跑 `npm run smoke` 也是 **88/88**（`EXIT=0`，报告写在
   `%TEMP%\codemap-verify-report.json`），两边逐项一致。
 - 产物：CI `index.html` sha256 **`706455aaf4c62030c59f96babf52b02d6fc1a6fd6f86f3a4750ea7d57dd68477`（1,562 B）**、
-  入口 **`entry-89bf478d….js`**、`empty-module-c130aa4a….js`（38 B）、
+  入口 **`….js`**、`….js`（38 B）、
   `Web Bundled … node_modules/expo-router/entry.js (838 modules)`、`dist` 工件 **Final size 593,315 B**
   （Artifact ID `12956534442`）—— 与上一轮（commit `77d7f6a`，Artifact ID `12956153865`）**逐项相同**。
   本轮只动了 `__tests__/pullUi.test.tsx`，这正好反过来证明测试文件不进 bundle。本机同一棵树仍是
-  `entry-675e439b….js`（1,441,695 B）/ `index.html` sha256
+  `….js`（1,441,695 B）/ `index.html` sha256
   `0c102f9dc4ed42721f1bcfdf418f5bea79127f1a80b609747a03a878e515c4b7`（同为 1,562 B）；本机 dist 是上一轮建的、
   本轮 `src/` 一字未改，所以这份本机产物对 `0deb13b` 依然有效。**同字节数、不同入口哈希，这条差异第八次被量到**
   （根因仍是入口哈希写进了 index.html，见 ops §8）。
@@ -1393,14 +1393,14 @@ issue #4 关票后紧接的两轴 review（fixpoint `eb0df1f` → `4580fe5`）�
   （#5 做 github 分流时才填）。
 - 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning（零输出）；
   jest **25 suites / 505 tests**（+1，即上面那条多字节断言）；smoke **88/88**（`EXIT=0`，P 组 13 项全在）。
-  本机重出了一份产物：入口 `entry-93376fe5….js`（1,441,831 B，比上一版 +136 B）、
+  本机重出了一份产物：入口 `….js`（1,441,831 B，比上一版 +136 B）、
   `index.html` 1,562 B / sha256 `3eaa1b7c07d3000a0a65be19e69bfc96ce421d334de9ad6e6b41ae3daaa0c508`。
 - CI：run **`41012718747`**（`push`、branch `master`、被测 commit `8c734dd`、attempt 1、`conclusion=success`）：
   `checks` ✅（job `123921988231`，06:12:26Z → 06:13:29Z，**63 s**）、`browser-smoke` ✅（job `123922322575`，
   06:13:31Z → 06:14:12Z，**41 s**）、`deploy` **skipped**。CI 侧 jest **25 suites / 505 tests**（与本机逐字相同，
   `Time: 11.409 s`）、`eslint . --max-warnings=0` 零输出（**连着第四轮**）、`audit-egress: scanned 3 file(s)`、
   smoke **88/88** 且 P 组 13 项全在、E1 `总请求数=17`、E7 `210 个标记 x 17 个请求，零命中`。
-  CI 产物：入口 `entry-7c32cb80….js`、`index.html` 1,562 B / sha256
+  CI 产物：入口 `….js`、`index.html` 1,562 B / sha256
   `22c878910182f2fc6bbc811c4c64d475a7de4d220aa6dbbf09e11f23884b0cd1`、`dist` 工件 **Final size 593,337 B**
   （上一轮 593,315 B，+22 B；Artifact ID `12957184909`）。
 - **同字节数、不同入口哈希，第九次被量到**（CI `7c32cb80…` vs 本机 `93376fe5…`，两边的 `index.html` 都是 1,562 B）。
@@ -1434,14 +1434,14 @@ issue #10 说的就是一句用户可见文案：`oversizeMessage()` 返回「�
   本票不夹带，记在遗留 ⑧。另外三语 README 是 #3，超限**语义**（整段拒收）是 #11 —— 两件都不在这轮。
 - 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning（零输出）；
   jest **25 suites / 505 tests**（条数不变：改的是同一条里的断言）；smoke **88/88**（`EXIT=0`，P 组 13 项全在）。
-  本机产物：入口 `entry-33f8664d….js`（1,441,807 B，比上一版 **−24 B**）、
+  本机产物：入口 `….js`（1,441,807 B，比上一版 **−24 B**）、
   `index.html` 1,562 B / sha256 `8cbe6a91fafa373ccbb270ec397c31c0e6e79b237245245a3abdf3c193b6ddfb`。
 - CI：run **`41015720965`**（`push`、branch `master`、被测 commit `3479253`、attempt 1、`conclusion=success`）：
   `checks` ✅（job `123931485322`，06:43:14Z → 06:44:20Z，**66 s**）、`browser-smoke` ✅（job `123931837667`，
   06:44:22Z → 06:45:01Z，**39 s**）、`deploy` **skipped**。CI 侧 jest **25 suites / 505 tests**
   （`Time: 11.208 s`，与本机逐字相同）、`eslint . --max-warnings=0` 零输出（**连着第五轮**）、
   `audit-egress: scanned 3 file(s)`、smoke **88/88** 且 P 组 13 项全在、E1 `总请求数=17`、E7 `210 × 17，零命中`。
-  CI 产物：入口 `entry-7c94ffbc….js`、`index.html` 1,562 B / sha256
+  CI 产物：入口 `….js`、`index.html` 1,562 B / sha256
   `fd710c5dc0efb229a3d20a48b11c5c1e72d3843b7cd19989d0a52282b6bd2ce9`、`dist` 工件 **Final size 593,339 B**
   （上一轮 593,337 B，**+2 B**；Artifact ID `12959014216`，zip 摘要 `81b464c5…8513e9a`）。
 - **同字节数、不同入口哈希，第十次被量到**（CI `7c94ffbc…` vs 本机 `33f8664d…`，两边 `index.html` 都是 1,562 B）。
@@ -1488,7 +1488,7 @@ issue #5：github.com 的页面 URL 直接可用，用户不必自己找 raw 直
 - 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 0 error / 0 warning（零输出，
   **连着第六轮**）；jest **25 suites / 540 tests**（#10 记的 505 → +35）；smoke **93/93**（#10 记的 88
   → +5，PG1–PG5 全在，`EXIT=0`）；`audit:egress: scanned 3 file(s)`（clean）。
-  本机产物：入口 `entry-adc23ea5….js` **1,450,868 B**（上一版 1,441,807 B，
+  本机产物：入口 `….js` **1,450,868 B**（上一版 1,441,807 B，
   **+9,061 B**，两个新模块）、`index.html` 1,562 B / sha256
   `142bc91dbe447709cb30ec7d5adbc9872242dfef131c699a0f614533540457f6`、dist 原始总字节 2,175,650 B。
 - 冒烟 github 面的实测（`pullGithubNetwork`，两个观测点都记）：成功路径恰好 **2 条 GET**，
@@ -1529,7 +1529,7 @@ issue #5：github.com 的页面 URL 直接可用，用户不必自己找 raw 直
   抵不上多一层间接，判断类，记下不动作；`pullListing` 无消费方是已登记的 #6 分期，不算投机泛化。
 - 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 零输出（**连着第七轮**）；
   jest **25 suites / 541 tests**（540 +1 回归测试）；smoke **93/93**（`EXIT=0`）。
-  本机产物：入口 `entry-256809da….js`、`index.html` 1,562 B / sha256
+  本机产物：入口 `….js`、`index.html` 1,562 B / sha256
   `992b2b9b0026ffb63ad2f3b3eaaa02af6f6f73cf1a116b1fd610c6c2b707b65d`。
 - 本轮学到的规矩：**「手里握着正确值却在失败路径上丢回猜测值」这类缺口，单测天然照不到 ——
   成功路径与失败路径各自绿，拼起来才错。** review 的价值就在这条缝上；以后写「成功/失败共用一份
@@ -1568,7 +1568,7 @@ issue #6：仓库/目录 URL 提交后弹出勾选清单，用户自选文件批
   jest **25 suites / 556 tests**（上一轮 541 → +15：store 6+1、UI 8）；smoke **99/99**（上一轮 93
   → +6，新增 PL1–PL6，截图 `pull-06-listing` / `pull-07-selected` / `pull-08-listing-filtered` /
   `pull-09-listing-pulled`）；`audit:egress` scanned 3 file(s)，clean。
-  本机产物：入口 `entry-6a4850a7….js`、`index.html` 1,562 B / sha256
+  本机产物：入口 `….js`、`index.html` 1,562 B / sha256
   `854cdaca82b2f15ece6500f3fbc1b067e5b1cd57a0691092f474382f76a5a96f`。
 - 冒烟清单面实测（`pullListingNetwork` + 桩侧两个观测点）：请求面恰好 **3 条 GET** ——
   `…/__pull-stub__/repos/psf/requests/git/trees/main?recursive=1` 与两个勾选文件的 raw；请求体 0 B
@@ -1611,7 +1611,7 @@ issue #7：文件标签的悬浮提示里给出「粘贴的那条来源 URL + �
   jest **25 suites / 575 tests**（上一轮 556 → +19：`batchForPath` 1、刷新推导 7、store 接缝 7、
   悬浮提示 4）；smoke **104/104**（上一轮 99 → +5：PR3、P3、P4a、P4、P4b，截图
   `pull-04b-refreshed` / `pull-06-batch-refresh`）；`audit:egress` scanned 3 file(s)，clean。
-  本机产物：入口 `entry-63f34dc1….js`、`index.html` 1,562 B / sha256
+  本机产物：入口 `….js`、`index.html` 1,562 B / sha256
   `f8704cc0dcb1f0e185975c71d3e9e68731a1a3c3495ceab9b5ea4edfc0722d61`。
 - 冒烟刷新面实测（`pullBatchRefresh` + 桩侧两个观测点）：两批次（`zz_pull_probe.py` /
   `zz_pull_alt.py`）刷新前者，窗口内 CDP 与桩侧都只有 **1 条 GET**（就是该批自身 URL，请求体 0 B）；
@@ -1657,7 +1657,7 @@ issue #7：文件标签的悬浮提示里给出「粘贴的那条来源 URL + �
   节点在图中即满足）；`hoveredChip` Data Clumps。
 - 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 零输出；
   jest **25 suites / 578 tests**（落地轮 575 → +3）；smoke **104/104**；`audit:egress` clean。
-  本机产物换成：入口 `entry-581c64e7….js`、`index.html` 1,562 B / sha256
+  本机产物换成：入口 `….js`、`index.html` 1,562 B / sha256
   `96ec8b54538872efebe79b25bd8f500bced2eb3fdcdeb834916bd924f4c15308`。
 - 本轮学到的规矩：**「失败路径只报告、不提交」要当默认纪律** —— 把失败写成空占位再合并，
   刷新在断网时反而会清掉用户已有内容；另一条：**为了过门禁而放宽门禁（前缀兜底）会被 review
@@ -1704,7 +1704,7 @@ browser-smoke ✓ 38s、deploy 跳过 —— master 当前 HEAD 同样全绿。
   伴随动作，抽取只省三行）。
 - 门禁实测（本机）：`tsc --noEmit` 0 错；`eslint . --max-warnings=0` 零输出；jest
   **25 suites / 594 tests**（上轮 578 → +16）；smoke **113/113**（104 → +9）；
-  `audit:egress` clean。本机产物：入口 `entry-6ffef9d3….js`、
+  `audit:egress` clean。本机产物：入口 `….js`、
   `index.html` 1,562 B / sha256 `f47580fba213a4454c43c3021168ad270f65456146b09e7d3c0ab2d44d3ac638`。
 - 本轮学到的规矩：**冒烟第一次跑红先看端口** —— 8099 被上一轮残留的静态服务占着时，
   「复用已有服务」会把桩侧记账留在另一个进程里，请求面八条全红但 CDP 侧全绿，

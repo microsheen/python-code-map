@@ -1857,3 +1857,23 @@ deploy skipped（master 非生产分支）。与上一轮相同，deploy 的跳�
 **遗留**：① `audit-egress.mjs` 的注释仍是英文（该文件一直如此，与 CODING_STANDARDS「代码注释用中文」
 字面不符，属判断题）；② `--allow-token` 已无调用者，测试明确禁止使用，暂留作扫描器通用接口；
 ③ 部署探针的资产断言只覆盖 `public/` 根目录，`public/wasm/` 由「两个 wasm 都在」那条单独守。
+
+## 2026-11-02 #9 三轮收口（清掉上一轮全部三条遗留 · 614 单测 · 113 冒烟 · CI run 41381170802 三 job 全绿）
+
+上一轮评审列了三条判断题作为遗留——本轮一次性清掉：
+
+1. **`audit-egress.mjs` 头注改中文 + 删除 `--allow-token` 死选项**（遗留 ①② 一把收）。扫描器只剩一个放行形状 `--allow-egress=<file>:<substr>`：head 注释整段翻成中文；argv 解析里 `--allow-token=` 分支、usage 行、判定逻辑里的 `allowed.some(...)`、以及 `allowed` 数组声明全部删掉；`auditEgress.test.ts` 的反向断言改成直接「三处放行都在」，不再提 `--allow-token`。改动只在这个脚本、这组测试，package.json 的 audit:egress 脚本本来就没用 `--allow-token`，所以没动。
+
+2. **部署探针覆盖 `public/wasm/` 目录枚举**（遗留 ③）。`docPaths.test.ts` 原来 wasm 靠「两个文件都在」两条 `expect(paths).toContain('/wasm/...')` 单独守；改成枚举 `public/wasm/` 目录下每个文件都必须在 `--paths` 里（`fs.readdirSync + map`），根目录和 wasm 目录对称，将来多一个 wasm 或别的资源都会被这条门看见。入口 / empty-module 占位的 `_expo/static/js/web/*` 用 `includes` 单独守。
+
+**没改什么**：runtime 源码零改动；`package.json` 的 audit:egress 脚本行本来就不含 `--allow-token`，所以本轮 package.json 没动；`docs/` 与 README 三语没动（二轮已经收过）。
+
+**踩的一个环境坑**（[实测] 2026-11-02）：本地 smoke 突然 FAIL 8 条 P 组（P1/P2/PR3/P4/PG4/PG5/PL6/PT5），根因是**上一轮 smoke 残留的 node http.createServer 进程没清掉**，占着 8099 端口（PID 102200），新起的 server listen 到别端口或失败。CDP 侧还能看到 GET（浏览器打的是 8099），但 stub handler 没 listen 成功，于是 `pullStubHits` 空数组，8 个「桩侧命中 > 0」断言全炸。杀掉残留后复跑立即 113/113 PASS。
+
+**[实测] 2026-11-02**：typecheck exit 0；lint 0 error / 0 warning；`npm run audit:egress` → 16 file(s)、3 条 ALLOWED、OK；jest **26 suites / 614 tests**；smoke **113/113 PASS**。
+
+**[实测] run 41381170802**（`ac9db9f..2c9075b`）三 job 全绿：checks success、browser-smoke success（真 Chrome 实跑，113 项）、deploy skipped（master 非生产分支）。
+
+**学到的一条**：残留进程是本地 smoke 的头号假阳性源——上一轮 `browser-verify.mjs` 退出时 server 未 `close()`，进程留在后台；重跑就撞端口。下次写 smoke 脚本先确保 `server.close()` 有 `finally`。
+
+**遗留**：清完。#9 至此没有新的判断题留在 log.md 里；审计门 / 冒烟 / CI 三 job 全绿。

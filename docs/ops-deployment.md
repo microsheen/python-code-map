@@ -12,7 +12,7 @@
 | 无第三方代码 | 产物 HTML 里**零个** `https?://`（含被剥掉的注释）；线上新增第三方引用按 counted finding 处理 | `polish-dist.mjs` + `check-deploy.mjs` |
 | 没有服务端存储 | 托管是 Direct Upload 的纯文件站点，没有 Functions / KV / D1 / DO | 选平台时就决定了 |
 | 会话只在你机器上 | 写本机 IndexedDB（`code-map` / `session` / `current`），Clear 即删 | ADR-0001 Amendment |
-| 反馈面板对外的动作只有**用户点的 `href`**（页面整体另一处外发是用户自己发起的拉取，见 ADR-0006，不属于面板） | 无 fetch / beacon / `<form>` / 剪贴板写入：`audit-egress.mjs` 逐字扫联系路径那三个文件 **与拉取模块**（注释也算），拉取传输层那一条 `fetch(` 与顶栏用户点击才发生的剪贴板写入按文件申报 + jest 金丝雀 + 冒烟 G2「开→关请求数不变」 | CI blocking 步骤 `npm run audit:egress`（`checks` job） |
+| 反馈面板对外的动作只有**用户点的 `href`**（页面整体另一处外发是用户自己发起的拉取，见 ADR-0006，不属于面板） | 无 fetch / beacon / `<form>` / 剪贴板写入：`audit-egress.mjs` 逐字扫 16 个文件 —— 联系路径 3 个、拉取面 12 个、解析器的 wasm 加载点 1 个（注释也算），页面上两个 `fetch(` 点（拉取传输层、wasm 懒加载）与顶栏用户点击才发生的剪贴板写入按文件申报 + jest 金丝雀 + 冒烟 G2「开→关请求数不变」 | CI blocking 步骤 `npm run audit:egress`（`checks` job） |
 
 第三条是"host 物理上没有写的能力"，比任何"我们不会滥用"的承诺都强。代价是必须能设响应头，
 所以 GitHub Pages 出局（它不能设 CSP）。
@@ -230,9 +230,9 @@ npm run smoke  -> 41/41 PASS，退出码 0（比上轮多 F1/F2 两项图标链�
 四个派生物字节数随之变为 3005 / 5500 / 5680 / 16197 B，但文件名、缓存档、上面 9 个请求集与
 `index.html` 的 sha 均未变 —— 注入写进去的只是固定 href，与图标字节无关。
 
-**名字对照（#9，不改写上面的历史读数）**：本节所有 [实测] 块（含下面第十一轮、第十二轮分组行里的
-`F2`）里的「F 组 / F1/F2」都是当时的组名，自 #9 起改叫 **IC 组 / IC1/IC2**（拉取面取证那条「F 组」
-在脚本里本来就叫 P）。读老日志时按这张表换，不要以为断言消失。
+**名字对照（#9，不改写上面的历史读数）**：本节里凡写「F 组 / F1/F2」的地方（正文与所有 [实测] 块，
+包括下面第十一轮、第十二轮分组行里的 `F2`）用的都是当时的组名，自 #9 起改叫 **IC 组 / IC1/IC2**
+（拉取面取证那条「F 组」在脚本里本来就叫 P）。读老日志时按这张表换，不要以为断言消失。
 
 **[实测] 2026-10-15 反馈轮基线（请求集与 sha 取代上面两次）**
 
@@ -473,9 +473,9 @@ empty-module 的哈希每轮重取）。本轮同样**不发布**，因此「声
 走 main 的单提交发布：那一次除 11 路径 × 2 host 之外，还必须逐 host 比对生效 CSP 已是
 `connect-src 'self' https:`（判据见下一段，§5 同样适用）。
 
-**改了 `_headers` 的那一轮，`--paths` 之外还要单独核对生效的 CSP。** 判据（全仓只写这一份）：逐 host 把
-`content-security-policy` 抓回来，和**当轮** `dist/_headers` 逐字比对 —— §5「声明 ≠ 生效」对安全头同样成立，
-不能只比 `/` 一个路径。
+**只要 `_headers` 里 CSP 的改动还没上线（本轮就属于这种顺延），下一次发布就必须单独核对生效的 CSP。**
+判据（全仓只写这一份）：逐 host 把 `content-security-policy` 抓回来，和**当轮** `dist/_headers` 逐字比对 ——
+§5「声明 ≠ 生效」对安全头同样成立，不能只比 `/` 一个路径。
 
 **[实测] 2026-10-29（issue #3 那轮：`connect-src` 从 `'self'` 放开到 `'self' https:`，但*不发布*）**：两个 host 的
 `/` 都是 `200 + server: cloudflare + cf-ray`，生效 CSP 与当时 HEAD 的声明逐字节相同，即仍是旧值 `'self'` ——
@@ -560,7 +560,7 @@ ADR-0003；代码在 `src/feedback/contact.ts`（规则层）与 `src/components
 | Pages 项目名 | ✅ `python-code-map`（2026-10-13 agent 代拍，可撤销）。[实测] `POST /accounts/<acct>/pages/projects` 直接创建成功 ⇒ 这个名字**全局未被占用**，返回 `subdomain=python-code-map.pages.dev`、`production_branch=main`；`vars.PAGES_PROJECT_NAME` 已指向它。代价说清楚：项目名**不可改名**，换名的唯一路径是删项目重建 + 重绑域名 + 改变量，**已发出的 URL 会全部失效** |
 | 反馈渠道 | ✅ 2026-10-14 用户拍板改为**双渠道**：GitHub Issues（公开、主渠道）+ mailto 别名（私密、次要）。这**推翻** 2026-10-13 那条「只用 GitHub Issues」（原文理由仍然成立：零新增配置、不公开邮箱就没有垃圾邮件面 —— 用户选择了用一条门控的私密渠道换掉那个便利性）。落地形态：顶栏按钮 → 只读面板 → 两枚**用户点击的 `<a href>`**，携带白名单 8 字段、只有计数的诊断文本，页面无任何自动出口能力（ADR-0003）。**别名当前门控关闭**（`CONTACT_EMAIL = null`），代码先行、开通路由是后续独立一轮，runbook 见 §9 |
 | 反馈的回复身份 | ✅ 选 A+B（2026-10-14 用户拍板）：A = 专用一次性目标邮箱（名字带产品、可丢弃、地址永不进仓库），B = 以 Issues 为主渠道。面板里明说「回信来自个人邮箱，不是这个地址」——别名是纯转发、没有回复能力，这条预期管理必须写在用户看得见的地方，而不是只写在文档里 |
-| Cloudflare Email Routing 状态 | ⏳ **未开通**（[实测] 2026-10-15：本机无 Cloudflare 凭据、无 `wrangler`、无可复用 OAuth 会话，与下面前置表那一行一致；本轮也无从代劳，目标 destination 邮箱由用户另行创建）。因此 `CONTACT_EMAIL` 置 `null`，面板只显示 Issues，`package.json` 的 `audit:egress` **不带** `--public-address` —— 于是那三个受审文件里出现任何邮箱字面量都是 finding。启用与回滚见 §9 |
+| Cloudflare Email Routing 状态 | ⏳ **未开通**（[实测] 2026-10-15：本机无 Cloudflare 凭据、无 `wrangler`、无可复用 OAuth 会话，与下面前置表那一行一致；本轮也无从代劳，目标 destination 邮箱由用户另行创建）。因此 `CONTACT_EMAIL` 置 `null`，面板只显示 Issues，`package.json` 的 `audit:egress` **不带** `--public-address` —— 于是受审文件（联系路径 3 个 + 拉取面 12 个 + 解析器 wasm 加载点 1 个，见 §1 承诺表那一行的证明栏）里出现任何邮箱字面量都是 finding。启用与回滚见 §9 |
 
 **本机已具备 / 尚缺的前置条件**（[实测] 2026-10-09 只读复探）
 
@@ -918,7 +918,8 @@ pack 108 个对象）。
   console errors 0、page exceptions 0）、`deploy` `116235343761`；不可变 URL 照 §11 只从 wrangler stdout 那行取，
   是 `https://e8c78aa5.python-code-map.pages.dev`。`dist` artifact `11947670005`（zip 582,694 B、展开 **31 个文件**、
   共 2,125,340 B），入口 `entry-20c7f880…js` = 1,401,433 B。这句话的意义要说准：上一轮记的「那一步只有本地 exit 0、
-  CI 侧一条执行记录都没有」到这一轮才兑现 —— `checks` 日志里 `Contact path cannot send anything` 那步打出
+  CI 侧一条执行记录都没有」到这一轮才兑现 —— `checks` 日志里 `Contact path cannot send anything` 那步（#9 起
+  改名为 `No undeclared outbound point`，当时的日志按旧名读）打出
   `clean: no egress primitive, no unpublished address`。从这次起，「CI 在拦这道闸门」才是既成事实，不再是设计意图。
 - [实测] **线上 == CI 产物：本轮逐文件证到 18/18**：`/`、`robots.txt`、四个图标、两个 wasm、入口 JS，在
   `python-code-map.pages.dev` 与 `e8c78aa5.python-code-map.pages.dev` 两个 host 上都是 `200` 且 sha256 与本轮 CI 产物

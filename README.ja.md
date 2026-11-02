@@ -164,7 +164,7 @@ build / ua / files / funcs / edges / unresolved / warnings / persisted
 
 3 つのゲートが、この段落をレビュアの注意力に頼るのではなく事実に変えます：
 
-1. `npm run audit:egress`（CI の `checks` ジョブのブロッキングステップ）は連絡経路（`src/feedback/contact.ts`、`src/components/FeedbackDialog.tsx`、`src/platform/web/buildStamp.ts`）**とプルモジュール**（`src/pull/*`、`src/platform/web/pullFetch.ts`、2 つのプルダイアログ、`TopBar.tsx`）を逐語的に読みます：リクエストプリミティブ（`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …）や未公開のメールリテラルが 1 つでもあれば赤になります — 素のテキストマッチングなので**コメントもカウントされます**。プル転送層の唯一の `fetch(` とトップバーのユーザークリック時だけのクリップボード書き込みは**ファイル単位**で申告します（`--allow-egress=<file>:<token>`）。だからそれらを許可しても、連絡経路の「リクエストプリミティブが一切ない」保証まで緩めることにはなりません。
+1. `npm run audit:egress`（CI の `checks` ジョブのブロッキングステップ）は連絡経路（`src/feedback/contact.ts`、`src/components/FeedbackDialog.tsx`、`src/platform/web/buildStamp.ts`）、**プルモジュール**（`src/pull/*`、`src/platform/web/pullFetch.ts`、2 つのプルダイアログ、`TopBar.tsx`）、**パーサの wasm 遅延ロード地点**（`src/parser/treeSitter.ts`）を逐語的に読みます：リクエストプリミティブ（`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …）や未公開のメールリテラルが 1 つでもあれば赤になります — 素のテキストマッチングなので**コメントもカウントされます**。ページ上の 2 つの `fetch(` 地点（プル転送層と wasm 遅延ロード）とトップバーのユーザークリック時だけのクリップボード書き込みは**ファイル単位**で申告します（`--allow-egress=<file>:<token>`）。だからそれらを許可しても、連絡経路の「リクエストプリミティブが一切ない」保証まで緩めることにはなりません。
 2. jest のカナリア：目立つ秘密情報を詰め込んだ診断ソースを流し込み、それらが 3 つの出力（テキスト、Issues の href、mailto）のどこにも現れないことをアサートします。
 3. スモーク G1〜G6：実ヘッドレス Chrome で「開く → 閉じる」の完全な 1 往復を行い、**リクエスト数が 1 件も増えていないこと**、そしてパネルが本当に最前面に浮かんでいること（閉じるボタン中心のヒットテストがボタン自身を返すこと）をアサートします。
 
@@ -280,7 +280,7 @@ node scripts/browser-verify.mjs # 113 アサーション（E のベースライ�
 | `npm run format`                  | prettier 書き込み                                                                                          |
 | `npm run verify`                  | typecheck + lint + test — コミット前にこれを実行                                                           |
 | `npm run icons`                   | `public/icon.svg` から ico / 180 / 192 / 512 のラスタを再生成                                              |
-| `npm run audit:egress`            | 連絡経路 + プルモジュールを静的スキャン：リクエストプリミティブや未公開のメールリテラルがあれば赤；プル転送層の `fetch(` とトップバーのクリップボード書き込みはファイル単位で申告（CI ブロッキング） |
+| `npm run audit:egress`            | 連絡経路 + プルモジュール + パーサの wasm ロード地点を静的スキャン：リクエストプリミティブや未公開のメールリテラルがあれば赤；ページ上の 2 つの `fetch(` 地点とトップバーのクリップボード書き込みはファイル単位で申告（CI ブロッキング） |
 | `npm run smoke`                   | 実 Chrome + CDP の自動化受け入れ（先に `npm run export`）                                                  |
 | `npm run serve:dist`              | `dist/` を `_headers` 付きで配信したまま常駐させる — ブラウザで本番の CSP とキャッシュ設定を手で確認するためのもの（dev server は `_headers` を適用しないので、そちらでのヘッダ確認は無意味）；アサーションは実行しない |
 | `node scripts/browser-verify.mjs` | 同上、スクリプトを直接実行                                                                                 |
@@ -304,7 +304,7 @@ scripts/
   inject-html-head.mjs    postexport ステップ 1：アイコンの link、meta、シェルの背景色 <style> を dist の <head> に注入
   polish-dist.mjs         エクスポート後処理：HTML コメント除去 + 構造の自己チェック + 絶対 URL ゼロの自己チェック
   browser-verify.mjs      実ブラウザ（ヘッドレス Chrome + CDP）受け入れスクリプト
-  audit-egress.mjs        連絡経路の静的スキャン：リクエストプリミティブ / 未公開メールリテラル（CI ブロッキングゲート）
+  audit-egress.mjs        連絡経路 + プル面 + パーサ wasm ロード地点の静的スキャン：リクエストプリミティブ / 未公開メールリテラル、ファイル単位の申告付き（CI ブロッキングゲート）
 .github/workflows/
   ci-and-deploy.yml       ゲート -> ブラウザスモーク -> デプロイ；3 つのジョブは 1 回のビルドの成果物を共有する
 fixtures/                 テスト用サンプル（main/shapes/utils/multi/broken）

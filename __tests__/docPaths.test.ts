@@ -103,11 +103,13 @@ describe('部署探针覆盖（#9 · ops §8）', () => {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  it('public/ 里每个可请求资源（图标四件 + svg 主档 + robots.txt）都在探针集里', () => {
+  it('public/ 根目录每个可请求资源（图标四件 + svg 主档 + robots.txt）都在探针集里', () => {
+    // 不按扩展名挑：将来多一个 .json / .webmanifest 也要被这条门看见，否则它会静默漏检。
+    // `_headers` 不算可请求资源（它是响应头声明，不是内容）。
     const assets = fs
-      .readdirSync(path.join(ROOT, 'public'))
-      .filter((n) => /\.(svg|ico|png|txt)$/.test(n))
-      .map((n) => '/' + n);
+      .readdirSync(path.join(ROOT, 'public'), { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name !== '_headers')
+      .map((e) => '/' + e.name);
     expect(assets.length).toBeGreaterThan(4);
     for (const a of assets) expect(paths).toContain(a);
   });

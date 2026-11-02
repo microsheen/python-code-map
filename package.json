@@ -25,7 +25,7 @@
     "verify": "npm run typecheck && npm run lint && npm test",
     "smoke": "node scripts/browser-verify.mjs",
     "serve:dist": "node scripts/browser-verify.mjs --serve-only",
-    "audit:egress": "node scripts/audit-egress.mjs --files=src/feedback/contact.ts,src/components/FeedbackDialog.tsx,src/platform/web/buildStamp.ts,src/platform/web/pullFetch.ts,src/pull/batch.ts,src/pull/errors.ts,src/pull/github.ts,src/pull/githubFetch.ts,src/pull/paths.ts,src/pull/refresh.ts,src/pull/transport.ts,src/pull/urls.ts,src/components/PullEntryDialog.tsx,src/components/PullListingDialog.tsx,src/components/TopBar.tsx --allow-egress=src/platform/web/pullFetch.ts:fetch --allow-egress=src/components/TopBar.tsx:navigator.clipboard --require-href",
+    "audit:egress": "node scripts/audit-egress.mjs --files=src/feedback/contact.ts,src/components/FeedbackDialog.tsx,src/platform/web/buildStamp.ts,src/platform/web/pullFetch.ts,src/pull/batch.ts,src/pull/errors.ts,src/pull/github.ts,src/pull/githubFetch.ts,src/pull/paths.ts,src/pull/refresh.ts,src/pull/transport.ts,src/pull/urls.ts,src/components/PullEntryDialog.tsx,src/components/PullListingDialog.tsx,src/components/TopBar.tsx,src/parser/treeSitter.ts --allow-egress=src/platform/web/pullFetch.ts:fetch --allow-egress=src/parser/treeSitter.ts:fetch --allow-egress=src/components/TopBar.tsx:navigator.clipboard --require-href",
     "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {

@@ -165,7 +165,7 @@ build / ua / files / funcs / edges / unresolved / warnings / persisted
 
 Three gates turn that paragraph into fact instead of relying on reviewer diligence:
 
-1. `npm run audit:egress` (a blocking step in the CI `checks` job) reads the contact path (`src/feedback/contact.ts`, `src/components/FeedbackDialog.tsx`, `src/platform/web/buildStamp.ts`) **and the pull module** (`src/pull/*`, `src/platform/web/pullFetch.ts`, both pull dialogs, `TopBar.tsx`) verbatim: any request primitive (`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …) or any unpublished email literal turns it red — **comments count too**, because it is plain-text matching. The pull transport's single `fetch(` and the top bar's user-clicked clipboard write are declared **per file** (`--allow-egress=<file>:<token>`), so admitting them cannot quietly relax the contact path's "no request primitive at all" promise.
+1. `npm run audit:egress` (a blocking step in the CI `checks` job) reads the contact path (`src/feedback/contact.ts`, `src/components/FeedbackDialog.tsx`, `src/platform/web/buildStamp.ts`), **the pull module** (`src/pull/*`, `src/platform/web/pullFetch.ts`, both pull dialogs, `TopBar.tsx`) and **the parser's lazy wasm load point** (`src/parser/treeSitter.ts`) verbatim: any request primitive (`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …) or any unpublished email literal turns it red — **comments count too**, because it is plain-text matching. The page's two `fetch(` sites (the pull transport and the wasm lazy load) and the top bar's user-clicked clipboard write are declared **per file** (`--allow-egress=<file>:<token>`), so admitting them cannot quietly relax the contact path's "no request primitive at all" promise.
 2. A jest canary: feed in a diagnostics source stuffed with conspicuous secrets and assert that none of them show up in any of the three outputs (the text, the Issues href, the mailto).
 3. Smoke G1–G6: a full open → close round trip in real headless Chrome asserting that **the request count did not grow by a single one**, and that the panel really floats on top (the hit test at the center of the close button must return the button itself).
 
@@ -279,7 +279,7 @@ Screenshots (`codemap-shots/01-initial.png` … `06-deep-crossfile.png`, the pul
 | `npm run format`                  | prettier write                                                                                                   |
 | `npm run verify`                  | typecheck + lint + test — run this before committing                                                             |
 | `npm run icons`                   | regenerate the ico / 180 / 192 / 512 rasters from `public/icon.svg`                                              |
-| `npm run audit:egress`            | statically scan the contact path + the pull module: any request primitive or unpublished email literal turns it red; the pull transport's `fetch(` and the top bar's clipboard write are declared per file (CI blocking) |
+| `npm run audit:egress`            | statically scan the contact path + the pull module + the parser's wasm load point: any request primitive or unpublished email literal turns it red; the page's two `fetch(` sites and the top bar's clipboard write are declared per file (CI blocking) |
 | `npm run smoke`                   | real Chrome + CDP automation acceptance (run `npm run export` first)                                             |
 | `npm run serve:dist`              | serve `dist/` with `_headers` replayed and keep it running — for checking the production CSP and cache headers by hand in a browser (the dev server does not apply `_headers`, so header checks there prove nothing); runs no assertions |
 | `node scripts/browser-verify.mjs` | same thing, running the script directly                                                                          |
@@ -303,7 +303,7 @@ scripts/
   inject-html-head.mjs    postexport step 1: inject the icon links, meta and the shell background <style> into dist's <head>
   polish-dist.mjs         post-export processing: strip HTML comments + structural self-check + zero-absolute-URL self-check
   browser-verify.mjs      real-browser (headless Chrome + CDP) acceptance script
-  audit-egress.mjs        static scan of the contact path + pull module: request primitives / unpublished email literals, with per-file declarations (CI blocking gate)
+  audit-egress.mjs        static scan of the contact path + pull module + parser wasm load point: request primitives / unpublished email literals, with per-file declarations (CI blocking gate)
 .github/workflows/
   ci-and-deploy.yml       gate -> browser smoke -> deploy; the three jobs share the artifact of one single build
 fixtures/                 test samples (main/shapes/utils/multi/broken)

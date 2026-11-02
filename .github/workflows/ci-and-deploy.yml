@@ -92,12 +92,14 @@ jobs:
       - name: Invariants (typecheck + lint + jest)
         run: npm run verify
 
-      - name: Contact path cannot send anything (egress + address gate)
+      - name: No undeclared outbound point (egress + address gate)
         run: npm run audit:egress
-        # 反馈是唯一「往外搬信息」的功能，所以它的承诺不能靠 review 自觉。
-        # 这道闸门逐字读 src/feedback/contact.ts、FeedbackDialog.tsx、buildStamp.ts：
-        # 出现任何请求原语（fetch / beacon / <form> / 剪贴板 …，注释也算）或任何未公开的
-        # 邮箱字面量就红。别名门控关闭期间故意不带 --public-address，于是任何邮箱都是 finding。
+        # #9 之后这道闸门不再只守反馈：它逐字读 16 个文件 —— 联系路径 3 个、拉取面 12 个
+        # （src/pull/*、pullFetch.ts、两个拉取对话框、TopBar.tsx）、解析器的 wasm 加载点 1 个
+        # （src/parser/treeSitter.ts）。出现任何请求原语（fetch / beacon / <form> / 剪贴板 …，
+        # 注释也算）或任何未公开的邮箱字面量就红。页面上两个 fetch 点（拉取传输层、wasm 懒加载）
+        # 与顶栏用户点击才发生的剪贴板写入按文件申报，其余未申报的外发点一律算 finding。
+        # 别名门控关闭期间故意不带 --public-address，于是任何邮箱都是 finding。
         # blocking：不加 continue-on-error，也不动 needs。
 
       - name: Build web bundle (preexport copies wasm, postexport strips HTML comments)

@@ -183,12 +183,13 @@ build / ua / files / funcs / edges / unresolved / warnings / persisted
 三道闸门把上面那句话变成事实，而不是靠 review 自觉：
 
 1. `npm run audit:egress`（CI `checks` 里的 blocking 步骤）逐字读联系路径
-   （`src/feedback/contact.ts`、`src/components/FeedbackDialog.tsx`、`src/platform/web/buildStamp.ts`）
-   **与拉取模块**（`src/pull/*`、`src/platform/web/pullFetch.ts`、两个拉取对话框、`TopBar.tsx`）：
+   （`src/feedback/contact.ts`、`src/components/FeedbackDialog.tsx`、`src/platform/web/buildStamp.ts`）、
+   **拉取模块**（`src/pull/*`、`src/platform/web/pullFetch.ts`、两个拉取对话框、`TopBar.tsx`）
+   **与解析器的 wasm 懒加载点**（`src/parser/treeSitter.ts`）：
    出现任何请求原语（`fetch(` / `<form` / `new Image(` / `navigator.clipboard` …）或任何未公开的
-   邮箱字面量就红 —— **注释里也算**，因为它是纯文本匹配。拉取传输层唯一那一处 `fetch(` 与顶栏
-   用户点击才发生的剪贴板写入按**文件**申报（`--allow-egress=<file>:<token>`），所以放行它们
-   不会顺带把联系路径「没有任何请求原语」这条保证一起放开。
+   邮箱字面量就红 —— **注释里也算**，因为它是纯文本匹配。页面上两个 `fetch(` 点（拉取传输层、
+   wasm 懒加载）与顶栏用户点击才发生的剪贴板写入按**文件**申报（`--allow-egress=<file>:<token>`），
+   所以放行它们不会顺带把联系路径「没有任何请求原语」这条保证一起放开。
 2. jest 金丝雀：把塞满显眼秘密的诊断来源喂进去，断言它们在文本、Issues href、mailto 三种输出里
    一个都不出现。
 3. 冒烟 G1–G6：真 headless Chrome 里开→关整个来回，断言**请求数一个都没多**，并且面板真的
@@ -329,7 +330,7 @@ checks job 不需要浏览器也能产出完整 `dist/`。`npm run export` 的 p
 | `npm run format`                  | prettier 写入                                           |
 | `npm run verify`                  | typecheck + lint + test，提交前跑这个                   |
 | `npm run icons`                   | 从 `public/icon.svg` 重生成 ico / 180 / 192 / 512 栅格档  |
-| `npm run audit:egress`            | 静态扫描联系路径 + 拉取模块：出现请求原语或未公开邮箱字面量就红；拉取传输层的 `fetch(` 与顶栏剪贴板写入按文件申报（CI blocking） |
+| `npm run audit:egress`            | 静态扫描联系路径 + 拉取模块 + 解析器的 wasm 加载点：出现请求原语或未公开邮箱字面量就红；页面上两个 `fetch(` 点与顶栏剪贴板写入按文件申报（CI blocking） |
 | `npm run smoke`                   | 真 Chrome + CDP 自动化验收（先 `npm run export`）        |
 | `npm run serve:dist`              | 托管 `dist/` 并回放 `_headers`，服务一直挂着 —— 用浏览器手工核对生产 CSP 与缓存档（dev server 不套 `_headers`，在 dev 上验头等于没验）；不跑断言 |
 | `node scripts/browser-verify.mjs` | 同上，直接跑脚本                                        |
@@ -353,7 +354,7 @@ scripts/
   inject-html-head.mjs    postexport 第一步：把图标 link、meta 与壳层底色 <style> 注入 dist 的 <head>
   polish-dist.mjs         导出后处理：剥 HTML 注释 + 结构自检 + 零绝对 URL 自检
   browser-verify.mjs      真浏览器（headless Chrome + CDP）验收脚本
-  audit-egress.mjs        静态扫描联系路径：请求原语 / 未公开邮箱字面量（CI blocking 闸门）
+  audit-egress.mjs        静态扫描联系路径 + 拉取面 + 解析器 wasm 加载点：请求原语 / 未公开邮箱字面量，按文件申报（CI blocking 闸门）
 .github/workflows/
   ci-and-deploy.yml       门禁 -> 浏览器冒烟 -> 部署，三个 job 共用同一次构建的产物
 fixtures/                 测试样例（main/shapes/utils/multi/broken）

@@ -54,7 +54,7 @@ ADR 正文的「F 组」是历史名，按 ADR 落地备注的对照表读。
 | --- | --- |
 | 已提交文档里的仓库路径必须存在 | `__tests__/docPaths.test.ts` |
 | 撤回的全称宣称零残留、窄事实一条不少、E 组两档标签 | `__tests__/promiseSurface.test.tsx` |
-| 联系路径那三个文件里没有请求原语与未公开邮箱字面量 | `npm run audit:egress`（CI blocking） |
+| 页面上每个请求原语点都显式申报、无未公开邮箱字面量（联系路径 3 + 拉取面 12 + 解析器 wasm 加载点 1） | `npm run audit:egress`（CI blocking） |
 | 图标配色只来自默认主题 | `__tests__/icons.test.ts` |
 | 产物字节 == 上线字节、生产 CSP 下零违规、URL 里无用户内容 | `npm run smoke`（S/E 组） |
 | lint 警告只能减不能增 | `npm run lint`（`--max-warnings=0`） |

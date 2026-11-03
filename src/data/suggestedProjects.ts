@@ -35,24 +35,19 @@ export const SUGGESTED_PROJECTS: readonly SuggestedProject[] = rawProjects.proje
 export interface PickSuggestedProjectOptions {
   /** 随机源；默认 Math.random，测试注入固定值以获得确定结果 */
   random?: () => number;
-  /** 排除的项目身份（full_name）：Shuffle 用它避开当前这个 */
-  excludeFullName?: string | null;
   /** 候选清单；默认内置清单，测试用它覆盖“空清单”场景 */
   projects?: readonly SuggestedProject[];
 }
 
 /**
- * 抽一个示例项目。清单为空（或排除后为空）时返回 null —— 调用方据此不渲染卡片，不报错。
+ * 抽一个示例项目。清单为空时返回 null —— 调用方据此不渲染卡片，不报错。
  */
 export function pickSuggestedProject(options: PickSuggestedProjectOptions = {}): SuggestedProject | null {
-  const { random = Math.random, excludeFullName = null, projects = SUGGESTED_PROJECTS } = options;
-  const candidates = excludeFullName
-    ? projects.filter((project) => project.fullName !== excludeFullName)
-    : projects;
-  if (candidates.length === 0) return null;
-  const index = Math.floor(random() * candidates.length);
-  const bounded = Math.min(candidates.length - 1, Math.max(0, index));
-  return candidates[bounded] ?? null;
+  const { random = Math.random, projects = SUGGESTED_PROJECTS } = options;
+  if (projects.length === 0) return null;
+  const index = Math.floor(random() * projects.length);
+  const bounded = Math.min(projects.length - 1, Math.max(0, index));
+  return projects[bounded] ?? null;
 }
 
 function oneDecimal(value: number): string {

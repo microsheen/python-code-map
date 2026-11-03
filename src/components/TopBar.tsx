@@ -265,7 +265,7 @@ export function TopBar(): ReactNode {
             Python Code Map
           </Text>
           <Text style={styles.subtitle} numberOfLines={1}>
-            Upload .py files, parse in-browser, bidirectional code & graph navigation
+            Map Python code and call graphs in the browser
           </Text>
         </View>
 

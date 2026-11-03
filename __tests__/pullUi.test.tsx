@@ -260,15 +260,31 @@ describe('拉取对话框：随机示例项目卡片（issue #13）', () => {
     expect(card.textContent).toContain('Use these 3 URLs');
   });
 
-  it('点击卡片：把该项目全部 Python URL 按一行一个填进文本框，且不自动拉取', () => {
+  it('卡片列出该项目的全部 URL，每条都是新标签页链接', () => {
+    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog random={() => 0} projects={[django, flask]} />);
+    const links = screen.getAllByTestId('pull-sample-url') as HTMLAnchorElement[];
+    expect(links).toHaveLength(django.urls.length);
+    links.forEach((link, index) => {
+      expect(link.getAttribute('href')).toBe(django.urls[index]);
+      expect(link.target).toBe('_blank');
+      expect(link.rel).toContain('noopener');
+      expect(link.rel).toContain('noreferrer');
+      expect(link.textContent).toBe(django.urls[index]);
+    });
+  });
+
+  it('只有点击 Use 按钮才填充；点卡片其他地方不动草稿', () => {
     const pull = stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
     render(<PullEntryDialog random={() => 0} projects={[django, flask]} />);
     fireEvent.click(screen.getByTestId('pull-sample'));
+    expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe('');
+    fireEvent.click(screen.getByTestId('pull-sample-use'));
     expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
       django.urls.join('\n')
     );
     // 重复点击等于重新填充同一组 URL，不做切换
-    fireEvent.click(screen.getByTestId('pull-sample'));
+    fireEvent.click(screen.getByTestId('pull-sample-use'));
     expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
       django.urls.join('\n')
     );
@@ -286,17 +302,6 @@ describe('拉取对话框：随机示例项目卡片（issue #13）', () => {
     expect(screen.getByTestId('pull-sample').textContent).toContain('Flask');
   });
 
-  it('Shuffle 换成另一个项目，但不动已有草稿', () => {
-    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
-    render(<PullEntryDialog random={() => 0} projects={[django, flask]} />);
-    fireEvent.click(screen.getByTestId('pull-sample'));
-    fireEvent.click(screen.getByTestId('pull-sample-shuffle'));
-    expect(screen.getByTestId('pull-sample').textContent).toContain('Flask');
-    expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
-      django.urls.join('\n')
-    );
-  });
-
   it('清单为空时不渲染卡片，粘贴框照旧可用', () => {
     stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
     render(<PullEntryDialog random={() => 0} projects={[]} />);
@@ -307,8 +312,8 @@ describe('拉取对话框：随机示例项目卡片（issue #13）', () => {
   it('拉取进行中卡片仍可点，只有 Pull 按钮被禁用', () => {
     stubPull(undefined, { pullEntryOpen: true, pulling: true } as Partial<AppStore>);
     render(<PullEntryDialog random={() => 0} projects={[django, flask]} />);
-    expect((screen.getByTestId('pull-sample') as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(screen.getByTestId('pull-sample'));
+    expect((screen.getByTestId('pull-sample-use') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('pull-sample-use'));
     expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
       django.urls.join('\n')
     );

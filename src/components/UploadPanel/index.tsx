@@ -33,11 +33,9 @@ export function UploadPanel(props: UploadPanelProps): ReactNode {
   return (
     <View style={styles.wrap} testID="upload-panel">
       <View style={[styles.dropzone, dragging && styles.dropzoneActive]} testID="upload-dropzone">
-        <Text style={styles.title}>{'Python Call Graph'}</Text>
+        <Text style={styles.title}>{'Python Code Map'}</Text>
         <Text style={styles.subtitle}>
-          {
-            'Upload one or more .py / .pyi files to parse function call relationships in the browser.'
-          }
+          {'Upload .py files or pull from a URL to map functions and calls.'}
         </Text>
         <Text style={styles.hint}>
           {

@@ -53,11 +53,6 @@ describe('pickSuggestedProject', () => {
     expect(picked?.fullName).toBe('dateutil/dateutil');
   });
 
-  it('excludeFullName 排除当前项目后再抽', () => {
-    const picked = pickSuggestedProject({ random: () => 0, excludeFullName: 'django/django' });
-    expect(picked?.fullName).toBe('pallets/flask');
-  });
-
   it('清单为空时返回 null（卡片据此不渲染）', () => {
     expect(pickSuggestedProject({ projects: [], random: () => 0 })).toBeNull();
   });

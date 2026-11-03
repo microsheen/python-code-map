@@ -169,22 +169,30 @@ const sampleActionStyle: CSSProperties = {
   marginTop: spacing.sm,
   background: colors.accentDim,
   color: colors.onAccent,
+  border: 'none',
+  cursor: 'pointer',
   borderRadius: 6,
   padding: '5px 12px',
   fontSize: 12,
   fontWeight: 600,
+  fontFamily: 'inherit',
 };
 
-const sampleFootStyle: CSSProperties = {
+const sampleUrlListStyle: CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
-  gap: spacing.sm,
+  flexDirection: 'column',
+  gap: 2,
   marginTop: spacing.sm,
 };
 
-const sampleNoteStyle: CSSProperties = { fontSize: 11, color: colors.faint };
-
-const shuffleBtnStyle: CSSProperties = { ...ghostBtnStyle, padding: '5px 12px', fontSize: 12 };
+const sampleUrlStyle: CSSProperties = {
+  color: colors.accent,
+  fontSize: 11,
+  lineHeight: 1.4,
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-all',
+  textDecoration: 'none',
+};
 
 export interface PullEntryDialogProps {
   /** 随机源；不传则用样本模块的默认值（Math.random），测试注入固定值 */
@@ -251,18 +259,6 @@ export function PullEntryDialog({ random, projects }: PullEntryDialogProps = {})
     setDraft(sample.urls.join('\n'));
   };
 
-  // Shuffle 只换建议，不动草稿；抽不出别的（例如候选只有一个）就维持当前
-  const shuffleSample = (): void => {
-    setSample(
-      (current) =>
-        pickSuggestedProject({
-          random,
-          projects,
-          excludeFullName: current?.fullName ?? null,
-        }) ?? current
-    );
-  };
-
   return (
     <div style={overlayStyle} onClick={close}>
       <div
@@ -282,12 +278,7 @@ export function PullEntryDialog({ random, projects }: PullEntryDialogProps = {})
         {sample ? (
           <div style={{ marginTop: spacing.md }}>
             <div style={sampleLabelStyle}>Try a sample project</div>
-            <button
-              type="button"
-              style={sampleCardStyle}
-              onClick={fillDraftFromSample}
-              data-testid="pull-sample"
-            >
+            <div style={sampleCardStyle} data-testid="pull-sample">
               <span style={sampleTopRowStyle}>
                 <span style={sampleNameStyle}>{sample.name}</span>
                 <span style={sampleStarsStyle}>{formatStars(sample.stars)} stars</span>
@@ -299,18 +290,28 @@ export function PullEntryDialog({ random, projects }: PullEntryDialogProps = {})
               {sample.description ? (
                 <span style={sampleDescriptionStyle}>{sample.description}</span>
               ) : null}
-              <span style={sampleActionStyle}>{`Use these ${sample.urls.length} URLs`}</span>
-            </button>
-            <div style={sampleFootStyle}>
+              <div style={sampleUrlListStyle}>
+                {sample.urls.map((url) => (
+                  <a
+                    key={url}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={sampleUrlStyle}
+                    data-testid="pull-sample-url"
+                  >
+                    {url}
+                  </a>
+                ))}
+              </div>
               <button
                 type="button"
-                style={shuffleBtnStyle}
-                onClick={shuffleSample}
-                data-testid="pull-sample-shuffle"
+                style={sampleActionStyle}
+                onClick={fillDraftFromSample}
+                data-testid="pull-sample-use"
               >
-                Shuffle
+                {`Use these ${sample.urls.length} URLs`}
               </button>
-              <span style={sampleNoteStyle}>Shuffle changes the suggestion only</span>
             </div>
           </div>
         ) : null}

@@ -1,0 +1,2993 @@
+{
+  "collection_date": "2026-11-03",
+  "total_projects": 100,
+  "source": "GitHub API + heuristic enrichment",
+  "projects": [
+    {
+      "name": "Django",
+      "full_name": "django/django",
+      "html_url": "https://github.com/django/django",
+      "description": "The Web framework for perfectionists with deadlines.",
+      "stargazers_count": 91489,
+      "topics": [
+        "apps",
+        "django",
+        "framework",
+        "models",
+        "orm",
+        "python",
+        "templates",
+        "views",
+        "web"
+      ],
+      "language": "Python",
+      "homepage": "https://www.djangoproject.com/",
+      "related_urls": [
+        {
+          "url": "https://github.com/django/django/blob/main/django/shortcuts.py",
+          "type": "python_file",
+          "description": "Source file django/shortcuts.py in django/django (215 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/django/django/blob/main/django/http/request.py",
+          "type": "python_file",
+          "description": "Source file django/http/request.py in django/django (881 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/django/django/blob/main/django/db/models/base.py",
+          "type": "python_file",
+          "description": "Source file django/db/models/base.py in django/django (2592 lines, branch: main)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Flask",
+      "full_name": "pallets/flask",
+      "html_url": "https://github.com/pallets/flask",
+      "description": "The Python micro framework for building web applications.",
+      "stargazers_count": 74942,
+      "topics": [
+        "flask",
+        "jinja",
+        "pallets",
+        "python",
+        "web-framework",
+        "werkzeug",
+        "wsgi"
+      ],
+      "language": "Python",
+      "homepage": "https://flask.palletsprojects.com",
+      "related_urls": [
+        {
+          "url": "https://github.com/pallets/flask/blob/main/src/flask/app.py",
+          "type": "python_file",
+          "description": "Source file src/flask/app.py in pallets/flask (1687 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pallets/flask/blob/main/src/flask/blueprints.py",
+          "type": "python_file",
+          "description": "Source file src/flask/blueprints.py in pallets/flask (129 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pallets/flask/blob/main/src/flask/wrappers.py",
+          "type": "python_file",
+          "description": "Source file src/flask/wrappers.py in pallets/flask (256 lines, branch: main)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "FastAPI",
+      "full_name": "tiangolo/fastapi",
+      "html_url": "https://github.com/fastapi/fastapi",
+      "description": "FastAPI framework, high performance, easy to learn, fast to code, ready for production",
+      "stargazers_count": 104360,
+      "topics": [
+        "api",
+        "async",
+        "asyncio",
+        "fastapi",
+        "framework",
+        "json",
+        "json-schema",
+        "openapi",
+        "openapi3",
+        "pydantic",
+        "python",
+        "python-types",
+        "python3",
+        "redoc",
+        "rest",
+        "starlette",
+        "swagger",
+        "swagger-ui",
+        "uvicorn",
+        "web"
+      ],
+      "language": "Python",
+      "homepage": "https://fastapi.tiangolo.com/",
+      "related_urls": [
+        {
+          "url": "https://github.com/tiangolo/fastapi/blob/master/fastapi/applications.py",
+          "type": "python_file",
+          "description": "Source file fastapi/applications.py in tiangolo/fastapi (4817 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/tiangolo/fastapi/blob/master/fastapi/routing.py",
+          "type": "python_file",
+          "description": "Source file fastapi/routing.py in tiangolo/fastapi (6553 lines, branch: master)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Starlette",
+      "full_name": "encode/starlette",
+      "html_url": "https://github.com/Kludex/starlette",
+      "description": "The little ASGI framework that shines. 🌟",
+      "stargazers_count": 12704,
+      "topics": [
+        "asgi",
+        "async",
+        "http",
+        "python",
+        "websockets"
+      ],
+      "language": "Python",
+      "homepage": "https://starlette.dev",
+      "related_urls": [
+        {
+          "url": "https://github.com/encode/starlette/blob/main/starlette/applications.py",
+          "type": "python_file",
+          "description": "Source file starlette/applications.py in encode/starlette (125 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/encode/starlette/blob/main/starlette/routing.py",
+          "type": "python_file",
+          "description": "Source file starlette/routing.py in encode/starlette (773 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/encode/starlette/blob/main/starlette/responses.py",
+          "type": "python_file",
+          "description": "Source file starlette/responses.py in encode/starlette (619 lines, branch: main)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "DRF",
+      "full_name": "encode/django-rest-framework",
+      "html_url": "https://github.com/encode/django-rest-framework",
+      "description": "Web APIs for Django, made easy",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "web-framework",
+      "related_urls": [
+        {
+          "url": "https://github.com/encode/django-rest-framework/blob/main/rest_framework/views.py",
+          "type": "python_file",
+          "description": "Source file rest_framework/views.py in encode/django-rest-framework (539 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/encode/django-rest-framework/blob/main/rest_framework/serializers.py",
+          "type": "python_file",
+          "description": "Source file rest_framework/serializers.py in encode/django-rest-framework (1800 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/encode/django-rest-framework/blob/main/rest_framework/generics.py",
+          "type": "python_file",
+          "description": "Source file rest_framework/generics.py in encode/django-rest-framework (296 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "django-cms",
+      "full_name": "django-cms/django-cms",
+      "html_url": "https://github.com/django-cms/django-cms",
+      "description": "The easy-to-use and developer-friendly enterprise CMS powered by Django ",
+      "stargazers_count": 10681,
+      "topics": [
+        "cms",
+        "django",
+        "django-cms",
+        "hacktoberfest",
+        "python",
+        "web"
+      ],
+      "language": "Python",
+      "homepage": "http://www.django-cms.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/django-cms/django-cms/blob/main/cms/models/pagemodel.py",
+          "type": "python_file",
+          "description": "Source file cms/models/pagemodel.py in django-cms/django-cms (1436 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/django-cms/django-cms/blob/main/cms/plugin_base.py",
+          "type": "python_file",
+          "description": "Source file cms/plugin_base.py in django-cms/django-cms (978 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/django-cms/django-cms/blob/main/cms/api.py",
+          "type": "python_file",
+          "description": "Source file cms/api.py in django-cms/django-cms (729 lines, branch: main)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Wagtail",
+      "full_name": "wagtail/wagtail",
+      "html_url": "https://github.com/wagtail/wagtail",
+      "description": "A Django content management system focused on flexibility and user experience",
+      "stargazers_count": 20600,
+      "topics": [
+        "cms",
+        "django",
+        "hacktoberfest",
+        "python",
+        "wagtail"
+      ],
+      "language": "Python",
+      "homepage": "https://wagtail.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/wagtail/wagtail/blob/main/wagtail/models/__init__.py",
+          "type": "python_file",
+          "description": "Source file wagtail/models/__init__.py in wagtail/wagtail (114 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/wagtail/wagtail/blob/main/wagtail/blocks/base.py",
+          "type": "python_file",
+          "description": "Source file wagtail/blocks/base.py in wagtail/wagtail (859 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/wagtail/wagtail/blob/main/wagtail/query.py",
+          "type": "python_file",
+          "description": "Source file wagtail/query.py in wagtail/wagtail (781 lines, branch: main)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Bottle",
+      "full_name": "bottlepy/bottle",
+      "html_url": "https://github.com/bottlepy/bottle",
+      "description": "bottle.py is a fast and simple micro-framework for python web-applications.",
+      "stargazers_count": 8801,
+      "topics": [
+        "bottle",
+        "python",
+        "rest",
+        "web-framework",
+        "wsgi"
+      ],
+      "language": "Python",
+      "homepage": "http://bottlepy.org/",
+      "related_urls": [
+        {
+          "url": "https://github.com/bottlepy/bottle/blob/main/bottle.py",
+          "type": "python_file",
+          "description": "Source file bottle.py in bottlepy/bottle (4566 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/bottlepy/bottle/blob/master/bottle.py",
+          "type": "python_file",
+          "description": "Source file bottle.py in bottlepy/bottle (4566 lines, branch: master)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Falcon",
+      "full_name": "falconry/falcon",
+      "html_url": "https://github.com/falconry/falcon",
+      "description": "The no-magic web API and microservices framework for Python developers, with a focus on reliability and performance at scale.",
+      "stargazers_count": 9811,
+      "topics": [
+        "api",
+        "api-rest",
+        "asgi",
+        "http",
+        "microservices",
+        "python",
+        "rest",
+        "web",
+        "wsgi"
+      ],
+      "language": "Python",
+      "homepage": "https://falcon.readthedocs.io",
+      "related_urls": [
+        {
+          "url": "https://github.com/falconry/falcon/blob/master/falcon/app.py",
+          "type": "python_file",
+          "description": "Source file falcon/app.py in falconry/falcon (1525 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/falconry/falcon/blob/master/falcon/request.py",
+          "type": "python_file",
+          "description": "Source file falcon/request.py in falconry/falcon (3050 lines, branch: master)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "CherryPy",
+      "full_name": "cherrypy/cherrypy",
+      "html_url": "https://github.com/cherrypy/cherrypy",
+      "description": "CherryPy is a pythonic, object-oriented HTTP framework.      https://cherrypy.dev",
+      "stargazers_count": 1948,
+      "topics": [
+        "cherrypy",
+        "cross-platform",
+        "daemon-mode",
+        "http",
+        "http-server",
+        "http-streaming",
+        "https",
+        "idiomatic-python",
+        "pure-python",
+        "pypy3",
+        "python",
+        "python-3"
+      ],
+      "language": "Python",
+      "homepage": "https://docs.cherrypy.dev",
+      "related_urls": [
+        {
+          "url": "https://github.com/cherrypy/cherrypy/blob/main/cherrypy/_cprequest.py",
+          "type": "python_file",
+          "description": "Source file cherrypy/_cprequest.py in cherrypy/cherrypy (1029 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/cherrypy/cherrypy/blob/main/cherrypy/_cpserver.py",
+          "type": "python_file",
+          "description": "Source file cherrypy/_cpserver.py in cherrypy/cherrypy (261 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/cherrypy/cherrypy/blob/main/cherrypy/_cpwsgi.py",
+          "type": "python_file",
+          "description": "Source file cherrypy/_cpwsgi.py in cherrypy/cherrypy (490 lines, branch: main)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Tornado",
+      "full_name": "tornadoweb/tornado",
+      "html_url": "https://github.com/tornadoweb/tornado",
+      "description": "Tornado is a Python web framework and asynchronous networking library, originally developed at FriendFeed.",
+      "stargazers_count": 22162,
+      "topics": [
+        "asynchronous",
+        "python"
+      ],
+      "language": "Python",
+      "homepage": "http://www.tornadoweb.org/",
+      "related_urls": [
+        {
+          "url": "https://github.com/tornadoweb/tornado/blob/master/tornado/web.py",
+          "type": "python_file",
+          "description": "Source file tornado/web.py in tornadoweb/tornado (4256 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/tornadoweb/tornado/blob/master/tornado/curl_httpclient.py",
+          "type": "python_file",
+          "description": "Source file tornado/curl_httpclient.py in tornadoweb/tornado (738 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/tornadoweb/tornado/blob/master/tornado/httpclient.py",
+          "type": "python_file",
+          "description": "Source file tornado/httpclient.py in tornadoweb/tornado (794 lines, branch: master)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "aiohttp",
+      "full_name": "aio-libs/aiohttp",
+      "html_url": "https://github.com/aio-libs/aiohttp",
+      "description": "Asynchronous HTTP client/server framework for asyncio and Python",
+      "stargazers_count": 16604,
+      "topics": [
+        "aiohttp",
+        "async",
+        "asyncio",
+        "hacktoberfest",
+        "http",
+        "http-client",
+        "http-server",
+        "python"
+      ],
+      "language": "Python",
+      "homepage": "https://docs.aiohttp.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/aio-libs/aiohttp/blob/master/aiohttp/web.py",
+          "type": "python_file",
+          "description": "Source file aiohttp/web.py in aio-libs/aiohttp (580 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/aio-libs/aiohttp/blob/master/aiohttp/client.py",
+          "type": "python_file",
+          "description": "Source file aiohttp/client.py in aio-libs/aiohttp (1690 lines, branch: master)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Sanic",
+      "full_name": "sanic-org/sanic",
+      "html_url": "https://github.com/sanic-org/sanic",
+      "description": " Accelerate your web app development  | Build fast. Run fast.",
+      "stargazers_count": 18629,
+      "topics": [
+        "api-server",
+        "asgi",
+        "asyncio",
+        "framework",
+        "python",
+        "sanic",
+        "web",
+        "web-framework",
+        "web-server"
+      ],
+      "language": "Python",
+      "homepage": "https://sanic.dev",
+      "related_urls": [
+        {
+          "url": "https://github.com/sanic-org/sanic/blob/main/sanic/app.py",
+          "type": "python_file",
+          "description": "Source file sanic/app.py in sanic-org/sanic (2553 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/sanic-org/sanic/blob/main/sanic/blueprints.py",
+          "type": "python_file",
+          "description": "Source file sanic/blueprints.py in sanic-org/sanic (984 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/sanic-org/sanic/blob/main/sanic/router.py",
+          "type": "python_file",
+          "description": "Source file sanic/router.py in sanic-org/sanic (274 lines, branch: main)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Pyramid",
+      "full_name": "pylons/pyramid",
+      "html_url": "https://github.com/Pylons/pyramid",
+      "description": "Pyramid - A Python web framework",
+      "stargazers_count": 4102,
+      "topics": [
+        "pylons",
+        "pyramid",
+        "python",
+        "web-framework",
+        "wsgi"
+      ],
+      "language": "Python",
+      "homepage": "https://trypyramid.com/",
+      "related_urls": [
+        {
+          "url": "https://github.com/pylons/pyramid/blob/main/src/pyramid/router.py",
+          "type": "python_file",
+          "description": "Source file src/pyramid/router.py in pylons/pyramid (276 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pylons/pyramid/blob/main/src/pyramid/view.py",
+          "type": "python_file",
+          "description": "Source file src/pyramid/view.py in pylons/pyramid (792 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pylons/pyramid/blob/main/src/pyramid/session.py",
+          "type": "python_file",
+          "description": "Source file src/pyramid/session.py in pylons/pyramid (509 lines, branch: main)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "Web2py",
+      "full_name": "web2py/web2py",
+      "html_url": "https://github.com/web2py/web2py",
+      "description": "Free and open source full-stack enterprise framework for agile development of secure database-driven web-based applications, written and programmable in Python.",
+      "stargazers_count": 2167,
+      "topics": [],
+      "language": "Python",
+      "homepage": "http://www.web2py.com",
+      "related_urls": [
+        {
+          "url": "https://github.com/web2py/web2py/blob/master/anyserver.py",
+          "type": "python_file",
+          "description": "Source file anyserver.py in web2py/web2py (393 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/web2py/web2py/blob/master/gluon/authapi.py",
+          "type": "python_file",
+          "description": "Source file gluon/authapi.py in web2py/web2py (1372 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/web2py/web2py/blob/master/gluon/compileapp.py",
+          "type": "python_file",
+          "description": "Source file gluon/compileapp.py in web2py/web2py (828 lines, branch: master)"
+        }
+      ],
+      "category": "web-framework"
+    },
+    {
+      "name": "NumPy",
+      "full_name": "numpy/numpy",
+      "html_url": "https://github.com/numpy/numpy",
+      "description": "The fundamental package for scientific computing with Python.",
+      "stargazers_count": 33239,
+      "topics": [
+        "numpy",
+        "python"
+      ],
+      "language": "Python",
+      "homepage": "https://numpy.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/numpy/numpy/blob/main/numpy/__init__.py",
+          "type": "python_file",
+          "description": "Source file numpy/__init__.py in numpy/numpy (929 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/numpy/numpy/blob/main/numpy/_core/numeric.py",
+          "type": "python_file",
+          "description": "Source file numpy/_core/numeric.py in numpy/numpy (2733 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/numpy/numpy/blob/main/numpy/__init__.py",
+          "type": "python_file",
+          "description": "Source file numpy/__init__.py in numpy/numpy (929 lines, branch: main)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "pandas",
+      "full_name": "pandas-dev/pandas",
+      "html_url": "https://github.com/pandas-dev/pandas",
+      "description": "Flexible and powerful data analysis / manipulation library for Python, providing labeled data structures similar to R data.frame objects, statistical functions, and much more",
+      "stargazers_count": 50302,
+      "topics": [
+        "alignment",
+        "data-analysis",
+        "data-science",
+        "flexible",
+        "pandas",
+        "python"
+      ],
+      "language": "Python",
+      "homepage": "https://pandas.pydata.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/pandas-dev/pandas/blob/main/pandas/core/frame.py",
+          "type": "python_file",
+          "description": "Source file pandas/core/frame.py in pandas-dev/pandas (20502 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pandas-dev/pandas/blob/main/pandas/core/series.py",
+          "type": "python_file",
+          "description": "Source file pandas/core/series.py in pandas-dev/pandas (10429 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pandas-dev/pandas/blob/main/pandas/core/generic.py",
+          "type": "python_file",
+          "description": "Source file pandas/core/generic.py in pandas-dev/pandas (13098 lines, branch: main)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "SciPy",
+      "full_name": "scipy/scipy",
+      "html_url": "https://github.com/scipy/scipy",
+      "description": "SciPy library main repository",
+      "stargazers_count": 15179,
+      "topics": [
+        "algorithms",
+        "closember",
+        "python",
+        "scientific-computing",
+        "scipy"
+      ],
+      "language": "Python",
+      "homepage": "https://scipy.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/scipy/scipy/blob/main/scipy/stats/_distn_infrastructure.py",
+          "type": "python_file",
+          "description": "Source file scipy/stats/_distn_infrastructure.py in scipy/scipy (4273 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/scipy/scipy/blob/main/scipy/optimize/_optimize.py",
+          "type": "python_file",
+          "description": "Source file scipy/optimize/_optimize.py in scipy/scipy (4172 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/scipy/scipy/blob/main/scipy/__init__.py",
+          "type": "python_file",
+          "description": "Source file scipy/__init__.py in scipy/scipy (124 lines, branch: main)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "Matplotlib",
+      "full_name": "matplotlib/matplotlib",
+      "html_url": "https://github.com/matplotlib/matplotlib",
+      "description": "matplotlib: plotting with Python",
+      "stargazers_count": 23413,
+      "topics": [
+        "data-science",
+        "data-visualization",
+        "gtk",
+        "matplotlib",
+        "plotting",
+        "python",
+        "qt",
+        "tk",
+        "wx"
+      ],
+      "language": "Python",
+      "homepage": "https://matplotlib.org/stable/",
+      "related_urls": [
+        {
+          "url": "https://github.com/matplotlib/matplotlib/blob/main/lib/matplotlib/pyplot.py",
+          "type": "python_file",
+          "description": "Source file lib/matplotlib/pyplot.py in matplotlib/matplotlib (4840 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/matplotlib/matplotlib/blob/main/lib/matplotlib/figure.py",
+          "type": "python_file",
+          "description": "Source file lib/matplotlib/figure.py in matplotlib/matplotlib (3895 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/matplotlib/matplotlib/blob/main/lib/matplotlib/axes/_base.py",
+          "type": "python_file",
+          "description": "Source file lib/matplotlib/axes/_base.py in matplotlib/matplotlib (5084 lines, branch: main)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "Seaborn",
+      "full_name": "mwaskom/seaborn",
+      "html_url": "https://github.com/mwaskom/seaborn",
+      "description": "Statistical data visualization based on matplotlib",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "data-science",
+      "related_urls": [
+        {
+          "url": "https://github.com/mwaskom/seaborn/blob/master/seaborn/regression.py",
+          "type": "python_file",
+          "description": "Source file seaborn/regression.py in mwaskom/seaborn (951 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/mwaskom/seaborn/blob/master/seaborn/distributions.py",
+          "type": "python_file",
+          "description": "Source file seaborn/distributions.py in mwaskom/seaborn (2533 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Plotly",
+      "full_name": "plotly/plotly.py",
+      "html_url": "https://github.com/plotly/plotly.py",
+      "description": "The interactive graphing library for Python :sparkles:",
+      "stargazers_count": 18873,
+      "topics": [
+        "d3",
+        "dashboard",
+        "declarative",
+        "graph-library",
+        "interactive",
+        "jupyter-notebook",
+        "plotly",
+        "plotly-dash",
+        "plotlyjs",
+        "python",
+        "regl",
+        "sparkles",
+        "visualization",
+        "webgl"
+      ],
+      "language": "Python",
+      "homepage": "https://plotly.com/python/",
+      "related_urls": [
+        {
+          "url": "https://github.com/plotly/plotly.py/blob/main/plotly/__init__.py",
+          "type": "python_file",
+          "description": "Source file plotly/__init__.py in plotly/plotly.py (209 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/plotly/plotly.py/blob/main/plotly/utils.py",
+          "type": "python_file",
+          "description": "Source file plotly/utils.py in plotly/plotly.py (209 lines, branch: main)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "Bokeh",
+      "full_name": "bokeh/bokeh",
+      "html_url": "https://github.com/bokeh/bokeh",
+      "description": "Interactive Data Visualization in the browser, from  Python",
+      "stargazers_count": 20470,
+      "topics": [
+        "bokeh",
+        "data-visualisation",
+        "interactive-plots",
+        "javascript",
+        "jupyter",
+        "notebooks",
+        "numfocus",
+        "plots",
+        "plotting",
+        "python",
+        "visualisation",
+        "visualization"
+      ],
+      "language": "TypeScript",
+      "homepage": "https://bokeh.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/bokeh/bokeh/blob/main/src/bokeh/plotting/_figure.py",
+          "type": "python_file",
+          "description": "Source file src/bokeh/plotting/_figure.py in bokeh/bokeh (845 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/bokeh/bokeh/blob/main/src/bokeh/models/plots.py",
+          "type": "python_file",
+          "description": "Source file src/bokeh/models/plots.py in bokeh/bokeh (998 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/bokeh/bokeh/blob/main/src/bokeh/core/properties.py",
+          "type": "python_file",
+          "description": "Source file src/bokeh/core/properties.py in bokeh/bokeh (418 lines, branch: main)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "statsmodels",
+      "full_name": "statsmodels/statsmodels",
+      "html_url": "https://github.com/statsmodels/statsmodels",
+      "description": "Statsmodels: statistical modeling and econometrics in Python",
+      "stargazers_count": 11734,
+      "topics": [
+        "count-model",
+        "data-analysis",
+        "data-science",
+        "econometrics",
+        "forecasting",
+        "generalized-linear-models",
+        "hypothesis-testing",
+        "prediction",
+        "python",
+        "regression-models",
+        "robust-estimation",
+        "statistics",
+        "timeseries-analysis"
+      ],
+      "language": "Python",
+      "homepage": "http://www.statsmodels.org/devel/",
+      "related_urls": [
+        {
+          "url": "https://github.com/statsmodels/statsmodels/blob/main/statsmodels/regression/linear_model.py",
+          "type": "python_file",
+          "description": "Source file statsmodels/regression/linear_model.py in statsmodels/statsmodels (3885 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/statsmodels/statsmodels/blob/main/statsmodels/base/model.py",
+          "type": "python_file",
+          "description": "Source file statsmodels/base/model.py in statsmodels/statsmodels (3186 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/statsmodels/statsmodels/blob/main/statsmodels/api.py",
+          "type": "python_file",
+          "description": "Source file statsmodels/api.py in statsmodels/statsmodels (153 lines, branch: main)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "xarray",
+      "full_name": "pydata/xarray",
+      "html_url": "https://github.com/pydata/xarray",
+      "description": "N-D labeled arrays and datasets in Python",
+      "stargazers_count": 4219,
+      "topics": [
+        "dask",
+        "netcdf",
+        "numpy",
+        "pandas",
+        "python",
+        "xarray"
+      ],
+      "language": "Python",
+      "homepage": "https://xarray.dev",
+      "related_urls": [
+        {
+          "url": "https://github.com/pydata/xarray/blob/main/xarray/core/dataset.py",
+          "type": "python_file",
+          "description": "Source file xarray/core/dataset.py in pydata/xarray (11071 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pydata/xarray/blob/main/xarray/core/dataarray.py",
+          "type": "python_file",
+          "description": "Source file xarray/core/dataarray.py in pydata/xarray (8101 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pydata/xarray/blob/main/xarray/core/variable.py",
+          "type": "python_file",
+          "description": "Source file xarray/core/variable.py in pydata/xarray (3511 lines, branch: main)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "patsy",
+      "full_name": "pydata/patsy",
+      "html_url": "https://github.com/pydata/patsy",
+      "description": "Describing statistical models in Python using symbolic formulas",
+      "stargazers_count": 990,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "related_urls": [
+        {
+          "url": "https://github.com/pydata/patsy/blob/master/patsy/highlevel.py",
+          "type": "python_file",
+          "description": "Source file patsy/highlevel.py in pydata/patsy (323 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/pydata/patsy/blob/master/patsy/build.py",
+          "type": "python_file",
+          "description": "Source file patsy/build.py in pydata/patsy (1027 lines, branch: master)"
+        }
+      ],
+      "category": "data-science"
+    },
+    {
+      "name": "scikit-learn",
+      "full_name": "scikit-learn/scikit-learn",
+      "html_url": "https://github.com/scikit-learn/scikit-learn",
+      "description": "scikit-learn: machine learning in Python",
+      "stargazers_count": 67985,
+      "topics": [
+        "data-analysis",
+        "data-science",
+        "machine-learning",
+        "python",
+        "statistics"
+      ],
+      "language": "Python",
+      "homepage": "https://scikit-learn.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/base.py",
+          "type": "python_file",
+          "description": "Source file sklearn/base.py in scikit-learn/scikit-learn (1408 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/linear_model/_base.py",
+          "type": "python_file",
+          "description": "Source file sklearn/linear_model/_base.py in scikit-learn/scikit-learn (922 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/ensemble/_forest.py",
+          "type": "python_file",
+          "description": "Source file sklearn/ensemble/_forest.py in scikit-learn/scikit-learn (3231 lines, branch: main)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "TensorFlow",
+      "full_name": "tensorflow/tensorflow",
+      "html_url": "https://github.com/tensorflow/tensorflow",
+      "description": "An Open Source Machine Learning Framework for Everyone",
+      "stargazers_count": 201276,
+      "topics": [
+        "deep-learning",
+        "deep-neural-networks",
+        "distributed",
+        "machine-learning",
+        "ml",
+        "neural-network",
+        "python",
+        "tensorflow"
+      ],
+      "language": "C++",
+      "homepage": "https://tensorflow.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/framework/ops.py",
+          "type": "python_file",
+          "description": "Source file tensorflow/python/framework/ops.py in tensorflow/tensorflow (6299 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/client/session.py",
+          "type": "python_file",
+          "description": "Source file tensorflow/python/client/session.py in tensorflow/tensorflow (1880 lines, branch: master)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "PyTorch",
+      "full_name": "pytorch/pytorch",
+      "html_url": "https://github.com/pytorch/pytorch",
+      "description": "Tensors and Dynamic neural networks in Python with strong GPU acceleration",
+      "stargazers_count": 105102,
+      "topics": [
+        "autograd",
+        "deep-learning",
+        "gpu",
+        "machine-learning",
+        "neural-network",
+        "numpy",
+        "python",
+        "tensor"
+      ],
+      "language": "Python",
+      "homepage": "https://pytorch.org",
+      "related_urls": [
+        {
+          "url": "https://github.com/pytorch/pytorch/blob/main/torch/__init__.py",
+          "type": "python_file",
+          "description": "Source file torch/__init__.py in pytorch/pytorch (3602 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pytorch/pytorch/blob/main/torch/nn/functional.py",
+          "type": "python_file",
+          "description": "Source file torch/nn/functional.py in pytorch/pytorch (7521 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pytorch/pytorch/blob/main/torch/nn/modules/module.py",
+          "type": "python_file",
+          "description": "Source file torch/nn/modules/module.py in pytorch/pytorch (3067 lines, branch: main)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "Transformers",
+      "full_name": "huggingface/transformers",
+      "html_url": "https://github.com/huggingface/transformers",
+      "description": "🤗 Transformers: the model-definition framework for state-of-the-art machine learning models in text, vision, audio, and multimodal models, for both inference and training. ",
+      "stargazers_count": 168460,
+      "topics": [
+        "audio",
+        "deep-learning",
+        "deepseek",
+        "gemma",
+        "glm",
+        "hacktoberfest",
+        "llm",
+        "machine-learning",
+        "model-hub",
+        "natural-language-processing",
+        "nlp",
+        "pretrained-models",
+        "python",
+        "pytorch",
+        "pytorch-transformers",
+        "qwen",
+        "speech-recognition",
+        "transformer",
+        "vlm"
+      ],
+      "language": "Python",
+      "homepage": "https://huggingface.co/transformers",
+      "related_urls": [
+        {
+          "url": "https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py",
+          "type": "python_file",
+          "description": "Source file src/transformers/modeling_utils.py in huggingface/transformers (5212 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/huggingface/transformers/blob/main/src/transformers/trainer.py",
+          "type": "python_file",
+          "description": "Source file src/transformers/trainer.py in huggingface/transformers (4725 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/huggingface/transformers/blob/main/src/transformers/tokenization_utils_base.py",
+          "type": "python_file",
+          "description": "Source file src/transformers/tokenization_utils_base.py in huggingface/transformers (3783 lines, branch: main)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "HuggingFace Datasets",
+      "full_name": "huggingface/datasets",
+      "html_url": "https://github.com/huggingface/datasets",
+      "description": "🤗 The largest hub of ready-to-use datasets for AI models with fast, easy-to-use and efficient data manipulation tools",
+      "stargazers_count": 22105,
+      "topics": [
+        "ai",
+        "artificial-intelligence",
+        "computer-vision",
+        "dataset-hub",
+        "datasets",
+        "deep-learning",
+        "huggingface",
+        "llm",
+        "machine-learning",
+        "natural-language-processing",
+        "nlp",
+        "numpy",
+        "pandas",
+        "pytorch",
+        "speech",
+        "tensorflow"
+      ],
+      "language": "Python",
+      "homepage": "https://huggingface.co/docs/datasets",
+      "related_urls": [
+        {
+          "url": "https://github.com/huggingface/datasets/blob/main/src/datasets/arrow_dataset.py",
+          "type": "python_file",
+          "description": "Source file src/datasets/arrow_dataset.py in huggingface/datasets (7487 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/huggingface/datasets/blob/main/src/datasets/load.py",
+          "type": "python_file",
+          "description": "Source file src/datasets/load.py in huggingface/datasets (1752 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/huggingface/datasets/blob/main/src/datasets/dataset_dict.py",
+          "type": "python_file",
+          "description": "Source file src/datasets/dataset_dict.py in huggingface/datasets (2763 lines, branch: main)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "DeepSpeed",
+      "full_name": "microsoft/DeepSpeed",
+      "html_url": "https://github.com/deepspeedai/DeepSpeed",
+      "description": "DeepSpeed is a deep learning optimization library that makes distributed training and inference easy, efficient, and effective.",
+      "stargazers_count": 43284,
+      "topics": [
+        "billion-parameters",
+        "compression",
+        "data-parallelism",
+        "deep-learning",
+        "gpu",
+        "inference",
+        "machine-learning",
+        "mixture-of-experts",
+        "model-parallelism",
+        "pipeline-parallelism",
+        "pytorch",
+        "trillion-parameters",
+        "zero"
+      ],
+      "language": "Python",
+      "homepage": "https://www.deepspeed.ai/",
+      "related_urls": [
+        {
+          "url": "https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/runtime/engine.py",
+          "type": "python_file",
+          "description": "Source file deepspeed/runtime/engine.py in microsoft/DeepSpeed (6100 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/runtime/pipe/engine.py",
+          "type": "python_file",
+          "description": "Source file deepspeed/runtime/pipe/engine.py in microsoft/DeepSpeed (1391 lines, branch: master)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "vLLM",
+      "full_name": "vllm-project/vllm",
+      "html_url": "https://github.com/vllm-project/vllm",
+      "description": "A high-throughput and memory-efficient inference and serving engine for LLMs",
+      "stargazers_count": 96173,
+      "topics": [
+        "amd",
+        "blackwell",
+        "cuda",
+        "deepseek",
+        "deepseek-v3",
+        "gpt",
+        "gpt-oss",
+        "inference",
+        "kimi",
+        "llama",
+        "llm",
+        "llm-serving",
+        "model-serving",
+        "moe",
+        "openai",
+        "pytorch",
+        "qwen",
+        "qwen3",
+        "tpu",
+        "transformer"
+      ],
+      "language": "Python",
+      "homepage": "https://vllm.ai",
+      "related_urls": [
+        {
+          "url": "https://github.com/vllm-project/vllm/blob/main/vllm/entrypoints/llm.py",
+          "type": "python_file",
+          "description": "Source file vllm/entrypoints/llm.py in vllm-project/vllm (922 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/models/llama.py",
+          "type": "python_file",
+          "description": "Source file vllm/model_executor/models/llama.py in vllm-project/vllm (586 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/vllm-project/vllm/blob/main/vllm/__init__.py",
+          "type": "python_file",
+          "description": "Source file vllm/__init__.py in vllm-project/vllm (102 lines, branch: main)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "SGLang",
+      "full_name": "sgl-project/sglang",
+      "html_url": "https://github.com/sgl-project/sglang",
+      "description": "SGLang is a high-performance serving framework for large language models and multimodal models.",
+      "stargazers_count": 38384,
+      "topics": [
+        "attention",
+        "blackwell",
+        "cuda",
+        "deepseek",
+        "diffusion",
+        "glm",
+        "gpt-oss",
+        "inference",
+        "llama",
+        "llm",
+        "minimax",
+        "moe",
+        "qwen",
+        "qwen-image",
+        "reinforcement-learning",
+        "transformer",
+        "vlm",
+        "wan"
+      ],
+      "language": "Python",
+      "homepage": "https://sglang.io",
+      "related_urls": [
+        {
+          "url": "https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/scheduler.py",
+          "type": "python_file",
+          "description": "Source file python/sglang/srt/managers/scheduler.py in sgl-project/sglang (6774 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/server_args.py",
+          "type": "python_file",
+          "description": "Source file python/sglang/srt/server_args.py in sgl-project/sglang (896 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/sgl-project/sglang/blob/main/python/sglang/lang/interpreter.py",
+          "type": "python_file",
+          "description": "Source file python/sglang/lang/interpreter.py in sgl-project/sglang (1099 lines, branch: main)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "Whisper",
+      "full_name": "openai/whisper",
+      "html_url": "https://github.com/openai/whisper",
+      "description": "Robust Speech Recognition via Large-Scale Weak Supervision",
+      "stargazers_count": 111824,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "related_urls": [
+        {
+          "url": "https://github.com/openai/whisper/blob/main/whisper/model.py",
+          "type": "python_file",
+          "description": "Source file whisper/model.py in openai/whisper (353 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/openai/whisper/blob/main/whisper/transcribe.py",
+          "type": "python_file",
+          "description": "Source file whisper/transcribe.py in openai/whisper (624 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/openai/whisper/blob/main/whisper/decoding.py",
+          "type": "python_file",
+          "description": "Source file whisper/decoding.py in openai/whisper (827 lines, branch: main)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "XGBoost",
+      "full_name": "dmlc/xgboost",
+      "html_url": "https://github.com/dmlc/xgboost",
+      "description": "Scalable, Portable and Distributed Gradient Boosting (GBDT, GBRT or GBM) Library,  for Python, R, Java, Scala, C and more. Runs on single machine, Hadoop, Spark, Dask, Flink and DataFlow",
+      "stargazers_count": 28940,
+      "topics": [
+        "distributed-systems",
+        "gbdt",
+        "gbm",
+        "gbrt",
+        "machine-learning",
+        "xgboost"
+      ],
+      "language": "C++",
+      "homepage": "https://xgboost.readthedocs.io/",
+      "related_urls": [
+        {
+          "url": "https://github.com/dmlc/xgboost/blob/master/python-package/xgboost/core.py",
+          "type": "python_file",
+          "description": "Source file python-package/xgboost/core.py in dmlc/xgboost (3402 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/dmlc/xgboost/blob/master/python-package/xgboost/sklearn.py",
+          "type": "python_file",
+          "description": "Source file python-package/xgboost/sklearn.py in dmlc/xgboost (2448 lines, branch: master)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "CatBoost",
+      "full_name": "catboost/catboost",
+      "html_url": "https://github.com/catboost/catboost",
+      "description": "A fast, scalable, high performance Gradient Boosting on Decision Trees library, used for ranking, classification, regression and other machine learning tasks for Python, R, Java, C++. Supports computation on CPU and GPU.",
+      "stargazers_count": 9189,
+      "topics": [
+        "big-data",
+        "catboost",
+        "categorical-features",
+        "coreml",
+        "cuda",
+        "data-mining",
+        "data-science",
+        "decision-trees",
+        "gbdt",
+        "gbm",
+        "gpu",
+        "gpu-computing",
+        "gradient-boosting",
+        "kaggle",
+        "machine-learning",
+        "python",
+        "r",
+        "tutorial"
+      ],
+      "language": "C++",
+      "homepage": "https://catboost.ai",
+      "related_urls": [
+        {
+          "url": "https://github.com/catboost/catboost/blob/master/catboost/python-package/catboost/core.py",
+          "type": "python_file",
+          "description": "Source file catboost/python-package/catboost/core.py in catboost/catboost (7729 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/catboost/catboost/blob/master/catboost/python-package/catboost/utils.py",
+          "type": "python_file",
+          "description": "Source file catboost/python-package/catboost/utils.py in catboost/catboost (770 lines, branch: master)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "LightGBM",
+      "full_name": "microsoft/LightGBM",
+      "html_url": "https://github.com/lightgbm-org/LightGBM",
+      "description": "A fast, distributed, high performance gradient boosting (GBT, GBDT, GBRT, GBM or MART) framework based on decision tree algorithms, used for ranking, classification and many other machine learning tasks.",
+      "stargazers_count": 18947,
+      "topics": [
+        "data-mining",
+        "decision-trees",
+        "distributed",
+        "gbdt",
+        "gbm",
+        "gbrt",
+        "gradient-boosting",
+        "kaggle",
+        "lightgbm",
+        "machine-learning",
+        "parallel",
+        "python",
+        "r"
+      ],
+      "language": "C++",
+      "homepage": "https://lightgbm.readthedocs.io/en/latest/",
+      "related_urls": [
+        {
+          "url": "https://github.com/microsoft/LightGBM/blob/main/python-package/lightgbm/basic.py",
+          "type": "python_file",
+          "description": "Source file python-package/lightgbm/basic.py in microsoft/LightGBM (5533 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/microsoft/LightGBM/blob/main/python-package/lightgbm/sklearn.py",
+          "type": "python_file",
+          "description": "Source file python-package/lightgbm/sklearn.py in microsoft/LightGBM (2764 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/microsoft/LightGBM/blob/main/python-package/lightgbm/engine.py",
+          "type": "python_file",
+          "description": "Source file python-package/lightgbm/engine.py in microsoft/LightGBM (896 lines, branch: main)"
+        }
+      ],
+      "category": "machine-learning"
+    },
+    {
+      "name": "Ultralytics YOLO",
+      "full_name": "ultralytics/ultralytics",
+      "html_url": "https://github.com/ultralytics/ultralytics",
+      "description": "Newest YOLOv5 through latest YOLO11 in one clean package",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "computer-vision",
+      "related_urls": [
+        {
+          "url": "https://github.com/ultralytics/ultralytics/blob/main/ultralytics/engine/trainer.py",
+          "type": "python_file",
+          "description": "Source file ultralytics/engine/trainer.py in ultralytics/ultralytics (1423 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/ultralytics/ultralytics/blob/main/ultralytics/engine/model.py",
+          "type": "python_file",
+          "description": "Source file ultralytics/engine/model.py in ultralytics/ultralytics (1279 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/ultralytics/ultralytics/blob/main/ultralytics/nn/tasks.py",
+          "type": "python_file",
+          "description": "Source file ultralytics/nn/tasks.py in ultralytics/ultralytics (2396 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "scikit-image",
+      "full_name": "scikit-image/scikit-image",
+      "html_url": "https://github.com/scikit-image/scikit-image",
+      "description": "Image processing routines for SciPy",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "computer-vision",
+      "related_urls": [
+        {
+          "url": "https://github.com/scikit-image/scikit-image/blob/main/src/skimage/__init__.py",
+          "type": "python_file",
+          "description": "Source file src/skimage/__init__.py in scikit-image/scikit-image (149 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/scikit-image/scikit-image/blob/main/doc/tools/apigen.py",
+          "type": "python_file",
+          "description": "Source file doc/tools/apigen.py in scikit-image/scikit-image (548 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/scikit-image/scikit-image/blob/main/src/_skimage2/_shared/utils.py",
+          "type": "python_file",
+          "description": "Source file src/_skimage2/_shared/utils.py in scikit-image/scikit-image (1143 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "FAISS",
+      "full_name": "facebookresearch/faiss",
+      "html_url": "https://github.com/facebookresearch/faiss",
+      "description": "A library for efficient similarity search and clustering",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "computer-vision",
+      "related_urls": [
+        {
+          "url": "https://github.com/facebookresearch/faiss/blob/main/benchs/bench_fw/benchmark_io.py",
+          "type": "python_file",
+          "description": "Source file benchs/bench_fw/benchmark_io.py in facebookresearch/faiss (274 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/facebookresearch/faiss/blob/master/benchs/bench_fw/benchmark_io.py",
+          "type": "python_file",
+          "description": "Source file benchs/bench_fw/benchmark_io.py in facebookresearch/faiss (274 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "OpenCV",
+      "full_name": "opencv/opencv-python",
+      "html_url": "https://github.com/opencv/opencv-python",
+      "description": "Open Source Computer Vision Library",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "computer-vision",
+      "related_urls": [
+        {
+          "url": "https://github.com/opencv/opencv-python/blob/master/setup.py",
+          "type": "python_file",
+          "description": "Source file setup.py in opencv/opencv-python (495 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/opencv/opencv/blob/4.x/modules/python/src2/gen2.py",
+          "type": "python_file",
+          "description": "Python binding generator gen2.py in opencv/opencv (1567 lines, branch: 4.x) — main repo"
+        },
+        {
+          "url": "https://github.com/opencv/opencv/blob/4.x/modules/python/src2/hdr_parser.py",
+          "type": "python_file",
+          "description": "Python binding header parser hdr_parser.py in opencv/opencv (1254 lines, branch: 4.x) — main repo"
+        }
+      ]
+    },
+    {
+      "name": "Kornia",
+      "full_name": "kornia/kornia",
+      "html_url": "https://github.com/kornia/kornia",
+      "description": "",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "computer-vision",
+      "related_urls": [
+        {
+          "url": "https://github.com/kornia/kornia/blob/main/kornia/morphology/morphology.py",
+          "type": "python_file",
+          "description": "Source file kornia/morphology/morphology.py in kornia/kornia (1288 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/kornia/kornia/blob/main/kornia/filters/gaussian.py",
+          "type": "python_file",
+          "description": "Source file kornia/filters/gaussian.py in kornia/kornia (330 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/kornia/kornia/blob/main/kornia/geometry/transform/affwarp.py",
+          "type": "python_file",
+          "description": "Source file kornia/geometry/transform/affwarp.py in kornia/kornia (1635 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "NLTK",
+      "full_name": "nltk/nltk",
+      "html_url": "https://github.com/nltk/nltk",
+      "description": "Natural Language Toolkit",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "nlp",
+      "related_urls": [
+        {
+          "url": "https://github.com/nltk/nltk/blob/develop/nltk/data.py",
+          "type": "python_file",
+          "description": "Source file nltk/data.py in nltk/nltk (3005 lines, branch: develop)"
+        },
+        {
+          "url": "https://github.com/nltk/nltk/blob/develop/nltk/parse/chart.py",
+          "type": "python_file",
+          "description": "Source file nltk/parse/chart.py in nltk/nltk (1943 lines, branch: develop)"
+        },
+        {
+          "url": "https://github.com/nltk/nltk/blob/develop/nltk/corpus/reader/wordnet.py",
+          "type": "python_file",
+          "description": "Source file nltk/corpus/reader/wordnet.py in nltk/nltk (2653 lines, branch: develop)"
+        }
+      ]
+    },
+    {
+      "name": "spaCy",
+      "full_name": "explosion/spaCy",
+      "html_url": "https://github.com/explosion/spaCy",
+      "description": "Industrial-strength NLP in Python",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "nlp",
+      "related_urls": [
+        {
+          "url": "https://github.com/explosion/spaCy/blob/main/spacy/language.py",
+          "type": "python_file",
+          "description": "Source file spacy/language.py in explosion/spaCy (2546 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/explosion/spaCy/blob/main/spacy/util.py",
+          "type": "python_file",
+          "description": "Source file spacy/util.py in explosion/spaCy (1840 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/explosion/spaCy/blob/main/spacy/schemas.py",
+          "type": "python_file",
+          "description": "Source file spacy/schemas.py in explosion/spaCy (558 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "gensim",
+      "full_name": "RaRe-Technologies/gensim",
+      "html_url": "https://github.com/RaRe-Technologies/gensim",
+      "description": "Topic modelling for humans",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "nlp",
+      "related_urls": [
+        {
+          "url": "https://github.com/RaRe-Technologies/gensim/blob/master/gensim/models/word2vec.py",
+          "type": "python_file",
+          "description": "Source file gensim/models/word2vec.py in RaRe-Technologies/gensim (2330 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/RaRe-Technologies/gensim/blob/master/gensim/models/ldamodel.py",
+          "type": "python_file",
+          "description": "Source file gensim/models/ldamodel.py in RaRe-Technologies/gensim (1697 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "LangChain",
+      "full_name": "langchain-ai/langchain",
+      "html_url": "https://github.com/langchain-ai/langchain",
+      "description": "Applications built with LLMs",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "ai-agents",
+      "related_urls": [
+        {
+          "url": "https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain_classic/base_memory.py",
+          "type": "python_file",
+          "description": "Source file libs/langchain/langchain_classic/base_memory.py in langchain-ai/langchain (120 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/langchain-ai/langchain/blob/master/libs/model-profiles/langchain_model_profiles/cli.py",
+          "type": "python_file",
+          "description": "Source file libs/model-profiles/langchain_model_profiles/cli.py in langchain-ai/langchain (453 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/langchain-ai/langchain/blob/master/libs/text-splitters/langchain_text_splitters/base.py",
+          "type": "python_file",
+          "description": "Source file libs/text-splitters/langchain_text_splitters/base.py in langchain-ai/langchain (527 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "LangGraph",
+      "full_name": "langchain-ai/langgraph",
+      "html_url": "https://github.com/langchain-ai/langgraph",
+      "description": "Build stateful, multi-actor applications with LLMs",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "ai-agents",
+      "related_urls": [
+        {
+          "url": "https://github.com/langchain-ai/langgraph/blob/main/libs/langgraph/langgraph/graph/state.py",
+          "type": "python_file",
+          "description": "Source file libs/langgraph/langgraph/graph/state.py in langchain-ai/langgraph (1979 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/langchain-ai/langgraph/blob/master/libs/langgraph/langgraph/graph/state.py",
+          "type": "python_file",
+          "description": "Source file libs/langgraph/langgraph/graph/state.py in langchain-ai/langgraph (1979 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "AutoGen",
+      "full_name": "microsoft/autogen",
+      "html_url": "https://github.com/microsoft/autogen",
+      "description": "Enable Next-gen LLM Applications via Multi-Agent Conversation",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "ai-agents",
+      "related_urls": [
+        {
+          "url": "https://github.com/microsoft/autogen/blob/main/python/packages/autogen-agentchat/src/autogen_agentchat/agents/_assistant_agent.py",
+          "type": "python_file",
+          "description": "Source file python/packages/autogen-agentchat/src/autogen_agentchat/agents/_assistant_agent.py in microsoft/autogen (1704 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/microsoft/autogen/blob/main/python/packages/autogen-ext/src/autogen_ext/models/openai/_openai_client.py",
+          "type": "python_file",
+          "description": "Source file python/packages/autogen-ext/src/autogen_ext/models/openai/_openai_client.py in microsoft/autogen (1751 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/microsoft/autogen/blob/main/python/packages/autogen-core/src/autogen_core/_base_agent.py",
+          "type": "python_file",
+          "description": "Source file python/packages/autogen-core/src/autogen_core/_base_agent.py in microsoft/autogen (255 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Ollama Python",
+      "full_name": "ollama/ollama-python",
+      "html_url": "https://github.com/ollama/ollama-python",
+      "description": "Python client for Ollama local LLM runner",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "ai-agents",
+      "related_urls": [
+        {
+          "url": "https://github.com/ollama/ollama-python/blob/main/ollama/_client.py",
+          "type": "python_file",
+          "description": "Source file ollama/_client.py in ollama/ollama-python (1489 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/ollama/ollama-python/blob/main/tests/test_client.py",
+          "type": "python_file",
+          "description": "Source file tests/test_client.py in ollama/ollama-python (1530 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/ollama/ollama-python/blob/master/ollama/_client.py",
+          "type": "python_file",
+          "description": "Source file ollama/_client.py in ollama/ollama-python (1489 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "llama-cpp-python",
+      "full_name": "abetlen/llama-cpp-python",
+      "html_url": "https://github.com/abetlen/llama-cpp-python",
+      "description": "Python bindings for llama.cpp",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "ai-agents",
+      "related_urls": [
+        {
+          "url": "https://github.com/abetlen/llama-cpp-python/blob/main/llama_cpp/llama.py",
+          "type": "python_file",
+          "description": "Source file llama_cpp/llama.py in abetlen/llama-cpp-python (2521 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/abetlen/llama-cpp-python/blob/main/llama_cpp/server/app.py",
+          "type": "python_file",
+          "description": "Source file llama_cpp/server/app.py in abetlen/llama-cpp-python (598 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/abetlen/llama-cpp-python/blob/main/llama_cpp/llama_types.py",
+          "type": "python_file",
+          "description": "Source file llama_cpp/llama_types.py in abetlen/llama-cpp-python (317 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Ansible",
+      "full_name": "ansible/ansible",
+      "html_url": "https://github.com/ansible/ansible",
+      "description": "Ansible is a radically simple IT automation system",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "devops",
+      "related_urls": [
+        {
+          "url": "https://github.com/ansible/ansible/blob/devel/lib/ansible/cli/playbook.py",
+          "type": "python_file",
+          "description": "Source file lib/ansible/cli/playbook.py in ansible/ansible (235 lines, branch: devel)"
+        },
+        {
+          "url": "https://github.com/ansible/ansible/blob/devel/lib/ansible/playbook/play.py",
+          "type": "python_file",
+          "description": "Source file lib/ansible/playbook/play.py in ansible/ansible (484 lines, branch: devel)"
+        },
+        {
+          "url": "https://github.com/ansible/ansible/blob/devel/lib/ansible/executor/task_executor.py",
+          "type": "python_file",
+          "description": "Source file lib/ansible/executor/task_executor.py in ansible/ansible (1075 lines, branch: devel)"
+        }
+      ]
+    },
+    {
+      "name": "Ray",
+      "full_name": "ray-project/ray",
+      "html_url": "https://github.com/ray-project/ray",
+      "description": "A unified framework for scaling AI and Python applications",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "devops",
+      "related_urls": [
+        {
+          "url": "https://github.com/ray-project/ray/blob/master/python/ray/_private/worker.py",
+          "type": "python_file",
+          "description": "Source file python/ray/_private/worker.py in ray-project/ray (3969 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/ray-project/ray/blob/master/ci/build/container_resource_utils.py",
+          "type": "python_file",
+          "description": "Source file ci/build/container_resource_utils.py in ray-project/ray (100 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/ray-project/ray/blob/master/ci/lint/check_api_annotations.py",
+          "type": "python_file",
+          "description": "Source file ci/lint/check_api_annotations.py in ray-project/ray (122 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Prefect",
+      "full_name": "PrefectHQ/prefect",
+      "html_url": "https://github.com/PrefectHQ/prefect",
+      "description": "A workflow orchestration tool for data pipelines",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "devops",
+      "related_urls": [
+        {
+          "url": "https://github.com/PrefectHQ/prefect/blob/main/src/prefect/flows.py",
+          "type": "python_file",
+          "description": "Source file src/prefect/flows.py in PrefectHQ/prefect (3699 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/PrefectHQ/prefect/blob/main/src/prefect/tasks.py",
+          "type": "python_file",
+          "description": "Source file src/prefect/tasks.py in PrefectHQ/prefect (2287 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/PrefectHQ/prefect/blob/main/src/prefect/engine.py",
+          "type": "python_file",
+          "description": "Source file src/prefect/engine.py in PrefectHQ/prefect (191 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Dagster",
+      "full_name": "dagster-io/dagster",
+      "html_url": "https://github.com/dagster-io/dagster",
+      "description": "An orchestration platform for building ML pipelines",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "devops",
+      "related_urls": [
+        {
+          "url": "https://github.com/dagster-io/dagster/blob/master/python_modules/dagster/dagster/_core/execution/api.py",
+          "type": "python_file",
+          "description": "Source file python_modules/dagster/dagster/_core/execution/api.py in dagster-io/dagster (962 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/dagster-io/dagster/blob/master/.buildkite/buildkite-shared/buildkite_shared/utils.py",
+          "type": "python_file",
+          "description": "Source file .buildkite/buildkite-shared/buildkite_shared/utils.py in dagster-io/dagster (238 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/dagster-io/dagster/blob/master/.buildkite/buildkite-shared/buildkite_shared_tests/test_utils.py",
+          "type": "python_file",
+          "description": "Source file .buildkite/buildkite-shared/buildkite_shared_tests/test_utils.py in dagster-io/dagster (108 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Optuna",
+      "full_name": "optuna/optuna",
+      "html_url": "https://github.com/optuna/optuna",
+      "description": "A hyperparameter optimization framework",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "devops",
+      "related_urls": [
+        {
+          "url": "https://github.com/optuna/optuna/blob/master/optuna/study/study.py",
+          "type": "python_file",
+          "description": "Source file optuna/study/study.py in optuna/optuna (1689 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/optuna/optuna/blob/master/optuna/samplers/_tpe/sampler.py",
+          "type": "python_file",
+          "description": "Source file optuna/samplers/_tpe/sampler.py in optuna/optuna (882 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Apache Airflow",
+      "full_name": "apache/airflow",
+      "html_url": "https://github.com/apache/airflow",
+      "description": "Platform to programmatically author, schedule and monitor workflows",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "devops",
+      "related_urls": [
+        {
+          "url": "https://github.com/apache/airflow/blob/main/airflow-core/src/airflow/models/dag.py",
+          "type": "python_file",
+          "description": "Source file airflow-core/src/airflow/models/dag.py in apache/airflow (953 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/apache/airflow/blob/main/airflow-core/src/airflow/models/dagbag.py",
+          "type": "python_file",
+          "description": "Source file airflow-core/src/airflow/models/dagbag.py in apache/airflow (349 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "SQLAlchemy",
+      "full_name": "sqlalchemy/sqlalchemy",
+      "html_url": "https://github.com/sqlalchemy/sqlalchemy",
+      "description": "The Database Toolkit for Python",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "database",
+      "related_urls": [
+        {
+          "url": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/orm/query.py",
+          "type": "python_file",
+          "description": "Source file lib/sqlalchemy/orm/query.py in sqlalchemy/sqlalchemy (3529 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/sql/compiler.py",
+          "type": "python_file",
+          "description": "Source file lib/sqlalchemy/sql/compiler.py in sqlalchemy/sqlalchemy (8605 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/orm/session.py",
+          "type": "python_file",
+          "description": "Source file lib/sqlalchemy/orm/session.py in sqlalchemy/sqlalchemy (5508 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Peewee",
+      "full_name": "coleifer/peewee",
+      "html_url": "https://github.com/coleifer/peewee",
+      "description": "A small, expressive orm",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "database",
+      "related_urls": [
+        {
+          "url": "https://github.com/coleifer/peewee/blob/master/peewee.py",
+          "type": "python_file",
+          "description": "Source file peewee.py in coleifer/peewee (9692 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/coleifer/peewee/blob/master/playhouse/sqlite_ext.py",
+          "type": "python_file",
+          "description": "Source file playhouse/sqlite_ext.py in coleifer/peewee (892 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "databases",
+      "full_name": "encode/databases",
+      "html_url": "https://github.com/encode/databases",
+      "description": "Async database support for Python",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "database",
+      "related_urls": [
+        {
+          "url": "https://github.com/encode/databases/blob/master/databases/core.py",
+          "type": "python_file",
+          "description": "Source file databases/core.py in encode/databases (618 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/encode/databases/blob/master/databases/backends/postgres.py",
+          "type": "python_file",
+          "description": "Source file databases/backends/postgres.py in encode/databases (219 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "pytest",
+      "full_name": "pytest-dev/pytest",
+      "html_url": "https://github.com/pytest-dev/pytest",
+      "description": "The pytest framework makes it easy to write small tests",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "testing",
+      "related_urls": [
+        {
+          "url": "https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py",
+          "type": "python_file",
+          "description": "Source file src/_pytest/main.py in pytest-dev/pytest (1243 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pytest-dev/pytest/blob/main/src/_pytest/fixtures.py",
+          "type": "python_file",
+          "description": "Source file src/_pytest/fixtures.py in pytest-dev/pytest (2623 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pytest-dev/pytest/blob/main/src/_pytest/python.py",
+          "type": "python_file",
+          "description": "Source file src/_pytest/python.py in pytest-dev/pytest (1858 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "mypy",
+      "full_name": "python/mypy",
+      "html_url": "https://github.com/python/mypy",
+      "description": "Optional static typing for Python",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "testing",
+      "related_urls": [
+        {
+          "url": "https://github.com/python/mypy/blob/master/mypy/checker.py",
+          "type": "python_file",
+          "description": "Source file mypy/checker.py in python/mypy (10107 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/python/mypy/blob/master/mypy/applytype.py",
+          "type": "python_file",
+          "description": "Source file mypy/applytype.py in python/mypy (318 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/python/mypy/blob/master/mypy/dmypy_server.py",
+          "type": "python_file",
+          "description": "Source file mypy/dmypy_server.py in python/mypy (1133 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Black",
+      "full_name": "psf/black",
+      "html_url": "https://github.com/psf/black",
+      "description": "The uncompromising Python code formatter",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "testing",
+      "related_urls": [
+        {
+          "url": "https://github.com/psf/black/blob/main/src/black/__init__.py",
+          "type": "python_file",
+          "description": "Source file src/black/__init__.py in psf/black (1954 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/psf/black/blob/main/src/black/linegen.py",
+          "type": "python_file",
+          "description": "Source file src/black/linegen.py in psf/black (3063 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/psf/black/blob/main/src/black/mode.py",
+          "type": "python_file",
+          "description": "Source file src/black/mode.py in psf/black (379 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Ruff",
+      "full_name": "astral-sh/ruff",
+      "html_url": "https://github.com/astral-sh/ruff",
+      "description": "An extremely fast Python linter and code formatter",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "testing",
+      "related_urls": [
+        {
+          "url": "https://github.com/astral-sh/ruff/blob/main/scripts/generate_mkdocs.py",
+          "type": "python_file",
+          "description": "Source file scripts/generate_mkdocs.py in astral-sh/ruff (340 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/astral-sh/ruff/blob/master/scripts/generate_mkdocs.py",
+          "type": "python_file",
+          "description": "Source file scripts/generate_mkdocs.py in astral-sh/ruff (340 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "flake8",
+      "full_name": "PyCQA/flake8",
+      "html_url": "https://github.com/PyCQA/flake8",
+      "description": "Wtach your code style with flake8",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "testing",
+      "related_urls": [
+        {
+          "url": "https://github.com/PyCQA/flake8/blob/main/src/flake8/main/application.py",
+          "type": "python_file",
+          "description": "Source file src/flake8/main/application.py in PyCQA/flake8 (216 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/PyCQA/flake8/blob/main/src/flake8/processor.py",
+          "type": "python_file",
+          "description": "Source file src/flake8/processor.py in PyCQA/flake8 (455 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/PyCQA/flake8/blob/main/src/flake8/checker.py",
+          "type": "python_file",
+          "description": "Source file src/flake8/checker.py in PyCQA/flake8 (579 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "isort",
+      "full_name": "PyCQA/isort",
+      "html_url": "https://github.com/PyCQA/isort",
+      "description": "A Python utility / library to sort imports alphabetically",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "testing",
+      "related_urls": [
+        {
+          "url": "https://github.com/PyCQA/isort/blob/main/isort/main.py",
+          "type": "python_file",
+          "description": "Source file isort/main.py in PyCQA/isort (1259 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/PyCQA/isort/blob/main/isort/api.py",
+          "type": "python_file",
+          "description": "Source file isort/api.py in PyCQA/isort (651 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/PyCQA/isort/blob/main/isort/parse.py",
+          "type": "python_file",
+          "description": "Source file isort/parse.py in PyCQA/isort (498 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Sphinx",
+      "full_name": "sphinx-doc/sphinx",
+      "html_url": "https://github.com/sphinx-doc/sphinx",
+      "description": "Sphinx makes it easy to create intelligent and beautiful documentation",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "testing",
+      "related_urls": [
+        {
+          "url": "https://github.com/sphinx-doc/sphinx/blob/master/sphinx/application.py",
+          "type": "python_file",
+          "description": "Source file sphinx/application.py in sphinx-doc/sphinx (1951 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/sphinx-doc/sphinx/blob/master/sphinx/builders/html/__init__.py",
+          "type": "python_file",
+          "description": "Source file sphinx/builders/html/__init__.py in sphinx-doc/sphinx (1556 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Click",
+      "full_name": "pallets/click",
+      "html_url": "https://github.com/pallets/click",
+      "description": "Python package for creating beautiful command line interfaces",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "cli",
+      "related_urls": [
+        {
+          "url": "https://github.com/pallets/click/blob/main/src/click/core.py",
+          "type": "python_file",
+          "description": "Source file src/click/core.py in pallets/click (4039 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pallets/click/blob/main/src/click/decorators.py",
+          "type": "python_file",
+          "description": "Source file src/click/decorators.py in pallets/click (628 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pallets/click/blob/main/src/click/parser.py",
+          "type": "python_file",
+          "description": "Source file src/click/parser.py in pallets/click (534 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Typer",
+      "full_name": "tiangolo/typer",
+      "html_url": "https://github.com/tiangolo/typer",
+      "description": "Typer, build great CLIs. Easy to code. Based on Python type hints",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "cli",
+      "related_urls": [
+        {
+          "url": "https://github.com/tiangolo/typer/blob/master/typer/main.py",
+          "type": "python_file",
+          "description": "Source file typer/main.py in tiangolo/typer (2023 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/tiangolo/typer/blob/master/typer/core.py",
+          "type": "python_file",
+          "description": "Source file typer/core.py in tiangolo/typer (1222 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Rich",
+      "full_name": "Textualize/rich",
+      "html_url": "https://github.com/Textualize/rich",
+      "description": "Python library for rich text and beautiful formatting in the terminal",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "cli",
+      "related_urls": [
+        {
+          "url": "https://github.com/Textualize/rich/blob/main/rich/console.py",
+          "type": "python_file",
+          "description": "Source file rich/console.py in Textualize/rich (2699 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/Textualize/rich/blob/main/rich/markdown.py",
+          "type": "python_file",
+          "description": "Source file rich/markdown.py in Textualize/rich (803 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/Textualize/rich/blob/main/rich/table.py",
+          "type": "python_file",
+          "description": "Source file rich/table.py in Textualize/rich (1016 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Textual",
+      "full_name": "Textualize/textual",
+      "html_url": "https://github.com/Textualize/textual",
+      "description": "Textual is a TUI (Text User Interface) framework for Python",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "cli",
+      "related_urls": [
+        {
+          "url": "https://github.com/Textualize/textual/blob/main/src/textual/app.py",
+          "type": "python_file",
+          "description": "Source file src/textual/app.py in Textualize/textual (5041 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/Textualize/textual/blob/main/src/textual/widget.py",
+          "type": "python_file",
+          "description": "Source file src/textual/widget.py in Textualize/textual (4957 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/Textualize/textual/blob/main/src/textual/screen.py",
+          "type": "python_file",
+          "description": "Source file src/textual/screen.py in Textualize/textual (2195 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Poetry",
+      "full_name": "python-poetry/poetry",
+      "html_url": "https://github.com/python-poetry/poetry",
+      "description": "Python packaging and dependency management made easy",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "cli",
+      "related_urls": [
+        {
+          "url": "https://github.com/python-poetry/poetry/blob/main/src/poetry/console/application.py",
+          "type": "python_file",
+          "description": "Source file src/poetry/console/application.py in python-poetry/poetry (656 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/python-poetry/poetry/blob/main/src/poetry/installation/executor.py",
+          "type": "python_file",
+          "description": "Source file src/poetry/installation/executor.py in python-poetry/poetry (986 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/python-poetry/poetry/blob/main/src/poetry/factory.py",
+          "type": "python_file",
+          "description": "Source file src/poetry/factory.py in python-poetry/poetry (374 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "pip",
+      "full_name": "pypa/pip",
+      "html_url": "https://github.com/pypa/pip",
+      "description": "The Python package installer",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "cli",
+      "related_urls": [
+        {
+          "url": "https://github.com/pypa/pip/blob/main/src/pip/_internal/req/req_install.py",
+          "type": "python_file",
+          "description": "Source file src/pip/_internal/req/req_install.py in pypa/pip (882 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pypa/pip/blob/main/src/pip/_internal/commands/install.py",
+          "type": "python_file",
+          "description": "Source file src/pip/_internal/commands/install.py in pypa/pip (1090 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pypa/pip/blob/main/src/pip/_internal/wheel_builder.py",
+          "type": "python_file",
+          "description": "Source file src/pip/_internal/wheel_builder.py in pypa/pip (266 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "CPython",
+      "full_name": "python/cpython",
+      "html_url": "https://github.com/python/cpython",
+      "description": "The Python programming language",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "cli",
+      "related_urls": [
+        {
+          "url": "https://github.com/python/cpython/blob/main/Lib/argparse.py",
+          "type": "python_file",
+          "description": "Source file Lib/argparse.py in python/cpython (2982 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/python/cpython/blob/main/Lib/typing.py",
+          "type": "python_file",
+          "description": "Source file Lib/typing.py in python/cpython (3956 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/python/cpython/blob/main/Lib/asyncio/base_events.py",
+          "type": "python_file",
+          "description": "Source file Lib/asyncio/base_events.py in python/cpython (2118 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Streamlit",
+      "full_name": "streamlit/streamlit",
+      "html_url": "https://github.com/streamlit/streamlit",
+      "description": "Build and share beautiful data products",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "data-app",
+      "related_urls": [
+        {
+          "url": "https://github.com/streamlit/streamlit/blob/master/lib/streamlit/runtime/scriptrunner/script_runner.py",
+          "type": "python_file",
+          "description": "Source file lib/streamlit/runtime/scriptrunner/script_runner.py in streamlit/streamlit (732 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/streamlit/streamlit/blob/master/lib/streamlit/runtime/app_session.py",
+          "type": "python_file",
+          "description": "Source file lib/streamlit/runtime/app_session.py in streamlit/streamlit (759 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Dash",
+      "full_name": "plotly/dash",
+      "html_url": "https://github.com/plotly/dash",
+      "description": "Analytical web apps in pure Python",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "data-app",
+      "related_urls": [
+        {
+          "url": "https://github.com/plotly/dash/blob/master/dash/dash.py",
+          "type": "python_file",
+          "description": "Source file dash/dash.py in plotly/dash (3025 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/plotly/dash/blob/master/dash/_callback.py",
+          "type": "python_file",
+          "description": "Source file dash/_callback.py in plotly/dash (1325 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Gradio",
+      "full_name": "gradio-app/gradio",
+      "html_url": "https://github.com/gradio-app/gradio",
+      "description": "The fastest way to demo your ML model with a friendly web interface",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "data-app",
+      "related_urls": [
+        {
+          "url": "https://github.com/gradio-app/gradio/blob/main/gradio/blocks.py",
+          "type": "python_file",
+          "description": "Source file gradio/blocks.py in gradio-app/gradio (4180 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/gradio-app/gradio/blob/main/gradio/interface.py",
+          "type": "python_file",
+          "description": "Source file gradio/interface.py in gradio-app/gradio (1021 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/gradio-app/gradio/blob/main/gradio/routes.py",
+          "type": "python_file",
+          "description": "Source file gradio/routes.py in gradio-app/gradio (2983 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "requests",
+      "full_name": "psf/requests",
+      "html_url": "https://github.com/psf/requests",
+      "description": "Python HTTP for Humans",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "networking",
+      "related_urls": [
+        {
+          "url": "https://github.com/psf/requests/blob/main/src/requests/adapters.py",
+          "type": "python_file",
+          "description": "Source file src/requests/adapters.py in psf/requests (749 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/psf/requests/blob/main/src/requests/sessions.py",
+          "type": "python_file",
+          "description": "Source file src/requests/sessions.py in psf/requests (921 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/psf/requests/blob/main/src/requests/models.py",
+          "type": "python_file",
+          "description": "Source file src/requests/models.py in psf/requests (1185 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "urllib3",
+      "full_name": "urllib3/urllib3",
+      "html_url": "https://github.com/urllib3/urllib3",
+      "description": "urllib3 is a powerful, sanity-friendly HTTP client for Python",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "networking",
+      "related_urls": [
+        {
+          "url": "https://github.com/urllib3/urllib3/blob/main/src/urllib3/connectionpool.py",
+          "type": "python_file",
+          "description": "Source file src/urllib3/connectionpool.py in urllib3/urllib3 (1227 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/urllib3/urllib3/blob/main/src/urllib3/connection.py",
+          "type": "python_file",
+          "description": "Source file src/urllib3/connection.py in urllib3/urllib3 (1231 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/urllib3/urllib3/blob/main/src/urllib3/poolmanager.py",
+          "type": "python_file",
+          "description": "Source file src/urllib3/poolmanager.py in urllib3/urllib3 (698 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "httpx",
+      "full_name": "encode/httpx",
+      "html_url": "https://github.com/encode/httpx",
+      "description": "A next generation HTTP client for Python",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "networking",
+      "related_urls": [
+        {
+          "url": "https://github.com/encode/httpx/blob/master/httpx/_client.py",
+          "type": "python_file",
+          "description": "Source file httpx/_client.py in encode/httpx (2020 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/encode/httpx/blob/master/httpx/_models.py",
+          "type": "python_file",
+          "description": "Source file httpx/_models.py in encode/httpx (1278 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "websockets",
+      "full_name": "python-websockets/websockets",
+      "html_url": "https://github.com/python-websockets/websockets",
+      "description": "A library for building WebSocket servers and clients",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "networking",
+      "related_urls": [
+        {
+          "url": "https://github.com/python-websockets/websockets/blob/main/src/websockets/sync/server.py",
+          "type": "python_file",
+          "description": "Source file src/websockets/sync/server.py in python-websockets/websockets (946 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/python-websockets/websockets/blob/main/src/websockets/asyncio/server.py",
+          "type": "python_file",
+          "description": "Source file src/websockets/asyncio/server.py in python-websockets/websockets (927 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/python-websockets/websockets/blob/main/src/websockets/protocol.py",
+          "type": "python_file",
+          "description": "Source file src/websockets/protocol.py in python-websockets/websockets (771 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Scrapy",
+      "full_name": "scrapy/scrapy",
+      "html_url": "https://github.com/scrapy/scrapy",
+      "description": "A fast, high-level web crawling and web scraping framework",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "networking",
+      "related_urls": [
+        {
+          "url": "https://github.com/scrapy/scrapy/blob/master/scrapy/core/engine.py",
+          "type": "python_file",
+          "description": "Source file scrapy/core/engine.py in scrapy/scrapy (1076 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/scrapy/scrapy/blob/master/scrapy/spiders/crawl.py",
+          "type": "python_file",
+          "description": "Source file scrapy/spiders/crawl.py in scrapy/scrapy (361 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Celery",
+      "full_name": "celery/celery",
+      "html_url": "https://github.com/celery/celery",
+      "description": "An asynchronous task queue/job queue based on distributed message passing",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "networking",
+      "related_urls": [
+        {
+          "url": "https://github.com/celery/celery/blob/main/celery/app/base.py",
+          "type": "python_file",
+          "description": "Source file celery/app/base.py in celery/celery (1823 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/celery/celery/blob/main/celery/app/task.py",
+          "type": "python_file",
+          "description": "Source file celery/app/task.py in celery/celery (1378 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/celery/celery/blob/main/celery/worker/worker.py",
+          "type": "python_file",
+          "description": "Source file celery/worker/worker.py in celery/celery (525 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "redis-py",
+      "full_name": "redis/redis-py",
+      "html_url": "https://github.com/redis/redis-py",
+      "description": "Redis Python Client",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "networking",
+      "related_urls": [
+        {
+          "url": "https://github.com/redis/redis-py/blob/master/redis/client.py",
+          "type": "python_file",
+          "description": "Source file redis/client.py in redis/redis-py (2401 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/redis/redis-py/blob/master/redis/connection.py",
+          "type": "python_file",
+          "description": "Source file redis/connection.py in redis/redis-py (4885 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Hydra",
+      "full_name": "dropbox/hydra",
+      "html_url": "https://github.com/dropbox/hydra",
+      "description": "Hydra is a framework for elegantly configuring complex applications",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "config",
+      "related_urls": [
+        {
+          "url": "https://github.com/dropbox/hydra/blob/master/oplog_applier.py",
+          "type": "python_file",
+          "description": "Source file oplog_applier.py in dropbox/hydra (258 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/dropbox/hydra/blob/master/utils.py",
+          "type": "python_file",
+          "description": "Source file utils.py in dropbox/hydra (288 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/dropbox/hydra/blob/master/cluster_cop.py",
+          "type": "python_file",
+          "description": "Source file cluster_cop.py in dropbox/hydra (119 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "OmegaConf",
+      "full_name": "omry/omegaconf",
+      "html_url": "https://github.com/omry/omegaconf",
+      "description": "A flexible configuration system for Python applications",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "config",
+      "related_urls": [
+        {
+          "url": "https://github.com/omry/omegaconf/blob/main/omegaconf/omegaconf.py",
+          "type": "python_file",
+          "description": "Source file omegaconf/omegaconf.py in omry/omegaconf (2216 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/omry/omegaconf/blob/main/omegaconf/dictconfig.py",
+          "type": "python_file",
+          "description": "Source file omegaconf/dictconfig.py in omry/omegaconf (842 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/omry/omegaconf/blob/main/omegaconf/listconfig.py",
+          "type": "python_file",
+          "description": "Source file omegaconf/listconfig.py in omry/omegaconf (713 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "asyncio",
+      "full_name": "python/asyncio",
+      "html_url": "https://github.com/python/asyncio",
+      "description": "Asyncio is a library to write concurrent code using async/await",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "stdlib",
+      "related_urls": [
+        {
+          "url": "https://github.com/python/asyncio/blob/master/asyncio/tasks.py",
+          "type": "python_file",
+          "description": "Source file asyncio/tasks.py in python/asyncio (758 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/python/asyncio/blob/master/asyncio/base_events.py",
+          "type": "python_file",
+          "description": "Source file asyncio/base_events.py in python/asyncio (1468 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Werkzeug",
+      "full_name": "pallets/werkzeug",
+      "html_url": "https://github.com/pallets/werkzeug",
+      "description": "The comprehensive WSGI web application library",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "web-utils",
+      "related_urls": [
+        {
+          "url": "https://github.com/pallets/werkzeug/blob/main/src/werkzeug/routing/map.py",
+          "type": "python_file",
+          "description": "Source file src/werkzeug/routing/map.py in pallets/werkzeug (1017 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pallets/werkzeug/blob/main/src/werkzeug/wrappers/request.py",
+          "type": "python_file",
+          "description": "Source file src/werkzeug/wrappers/request.py in pallets/werkzeug (946 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pallets/werkzeug/blob/main/src/werkzeug/test.py",
+          "type": "python_file",
+          "description": "Source file src/werkzeug/test.py in pallets/werkzeug (1471 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Jinja2",
+      "full_name": "pallets/jinja",
+      "html_url": "https://github.com/pallets/jinja",
+      "description": "A small but fast and easy to use stand-alone template engine",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "web-utils",
+      "related_urls": [
+        {
+          "url": "https://github.com/pallets/jinja/blob/main/src/jinja2/environment.py",
+          "type": "python_file",
+          "description": "Source file src/jinja2/environment.py in pallets/jinja (1667 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pallets/jinja/blob/main/src/jinja2/compiler.py",
+          "type": "python_file",
+          "description": "Source file src/jinja2/compiler.py in pallets/jinja (1993 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pallets/jinja/blob/main/src/jinja2/filters.py",
+          "type": "python_file",
+          "description": "Source file src/jinja2/filters.py in pallets/jinja (1868 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "django-extensions",
+      "full_name": "django-extensions/django-extensions",
+      "html_url": "https://github.com/django-extensions/django-extensions",
+      "description": "Useful extensions for the Django Framework",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "django-plugin",
+      "related_urls": [
+        {
+          "url": "https://github.com/django-extensions/django-extensions/blob/main/django_extensions/management/commands/shell_plus.py",
+          "type": "python_file",
+          "description": "Source file django_extensions/management/commands/shell_plus.py in django-extensions/django-extensions (701 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/django-extensions/django-extensions/blob/main/django_extensions/management/commands/runserver_plus.py",
+          "type": "python_file",
+          "description": "Source file django_extensions/management/commands/runserver_plus.py in django-extensions/django-extensions (771 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/django-extensions/django-extensions/blob/master/django_extensions/management/commands/shell_plus.py",
+          "type": "python_file",
+          "description": "Source file django_extensions/management/commands/shell_plus.py in django-extensions/django-extensions (701 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Django Debug Toolbar",
+      "full_name": "django-debug-toolbar/django-debug-toolbar",
+      "html_url": "https://github.com/django-debug-toolbar/django-debug-toolbar",
+      "description": "The Django Debug Toolbar is a configurable set of panels",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "django-plugin",
+      "related_urls": [
+        {
+          "url": "https://github.com/django-debug-toolbar/django-debug-toolbar/blob/main/debug_toolbar/toolbar.py",
+          "type": "python_file",
+          "description": "Source file debug_toolbar/toolbar.py in django-debug-toolbar/django-debug-toolbar (287 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/django-debug-toolbar/django-debug-toolbar/blob/main/debug_toolbar/panels/sql/panel.py",
+          "type": "python_file",
+          "description": "Source file debug_toolbar/panels/sql/panel.py in django-debug-toolbar/django-debug-toolbar (340 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/django-debug-toolbar/django-debug-toolbar/blob/main/debug_toolbar/utils.py",
+          "type": "python_file",
+          "description": "Source file debug_toolbar/utils.py in django-debug-toolbar/django-debug-toolbar (443 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "python-docx",
+      "full_name": "python-openxml/python-docx",
+      "html_url": "https://github.com/python-openxml/python-docx",
+      "description": "Create and update Microsoft Word files",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "document",
+      "related_urls": [
+        {
+          "url": "https://github.com/python-openxml/python-docx/blob/master/src/docx/document.py",
+          "type": "python_file",
+          "description": "Source file src/docx/document.py in python-openxml/python-docx (266 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/python-openxml/python-docx/blob/master/src/docx/table.py",
+          "type": "python_file",
+          "description": "Source file src/docx/table.py in python-openxml/python-docx (538 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "openpyxl",
+      "full_name": "ericgazoni/openpyxl",
+      "html_url": "https://github.com/ericgazoni/openpyxl",
+      "description": "A Python library to read/write Excel 2010 xlsx/xlsm files",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "document",
+      "related_urls": [
+        {
+          "url": "https://github.com/ericgazoni/openpyxl/blob/master/openpyxl/reader/excel.py",
+          "type": "python_file",
+          "description": "Source file openpyxl/reader/excel.py in ericgazoni/openpyxl (224 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/ericgazoni/openpyxl/blob/master/openpyxl/datavalidation.py",
+          "type": "python_file",
+          "description": "Source file openpyxl/datavalidation.py in ericgazoni/openpyxl (229 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/ericgazoni/openpyxl/blob/master/openpyxl/date_time.py",
+          "type": "python_file",
+          "description": "Source file openpyxl/date_time.py in ericgazoni/openpyxl (147 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Pillow",
+      "full_name": "python-pillow/Pillow",
+      "html_url": "https://github.com/python-pillow/Pillow",
+      "description": "The friendly PIL fork (Python Imaging Library)",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "image",
+      "related_urls": [
+        {
+          "url": "https://github.com/python-pillow/Pillow/blob/main/src/PIL/Image.py",
+          "type": "python_file",
+          "description": "Source file src/PIL/Image.py in python-pillow/Pillow (4410 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/python-pillow/Pillow/blob/main/src/PIL/ImageDraw.py",
+          "type": "python_file",
+          "description": "Source file src/PIL/ImageDraw.py in python-pillow/Pillow (1008 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/python-pillow/Pillow/blob/main/src/PIL/ImageOps.py",
+          "type": "python_file",
+          "description": "Source file src/PIL/ImageOps.py in python-pillow/Pillow (808 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "cryptography",
+      "full_name": "pyca/cryptography",
+      "html_url": "https://github.com/pyca/cryptography",
+      "description": "cryptography is a package which provides cryptographic recipes and primitives",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "security",
+      "related_urls": [
+        {
+          "url": "https://github.com/pyca/cryptography/blob/main/src/cryptography/x509/base.py",
+          "type": "python_file",
+          "description": "Source file src/cryptography/x509/base.py in pyca/cryptography (835 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pyca/cryptography/blob/main/src/cryptography/hazmat/primitives/asymmetric/rsa.py",
+          "type": "python_file",
+          "description": "Source file src/cryptography/hazmat/primitives/asymmetric/rsa.py in pyca/cryptography (296 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/pyca/cryptography/blob/main/src/cryptography/utils.py",
+          "type": "python_file",
+          "description": "Source file src/cryptography/utils.py in pyca/cryptography (138 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "Authlib",
+      "full_name": "lepture/authlib",
+      "html_url": "https://github.com/lepture/authlib",
+      "description": "The ultimate Python library in building OAuth, OpenID Connect clients and servers",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "security",
+      "related_urls": [
+        {
+          "url": "https://github.com/lepture/authlib/blob/main/authlib/oauth2/rfc6749/models.py",
+          "type": "python_file",
+          "description": "Source file authlib/oauth2/rfc6749/models.py in lepture/authlib (244 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/lepture/authlib/blob/main/authlib/oidc/core/claims.py",
+          "type": "python_file",
+          "description": "Source file authlib/oidc/core/claims.py in lepture/authlib (288 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/lepture/authlib/blob/main/authlib/integrations/requests_client/oauth2_session.py",
+          "type": "python_file",
+          "description": "Source file authlib/integrations/requests_client/oauth2_session.py in lepture/authlib (149 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "mitmproxy",
+      "full_name": "mitmproxy/mitmproxy",
+      "html_url": "https://github.com/mitmproxy/mitmproxy",
+      "description": "An interactive HTTPS proxy",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "security",
+      "related_urls": [
+        {
+          "url": "https://github.com/mitmproxy/mitmproxy/blob/main/mitmproxy/http.py",
+          "type": "python_file",
+          "description": "Source file mitmproxy/http.py in mitmproxy/mitmproxy (1296 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/mitmproxy/mitmproxy/blob/main/mitmproxy/addons/core.py",
+          "type": "python_file",
+          "description": "Source file mitmproxy/addons/core.py in mitmproxy/mitmproxy (287 lines, branch: main)"
+        },
+        {
+          "url": "https://github.com/mitmproxy/mitmproxy/blob/main/mitmproxy/proxy/layers/tls.py",
+          "type": "python_file",
+          "description": "Source file mitmproxy/proxy/layers/tls.py in mitmproxy/mitmproxy (693 lines, branch: main)"
+        }
+      ]
+    },
+    {
+      "name": "gRPC",
+      "full_name": "grpc/grpc",
+      "html_url": "https://github.com/grpc/grpc",
+      "description": "The gRPC C core — a high performance, open-source universal RPC framework",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "rpc",
+      "related_urls": [
+        {
+          "url": "https://github.com/grpc/grpc/blob/master/src/python/grpcio/grpc/__init__.py",
+          "type": "python_file",
+          "description": "Source file src/python/grpcio/grpc/__init__.py in grpc/grpc (2362 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/grpc/grpc/blob/master/src/python/grpcio/grpc/_channel.py",
+          "type": "python_file",
+          "description": "Source file src/python/grpcio/grpc/_channel.py in grpc/grpc (2259 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "pytz",
+      "full_name": "stub42/pytz",
+      "html_url": "https://github.com/stub42/pytz",
+      "description": "World timezone definitions, modern and historical",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "date-time",
+      "related_urls": [
+        {
+          "url": "https://github.com/stub42/pytz/blob/master/src/pytz/__init__.py",
+          "type": "python_file",
+          "description": "Source file src/pytz/__init__.py in stub42/pytz (538 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/stub42/pytz/blob/master/src/pytz/tzinfo.py",
+          "type": "python_file",
+          "description": "Source file src/pytz/tzinfo.py in stub42/pytz (586 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "Arrow",
+      "full_name": "arrow-py/arrow",
+      "html_url": "https://github.com/arrow-py/arrow",
+      "description": "Better Python dates and times",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "date-time",
+      "related_urls": [
+        {
+          "url": "https://github.com/arrow-py/arrow/blob/master/arrow/arrow.py",
+          "type": "python_file",
+          "description": "Source file arrow/arrow.py in arrow-py/arrow (1904 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/arrow-py/arrow/blob/master/arrow/parser.py",
+          "type": "python_file",
+          "description": "Source file arrow/parser.py in arrow-py/arrow (938 lines, branch: master)"
+        }
+      ]
+    },
+    {
+      "name": "python-dateutil",
+      "full_name": "dateutil/dateutil",
+      "html_url": "https://github.com/dateutil/dateutil",
+      "description": "Extensions to the standard Python datetime module",
+      "stargazers_count": 0,
+      "topics": [],
+      "language": "Python",
+      "homepage": "",
+      "category": "date-time",
+      "related_urls": [
+        {
+          "url": "https://github.com/dateutil/dateutil/blob/master/src/dateutil/rrule.py",
+          "type": "python_file",
+          "description": "Source file src/dateutil/rrule.py in dateutil/dateutil (1753 lines, branch: master)"
+        },
+        {
+          "url": "https://github.com/dateutil/dateutil/blob/master/src/dateutil/parser/_parser.py",
+          "type": "python_file",
+          "description": "Source file src/dateutil/parser/_parser.py in dateutil/dateutil (1608 lines, branch: master)"
+        }
+      ]
+    }
+  ],
+  "related_urls_note": "Each URL points to a real .py source file inside the project's GitHub repository."
+}

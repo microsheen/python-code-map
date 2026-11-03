@@ -11,6 +11,7 @@ import { UploadPanel } from '../src/components/UploadPanel';
 import { TopBar } from '../src/components/TopBar';
 import { MAX_FILES, useAppStore } from '../src/state/store';
 import type { AppStore } from '../src/state/store';
+import type { SampleProject } from '../src/data/sampleProjects';
 import { MAX_FILE_SIZE } from '../src/parser/analyze';
 import type { GithubListing } from '../src/pull/github';
 
@@ -221,6 +222,86 @@ describe('拉取粘贴对话框（issue #8 · 顶栏与空态面板共用的同�
 
     fireEvent.click(overlay);
     expect(useAppStore.getState().pullEntryOpen).toBe(false);
+  });
+});
+
+describe('拉取对话框：随机示例项目卡片（issue #13）', () => {
+  const django: SampleProject = {
+    name: 'Django',
+    fullName: 'django/django',
+    description: 'The Web framework for perfectionists with deadlines.',
+    stars: 91489,
+    category: 'web-framework',
+    urls: [
+      'https://github.com/django/django/blob/main/django/__init__.py',
+      'https://github.com/django/django/blob/main/django/shortcuts.py',
+      'https://github.com/django/django/blob/main/django/http/__init__.py',
+    ],
+  };
+  const flask: SampleProject = {
+    name: 'Flask',
+    fullName: 'pallets/flask',
+    description: 'The Python micro framework for building web applications.',
+    stars: 74942,
+    category: 'web-framework',
+    urls: [
+      'https://github.com/pallets/flask/blob/main/src/flask/__init__.py',
+      'https://github.com/pallets/flask/blob/main/src/flask/app.py',
+    ],
+  };
+
+  it('打开时随机展示一个示例项目：名字、仓库全名与文件数都读得到', () => {
+    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog random={() => 0} projects={[django, flask]} />);
+    const card = screen.getByTestId('pull-sample');
+    expect(card.textContent).toContain('Django');
+    expect(card.textContent).toContain('django/django');
+    expect(card.textContent).toContain('web-framework');
+    expect(card.textContent).toContain('Use these 3 URLs');
+  });
+
+  it('点击卡片：把该项目全部 Python URL 按一行一个填进文本框，且不自动拉取', () => {
+    const pull = stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog random={() => 0} projects={[django, flask]} />);
+    fireEvent.click(screen.getByTestId('pull-sample'));
+    expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
+      django.urls.join('\n')
+    );
+    // 重复点击等于重新填充同一组 URL，不做切换
+    fireEvent.click(screen.getByTestId('pull-sample'));
+    expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
+      django.urls.join('\n')
+    );
+    expect(pull.calls).toEqual([]);
+  });
+
+  it('关掉再打开会重新随机抽一个示例项目', () => {
+    let calls = 0;
+    const random = () => (calls++ === 0 ? 0 : 1);
+    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog random={random} projects={[django, flask]} />);
+    expect(screen.getByTestId('pull-sample').textContent).toContain('Django');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    act(() => useAppStore.getState().setPullEntryOpen(true));
+    expect(screen.getByTestId('pull-sample').textContent).toContain('Flask');
+  });
+
+  it('Shuffle 换成另一个项目，但不动已有草稿', () => {
+    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog random={() => 0} projects={[django, flask]} />);
+    fireEvent.click(screen.getByTestId('pull-sample'));
+    fireEvent.click(screen.getByTestId('pull-sample-shuffle'));
+    expect(screen.getByTestId('pull-sample').textContent).toContain('Flask');
+    expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
+      django.urls.join('\n')
+    );
+  });
+
+  it('清单为空时不渲染卡片，粘贴框照旧可用', () => {
+    stubPull(undefined, { pullEntryOpen: true } as Partial<AppStore>);
+    render(<PullEntryDialog random={() => 0} projects={[]} />);
+    expect(screen.queryByTestId('pull-sample')).toBeNull();
+    expect(screen.queryByTestId('pull-input')).not.toBeNull();
   });
 });
 

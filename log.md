@@ -1929,3 +1929,26 @@ deploy skipped（master 非生产分支）。与上一轮相同，deploy 的跳�
 - **遗留**：① 重建的审计脚本住在 `%TEMP%\cm-pub-17\tools\`，需要一个永久住处（下轮发布前找不到就按本轮记录重建）；
   ② apex 与 `www` 的异网真浏览器复测仍欠（同 §13）；③ `DEPLOY_ENABLED` 回退路径依旧没实测（照旧，本轮没动它）；
   ④ GitHub 侧被改写顶替的旧对象在 refs 里已不可达，但服务端可能按对象保留策略残留 —— 判据只看 refs，不猜服务端。
+
+## 2026-11-03 #13 示例项目卡片（随机抽签 + 点击填草稿 · 630 单测 · 冒烟未重跑）
+
+- **干了什么**：按 #13 实现 Pull from URL 对话框的随机示例项目卡片。`famous_python_projects.json` 从仓库根
+  迁到 `assets/data/`（静态 import，112KB 进 bundle，不新增网络请求）；新增 `src/data/sampleProjects.ts`
+  收口 JSON 窄化、`pickSampleProject({ random?, excludeFullName?, projects? })` 与星数缩写；对话框每次打开
+  抽一次，卡片按 spec 展示 name/full_name/category/缩写星数/两行截断描述 + “Use these N URLs”，整卡可点，
+  点击用该项目全部 blob URL 换行**替换**草稿（不自动 Pull、不关窗），Shuffle 排除当前且不动草稿。
+- **没改什么**：拉取管线（分流、批次、刷新、并发/上限）与 `audit:egress` 的文件清单逐字未变 —— 审计仍是
+  **16 file(s)**，与上一轮同口径；没有新增任何 fetch/clipboard 调用点。
+- **[实测] 门禁（本机，2026-11-03，提交前）**：`npm run verify` = typecheck exit 0 + lint **0 error / 0 warning**
+  + jest **27 suites / 630 tests** exit 0；`npm run audit:egress` = 16 file(s) / 3 条 ALLOWED / `OK`。
+- **CI**：本轮只做本地提交，未推送，release/CI 未触发 —— 因此没有 run id 可记，也不冒充“绿”。
+- **冒烟**：浏览器 smoke 本轮未重跑（spec 的门禁没含它；jest 内 `smoke.test.ts` 已随全量跑过，与 113 项真 Chrome
+  冒烟不是同一层证据，不混记）。
+- **学到的规矩（两条）**：
+  ① spec 里的数据计数要拿 JSON 实测对一遍 —— 本轮 issue 原文写 272 条，实际 **268** 条（100 项目：68 个项目
+  3 条、32 个项目 2 条），已回写 issue；测试把 268 锁死，字段/数量/域名形态另有一条不变式断言。
+  ② 随机 UI 的测试不要 mock 全局 `Math.random`，给组件注入 `random` + 候选清单即可确定；空清单与重开重抽
+  都能在既有 `PullEntryDialog` 接缝上断言。
+- **遗留**：① 浏览器 smoke 未重跑（下轮发布前按惯例补 113 项）；② `pullUi.test.tsx` 的 django/flask 夹具是
+  手写样本，清单元数据若增删字段需同步；③ 卡片视觉只经 jest 行为断言，没有截图证据。
+

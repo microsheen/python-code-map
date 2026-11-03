@@ -10,6 +10,11 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
+import {
+  formatStars,
+  pickSampleProject,
+  type SampleProject,
+} from '../data/sampleProjects';
 import { useAppStore } from '../state/store';
 import { colors, fonts, spacing } from '../theme';
 
@@ -91,7 +96,104 @@ const ghostBtnStyle: CSSProperties = {
 
 const disabledBtnStyle: CSSProperties = { opacity: 0.6, cursor: 'default' };
 
-export function PullEntryDialog(): ReactNode {
+const sampleLabelStyle: CSSProperties = {
+  fontSize: 11,
+  color: colors.faint,
+  letterSpacing: 1,
+  textTransform: 'uppercase',
+};
+
+const sampleCardStyle: CSSProperties = {
+  display: 'block',
+  width: '100%',
+  boxSizing: 'border-box',
+  textAlign: 'left',
+  marginTop: spacing.xs,
+  background: colors.panelAlt,
+  color: colors.text,
+  border: '1px solid ' + colors.borderStrong,
+  borderRadius: 8,
+  padding: spacing.md,
+  fontFamily: fonts.ui,
+  cursor: 'pointer',
+};
+
+const sampleTopRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  justifyContent: 'space-between',
+  gap: spacing.sm,
+};
+
+const sampleNameStyle: CSSProperties = { fontSize: 14, fontWeight: 700 };
+const sampleStarsStyle: CSSProperties = { fontSize: 11, color: colors.dim, whiteSpace: 'nowrap' };
+
+const sampleMetaStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: spacing.sm,
+  marginTop: 2,
+};
+
+const sampleChipStyle: CSSProperties = {
+  fontSize: 10,
+  color: colors.accent,
+  border: '1px solid ' + colors.borderStrong,
+  borderRadius: 4,
+  padding: '1px 6px',
+  whiteSpace: 'nowrap',
+};
+
+const sampleFullNameStyle: CSSProperties = {
+  fontSize: 11,
+  color: colors.dim,
+  fontFamily: fonts.mono,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+// 两行截断：清单里偶有长描述，不能让它把对话框撑高
+const sampleDescriptionStyle: CSSProperties = {
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 2,
+  overflow: 'hidden',
+  marginTop: spacing.xs,
+  fontSize: 12,
+  color: colors.dim,
+};
+
+const sampleActionStyle: CSSProperties = {
+  display: 'inline-block',
+  marginTop: spacing.sm,
+  background: colors.accentDim,
+  color: colors.onAccent,
+  borderRadius: 6,
+  padding: '5px 12px',
+  fontSize: 12,
+  fontWeight: 600,
+};
+
+const sampleFootStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: spacing.sm,
+  marginTop: spacing.sm,
+};
+
+const sampleNoteStyle: CSSProperties = { fontSize: 11, color: colors.faint };
+
+const shuffleBtnStyle: CSSProperties = { ...ghostBtnStyle, padding: '5px 12px', fontSize: 12 };
+
+export interface PullEntryDialogProps {
+  /** 随机源；不传则用样本模块的默认值（Math.random），测试注入固定值 */
+  random?: () => number;
+  /** 候选示例项目；不传则用样本模块的内置清单，测试用它覆盖“空清单”场景 */
+  projects?: readonly SampleProject[];
+}
+
+export function PullEntryDialog({ random, projects }: PullEntryDialogProps = {}): ReactNode {
   const open = useAppStore((s) => s.pullEntryOpen);
   const setOpen = useAppStore((s) => s.setPullEntryOpen);
   const pullFromText = useAppStore((s) => s.pullFromText);
@@ -99,6 +201,7 @@ export function PullEntryDialog(): ReactNode {
   const status = useAppStore((s) => s.status);
   const busy = status === 'loading-wasm' || status === 'parsing';
   const [draft, setDraft] = useState('');
+  const [sample, setSample] = useState<SampleProject | null>(null);
   // 提交票据：拉取还在飞的时候对话框可能已被关掉又重开（换过一茬）。重开就作废旧票据，
   // 旧提交的收尾因此不会收掉新对话框、清掉新草稿 —— 它只管自己那一茬。
   const submitSeq = useRef(0);
@@ -112,6 +215,12 @@ export function PullEntryDialog(): ReactNode {
   useEffect(() => {
     if (open) submitSeq.current += 1;
   }, [open]);
+
+  // 每次打开抽一次示例项目；关闭不清（不可见），重开自然重抽
+  useEffect(() => {
+    if (!open) return;
+    setSample(pickSampleProject({ random, projects }));
+  }, [open, random, projects]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -136,6 +245,24 @@ export function PullEntryDialog(): ReactNode {
     });
   };
 
+  // 点卡片只改草稿：提交时机仍归用户（不自动 Pull、不关窗）
+  const fillDraftFromSample = (): void => {
+    if (!sample) return;
+    setDraft(sample.urls.join('\n'));
+  };
+
+  // Shuffle 只换建议，不动草稿；抽不出别的（例如候选只有一个）就维持当前
+  const shuffleSample = (): void => {
+    setSample(
+      (current) =>
+        pickSampleProject({
+          random,
+          projects,
+          excludeFullName: current?.fullName ?? null,
+        }) ?? current
+    );
+  };
+
   return (
     <div style={overlayStyle} onClick={close}>
       <div
@@ -152,6 +279,41 @@ export function PullEntryDialog(): ReactNode {
             'One URL per line: a GitHub repository, directory, or file page, or a direct link to a .py / .pyi file on any host. Each line is pulled as its own batch — batches succeed or fail independently; every request is a GET with an empty body.'
           }
         </div>
+        {sample ? (
+          <div style={{ marginTop: spacing.md }}>
+            <div style={sampleLabelStyle}>Try a sample project</div>
+            <button
+              type="button"
+              style={sampleCardStyle}
+              onClick={fillDraftFromSample}
+              data-testid="pull-sample"
+            >
+              <span style={sampleTopRowStyle}>
+                <span style={sampleNameStyle}>{sample.name}</span>
+                <span style={sampleStarsStyle}>{formatStars(sample.stars)} stars</span>
+              </span>
+              <span style={sampleMetaStyle}>
+                <span style={sampleChipStyle}>{sample.category}</span>
+                <span style={sampleFullNameStyle}>{sample.fullName}</span>
+              </span>
+              {sample.description ? (
+                <span style={sampleDescriptionStyle}>{sample.description}</span>
+              ) : null}
+              <span style={sampleActionStyle}>{`Use these ${sample.urls.length} URLs`}</span>
+            </button>
+            <div style={sampleFootStyle}>
+              <button
+                type="button"
+                style={shuffleBtnStyle}
+                onClick={shuffleSample}
+                data-testid="pull-sample-shuffle"
+              >
+                Shuffle
+              </button>
+              <span style={sampleNoteStyle}>Shuffle changes the suggestion only</span>
+            </div>
+          </div>
+        ) : null}
         <textarea
           style={inputStyle}
           value={draft}

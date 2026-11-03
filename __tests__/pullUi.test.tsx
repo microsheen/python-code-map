@@ -11,7 +11,7 @@ import { UploadPanel } from '../src/components/UploadPanel';
 import { TopBar } from '../src/components/TopBar';
 import { MAX_FILES, useAppStore } from '../src/state/store';
 import type { AppStore } from '../src/state/store';
-import type { SampleProject } from '../src/data/sampleProjects';
+import type { SuggestedProject } from '../src/data/suggestedProjects';
 import { MAX_FILE_SIZE } from '../src/parser/analyze';
 import type { GithubListing } from '../src/pull/github';
 
@@ -226,7 +226,7 @@ describe('拉取粘贴对话框（issue #8 · 顶栏与空态面板共用的同�
 });
 
 describe('拉取对话框：随机示例项目卡片（issue #13）', () => {
-  const django: SampleProject = {
+  const django: SuggestedProject = {
     name: 'Django',
     fullName: 'django/django',
     description: 'The Web framework for perfectionists with deadlines.',
@@ -238,7 +238,7 @@ describe('拉取对话框：随机示例项目卡片（issue #13）', () => {
       'https://github.com/django/django/blob/main/django/http/__init__.py',
     ],
   };
-  const flask: SampleProject = {
+  const flask: SuggestedProject = {
     name: 'Flask',
     fullName: 'pallets/flask',
     description: 'The Python micro framework for building web applications.',
@@ -302,6 +302,17 @@ describe('拉取对话框：随机示例项目卡片（issue #13）', () => {
     render(<PullEntryDialog random={() => 0} projects={[]} />);
     expect(screen.queryByTestId('pull-sample')).toBeNull();
     expect(screen.queryByTestId('pull-input')).not.toBeNull();
+  });
+
+  it('拉取进行中卡片仍可点，只有 Pull 按钮被禁用', () => {
+    stubPull(undefined, { pullEntryOpen: true, pulling: true } as Partial<AppStore>);
+    render(<PullEntryDialog random={() => 0} projects={[django, flask]} />);
+    expect((screen.getByTestId('pull-sample') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('pull-sample'));
+    expect((screen.getByTestId('pull-input') as HTMLTextAreaElement).value).toBe(
+      django.urls.join('\n')
+    );
+    expect((screen.getByTestId('pull-submit') as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

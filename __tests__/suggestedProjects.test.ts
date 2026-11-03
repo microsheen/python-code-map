@@ -5,22 +5,24 @@
  * 不测 JSON 解析细节，也不模拟模块内部实现。
  */
 import {
-  SAMPLE_PROJECTS,
+  SUGGESTED_PROJECTS,
   formatStars,
-  pickSampleProject,
-} from '../src/data/sampleProjects';
+  pickSuggestedProject,
+} from '../src/data/suggestedProjects';
 
 describe('示例项目清单', () => {
-  it('内置清单是 100 个项目，共 268 条 Python 文件 URL', () => {
-    expect(SAMPLE_PROJECTS).toHaveLength(100);
-    const total = SAMPLE_PROJECTS.reduce((sum, project) => sum + project.urls.length, 0);
-    expect(total).toBe(268);
+  it('内置清单是 100 个项目，共 267 条 Python 文件 URL', () => {
+    expect(SUGGESTED_PROJECTS).toHaveLength(100);
+    const total = SUGGESTED_PROJECTS.reduce((sum, project) => sum + project.urls.length, 0);
+    expect(total).toBe(267);
   });
 
-  it('每个项目的 URL 数量是 2–3 条，且都是 github.com 的 .py blob 页面', () => {
-    for (const project of SAMPLE_PROJECTS) {
+  it('每个项目的 URL 数量是 2–3 条、互不重复，且都是 github.com 的 .py blob 页面', () => {
+    for (const project of SUGGESTED_PROJECTS) {
       expect(project.urls.length).toBeGreaterThanOrEqual(2);
       expect(project.urls.length).toBeLessThanOrEqual(3);
+      // 同一 URL 填两行会变成两个批次拉同一个文件，清单里不允许
+      expect(new Set(project.urls).size).toBe(project.urls.length);
       for (const url of project.urls) {
         expect(url).toMatch(/^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[^/]+\/.+\.py$/);
       }
@@ -28,7 +30,7 @@ describe('示例项目清单', () => {
   });
 
   it('每个项目都有可展示的身份字段与有限星数', () => {
-    for (const project of SAMPLE_PROJECTS) {
+    for (const project of SUGGESTED_PROJECTS) {
       expect(project.name.length).toBeGreaterThan(0);
       expect(project.fullName).toMatch(/^[^/]+\/[^/]+$/);
       // 清单元数据里允许 description 为空（kornia/kornia），卡片对空描述不渲染这一行
@@ -40,24 +42,24 @@ describe('示例项目清单', () => {
   });
 });
 
-describe('pickSampleProject', () => {
+describe('pickSuggestedProject', () => {
   it('random 返回 0 时取清单第一个项目', () => {
-    const picked = pickSampleProject({ random: () => 0 });
+    const picked = pickSuggestedProject({ random: () => 0 });
     expect(picked?.fullName).toBe('django/django');
   });
 
   it('random 逼近 1 时取清单最后一个项目，不会越界', () => {
-    const picked = pickSampleProject({ random: () => 1 });
+    const picked = pickSuggestedProject({ random: () => 1 });
     expect(picked?.fullName).toBe('dateutil/dateutil');
   });
 
   it('excludeFullName 排除当前项目后再抽', () => {
-    const picked = pickSampleProject({ random: () => 0, excludeFullName: 'django/django' });
+    const picked = pickSuggestedProject({ random: () => 0, excludeFullName: 'django/django' });
     expect(picked?.fullName).toBe('pallets/flask');
   });
 
   it('清单为空时返回 null（卡片据此不渲染）', () => {
-    expect(pickSampleProject({ projects: [], random: () => 0 })).toBeNull();
+    expect(pickSuggestedProject({ projects: [], random: () => 0 })).toBeNull();
   });
 });
 

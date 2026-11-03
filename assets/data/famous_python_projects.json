@@ -540,11 +540,6 @@
           "url": "https://github.com/numpy/numpy/blob/main/numpy/_core/numeric.py",
           "type": "python_file",
           "description": "Source file numpy/_core/numeric.py in numpy/numpy (2733 lines, branch: main)"
-        },
-        {
-          "url": "https://github.com/numpy/numpy/blob/main/numpy/__init__.py",
-          "type": "python_file",
-          "description": "Source file numpy/__init__.py in numpy/numpy (929 lines, branch: main)"
         }
       ],
       "category": "data-science"

@@ -2,11 +2,11 @@
  * 示例项目数据模块（issue #13）。
  *
  * 内置清单随包分发、静态 import，不新增任何网络请求；外发仍遵循 ADR-0006。
- * 对话框只消费这里窄化后的 SampleProject，原始 JSON 的字段改名/增删都收在这一个文件里。
+ * 对话框只消费这里窄化后的 SuggestedProject，原始 JSON 的字段改名/增删都收在这一个文件里。
  */
 import rawProjects from '../../assets/data/famous_python_projects.json';
 
-export interface SampleProject {
+export interface SuggestedProject {
   /** 项目展示名（例如 Django） */
   name: string;
   /** 唯一身份 owner/repo，也是排除重复抽取的判据 */
@@ -21,7 +21,7 @@ export interface SampleProject {
 /** 清单里的 Python 文件条目类型：示例项目只认这一种 related_url */
 const PYTHON_FILE = 'python_file';
 
-export const SAMPLE_PROJECTS: readonly SampleProject[] = rawProjects.projects.map((project) => ({
+export const SUGGESTED_PROJECTS: readonly SuggestedProject[] = rawProjects.projects.map((project) => ({
   name: project.name,
   fullName: project.full_name,
   description: project.description,
@@ -32,20 +32,20 @@ export const SAMPLE_PROJECTS: readonly SampleProject[] = rawProjects.projects.ma
     .map((related) => related.url),
 }));
 
-export interface PickSampleOptions {
+export interface PickSuggestedProjectOptions {
   /** 随机源；默认 Math.random，测试注入固定值以获得确定结果 */
   random?: () => number;
   /** 排除的项目身份（full_name）：Shuffle 用它避开当前这个 */
   excludeFullName?: string | null;
   /** 候选清单；默认内置清单，测试用它覆盖“空清单”场景 */
-  projects?: readonly SampleProject[];
+  projects?: readonly SuggestedProject[];
 }
 
 /**
  * 抽一个示例项目。清单为空（或排除后为空）时返回 null —— 调用方据此不渲染卡片，不报错。
  */
-export function pickSampleProject(options: PickSampleOptions = {}): SampleProject | null {
-  const { random = Math.random, excludeFullName = null, projects = SAMPLE_PROJECTS } = options;
+export function pickSuggestedProject(options: PickSuggestedProjectOptions = {}): SuggestedProject | null {
+  const { random = Math.random, excludeFullName = null, projects = SUGGESTED_PROJECTS } = options;
   const candidates = excludeFullName
     ? projects.filter((project) => project.fullName !== excludeFullName)
     : projects;

@@ -12,9 +12,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import {
   formatStars,
-  pickSampleProject,
-  type SampleProject,
-} from '../data/sampleProjects';
+  pickSuggestedProject,
+  type SuggestedProject,
+} from '../data/suggestedProjects';
 import { useAppStore } from '../state/store';
 import { colors, fonts, spacing } from '../theme';
 
@@ -190,7 +190,7 @@ export interface PullEntryDialogProps {
   /** 随机源；不传则用样本模块的默认值（Math.random），测试注入固定值 */
   random?: () => number;
   /** 候选示例项目；不传则用样本模块的内置清单，测试用它覆盖“空清单”场景 */
-  projects?: readonly SampleProject[];
+  projects?: readonly SuggestedProject[];
 }
 
 export function PullEntryDialog({ random, projects }: PullEntryDialogProps = {}): ReactNode {
@@ -201,7 +201,7 @@ export function PullEntryDialog({ random, projects }: PullEntryDialogProps = {})
   const status = useAppStore((s) => s.status);
   const busy = status === 'loading-wasm' || status === 'parsing';
   const [draft, setDraft] = useState('');
-  const [sample, setSample] = useState<SampleProject | null>(null);
+  const [sample, setSample] = useState<SuggestedProject | null>(null);
   // 提交票据：拉取还在飞的时候对话框可能已被关掉又重开（换过一茬）。重开就作废旧票据，
   // 旧提交的收尾因此不会收掉新对话框、清掉新草稿 —— 它只管自己那一茬。
   const submitSeq = useRef(0);
@@ -219,7 +219,7 @@ export function PullEntryDialog({ random, projects }: PullEntryDialogProps = {})
   // 每次打开抽一次示例项目；关闭不清（不可见），重开自然重抽
   useEffect(() => {
     if (!open) return;
-    setSample(pickSampleProject({ random, projects }));
+    setSample(pickSuggestedProject({ random, projects }));
   }, [open, random, projects]);
 
   useEffect(() => {
@@ -255,7 +255,7 @@ export function PullEntryDialog({ random, projects }: PullEntryDialogProps = {})
   const shuffleSample = (): void => {
     setSample(
       (current) =>
-        pickSampleProject({
+        pickSuggestedProject({
           random,
           projects,
           excludeFullName: current?.fullName ?? null,

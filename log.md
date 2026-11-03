@@ -1953,3 +1953,34 @@ deploy skipped（master 非生产分支）。与上一轮相同，deploy 的跳�
 - **遗留**：① 浏览器 smoke 未重跑（下轮发布前按惯例补 113 项）；② `pullUi.test.tsx` 的 django/flask 夹具是
   手写样本，清单元数据若增删字段需同步；③ 卡片视觉只经 jest 行为断言，没有截图证据。
 
+## 2026-11-03 示例卡片补 URL 直链并发布上线（main 快照 `1a82f19` · 630 单测 · 113 项冒烟）
+
+- **干了什么**：上一节之后又落了三笔（均在同一发布里上线）：① 卡片逐条列出该项目的 Python URL，`<a href>`
+  + `target="_blank"` + `rel="noopener noreferrer"`，点击新标签页打开；② 点击热区从整卡收敛到 “Use these N URLs”
+  按钮，点卡片其他位置不动草稿；③ 移除 Shuffle 按钮、说明文字及只服务于它的 `excludeFullName` 选项与用例；
+  空态标题改为 `Python Code Map`，顶栏/空态描述压短并补“可从 URL 拉取”。
+- **没改什么**：拉取管线（分流、批次、刷新、并发/上限）一行未动；`audit:egress` 仍是 **16 file(s) / 3 条
+  ALLOWED / OK**，新增的只是 `<a href>`，未引入 `window.open`。
+- **[实测] 门禁（本机，2026-11-03）**：typecheck exit 0；lint **0 error / 0 warning**；jest **27 suites /
+  630 tests**（上一节 631 → 移除 Shuffle 与排除用例各 1、新增 URL 直链 1）；`npm run smoke` **113 / 113 passed**。
+  本机首次 smoke 有 8 项红，根因是 8099 被一个旧 `serve:dist` 进程占着、stub 端点不在那条进程上；杀掉后全过。
+- **CI**：`master` 推送 run `41654991740` 的 `checks` / `browser-smoke` 绿，`deploy` **skipped** —— 条件要求
+  `ref_name == 'main'`，这是设计行为不是故障。公开镜像按 ops §11 重建：orphan 单提交 `1a82f19`（138 tracked、
+  `commits_ALL=1`、author == committer == noreply）、`audit-public-repo.mjs --history` = **findings 0 / exit 0**，
+  强推报 `+ 782828a...1a82f19 main -> main (forced update)`；run `41708888712` 三 job 全绿（`checks`、
+  `browser-smoke`、`deploy`），deploy stdout 的不可变 URL 是 `https://a2417b52.python-code-map.pages.dev`。
+- **[实测] 线上 == CI 产物（2026-11-03，run `41708888712` 的 artifact vs 两个 host）**：30 个文件逐一下载比对，
+  **19 条路径不同、其余逐字节相同**；不同的 19 条恰好是 `index.html` + 18 张 PNG（平台侧 HTML 注入/图片改写），
+  入口 `entry-5fca2de5…js`、两个 wasm、`metadata.json`、`robots.txt`、四个图标均 sha256 相同，两 host 结论一致。
+  CSP 在两 host 上都是 `connect-src 'self' https:`，与 `dist/_headers` 逐字相同 —— **前几轮顺延的「声明 == 生效」
+  核对到此收口**（用 `curl --ssl-no-revoke` 取头，两个 host 都 `200 + server: cloudflare + cf-ray`）。
+- **[实测] 线上功能**：真浏览器打别名 `python-code-map.pages.dev`，顶栏副标题已是
+  `Map Python code and call graphs in the browser`；Pull from URL 卡片显示 CPython 与 3 条 `.py` 链接，
+  点 “Use these 3 URLs” 后文本框填入 3 行换行 URL。
+- **学到的规矩（两条）**：① 发布前 smoke 若红在 stub/收集类检查，先看 8099 是否被旧 `serve:dist` 占着，
+  别先怀疑代码；② 公开镜像不要再删 ref + `gc --prune=now` 走捷径 —— 用 `git archive` 从快照导出到全新
+  `git init` 仓库再做单提交，审计只扫一条历史，既快也没有误伤真实仓库的爆炸半径。
+- **遗留**：① `famous_python_projects.json` 仍有 **65/100** 个项目 `stargazers_count = 0`（例如 autogen、
+  langchain），卡片如实显示 “0 stars”，未决定回填还是零值不显示；② 卡片视觉仍无截图证据；③ 发布用到的
+  审计脚本仍住在 `%TEMP%\cm-pub-17\tools\`，需要一个永久住处。
+

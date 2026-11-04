@@ -45,8 +45,8 @@ export const HEAD_METAS = [
   // but standard HTML uses content; we emit content and also mirror value.
   {
     name: 'impact-site-verification',
-    content: '3162e9f7-f908-4feb-a834-e14c20e6d933',
-    value: '3162e9f7-f908-4feb-a834-e14c20e6d933',
+    content: '111f13f2-a1bf-4e61-ac01-a81021c63013',
+    value: '111f13f2-a1bf-4e61-ac01-a81021c63013',
   },
 ];
 

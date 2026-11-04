@@ -41,6 +41,13 @@ export const HEAD_METAS = [
       'Python Code Map — parse Python in the browser with tree-sitter (WASM) and visualize the function call graph. 浏览器内真语法解析 Python，可视化函数调用关系图。',
   },
   { name: 'theme-color', content: '#0d1117' },
+  // Impact (DataCamp) site ownership verification — Impact sends <meta value="...">
+  // but standard HTML uses content; we emit content and also mirror value.
+  {
+    name: 'impact-site-verification',
+    content: '3162e9f7-f908-4feb-a834-e14c20e6d933',
+    value: '3162e9f7-f908-4feb-a834-e14c20e6d933',
+  },
 ];
 
 /**
@@ -80,7 +87,9 @@ function attr(k, v) {
 function buildBlock(indent) {
   const lines = [];
   for (const m of HEAD_METAS) {
-    lines.push(indent + '<meta ' + attr('name', m.name) + ' ' + attr('content', m.content) + ' />');
+    const parts = [attr('name', m.name), attr('content', m.content)];
+    if (m.value) parts.push(attr('value', m.value));
+    lines.push(indent + '<meta ' + parts.join(' ') + ' />');
   }
   HEAD_LINKS.forEach((l, i) => {
     const parts = [attr('rel', l.rel)];

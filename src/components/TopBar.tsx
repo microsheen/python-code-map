@@ -23,6 +23,27 @@ import { useThemeStore } from '../state/themeStore';
 const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewStyle;
 
 /**
+ * 联盟推广位（Educative / DataCamp 等）。
+ *
+ * href 为 null 时整条不渲染 —— 申请批下来之前页面没有任何变化；换广告只改这里，
+ * 不动布局、测试与门禁。
+ *
+ * 只用文字链接：对方提供的 banner 本身无害，但配套的 tracking pixel / JS 会触发
+ * audit-egress 的门禁，也会破坏「页面自己不向第三方发请求」那条承诺。
+ */
+export const PROMO: { href: string | null; text: string; tag: string } = {
+  href: null,
+  text: 'Deeper Python, one link away.',
+  tag: 'Ad',
+};
+
+/** web 上的原生 <a>：DOM 不认 RN 的样式简写，按 CHIP_TOOLTIP_WEB 的先例写 CSS。 */
+const PROMO_LINK_WEB: CSSProperties = {
+  textDecoration: 'underline',
+  minWidth: 0,
+};
+
+/**
  * 顶栏必须取消自己这层「层叠上下文」，否则反馈面板的全屏遮罩会被正文面板盖住。
  *
  * 原因在 RNW 里：View 的基础样式写死了 position:'relative' + zIndex:0
@@ -378,6 +399,35 @@ export function TopBar(): ReactNode {
           ) : null}
         </View>
       </View>
+
+      {/*
+        联盟推广位：单独一条细条，不挤进上面那行 actions —— 那行 flexWrap 在窄窗口已经会折行，
+        再塞一条外链会把「Select .py Files」推走。空态、有文件态都显示。
+        不受 busy 门控：解析中也能看得见（它不是操作入口，只是文案）。
+      */}
+      {PROMO.href ? (
+        <View style={styles.promoRow} testID="topbar-promo">
+          {Platform.OS === 'web' ? (
+            <a
+              data-testid="topbar-promo-link"
+              href={PROMO.href}
+              target="_blank"
+              // sponsored 给搜索引擎，noopener/noreferrer 防止新页面拿到原窗口句柄
+              rel="sponsored noopener noreferrer"
+              style={PROMO_LINK_WEB}
+            >
+              <Text style={styles.promoText} numberOfLines={1}>
+                {PROMO.text}
+              </Text>
+            </a>
+          ) : (
+            <Text style={styles.promoText} numberOfLines={1}>
+              {PROMO.text}
+            </Text>
+          )}
+          <Text style={styles.promoTag}>{PROMO.tag}</Text>
+        </View>
+      ) : null}
 
       {files.length > 0 ? (
         <View
@@ -876,6 +926,20 @@ const styles = StyleSheet.create({
   segBtnDisabled: { opacity: 0.4 },
   segText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
   segTextActive: { color: colors.onAccent, fontWeight: '600' },
+
+  promoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, height: 26 },
+  promoText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 11, flexShrink: 1 },
+  promoTag: {
+    color: colors.faint,
+    fontFamily: fonts.ui,
+    fontSize: 9,
+    fontWeight: '600',
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
 
   chips: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 2 },
   chipScrollBtnInline: {

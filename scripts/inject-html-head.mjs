@@ -26,6 +26,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
 const SENTINEL = 'data-codemap="icon"';
 
+/** Impact website ownership verification — text-based fallback when meta tag matching fails. */
+const IMPACT_VERIFY_TEXT = '<span style="display:none">Impact-Site-Verification: dbeddf04-1afd-49fe-8cf3-6bbaa24c8265</span>';
+
 /** href 一律同源相对路径：部署扫描与 polish-dist 都按整段正文找 scheme */
 export const HEAD_LINKS = [
   { rel: 'icon', type: 'image/svg+xml', href: '/icon.svg' },
@@ -124,7 +127,12 @@ for (const file of files) {
   if (!hm) fail(file + ' 里没有行首 </head>，无法注入');
   const indent = hm[1] || '  ';
   const after = before.replace(hm[0], () => buildBlock(indent) + '\n' + hm[0]);
-  fs.writeFileSync(file, after, 'utf8');
+  // Impact text-based ownership verification — inject before </body>
+  const bodyClose = /^([ \t]*)<\/body>/m.exec(after);
+  const final = bodyClose
+    ? after.replace(bodyClose[0], () => IMPACT_VERIFY_TEXT + '\n' + bodyClose[0])
+    : after;
+  fs.writeFileSync(file, final, 'utf8');
   injected++;
   console.log(
     '[inject-html-head] ' +

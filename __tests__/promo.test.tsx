@@ -45,3 +45,18 @@ it('填了 href 后是可点的文字链接，并带 Ad 角标', () => {
   expect(link.getAttribute('rel')).toContain('sponsored');
   expect(screen.getByTestId('topbar-promo').textContent).toContain('Ad');
 });
+
+it('href 是数组时取其中一条，且重渲染不会换链接', () => {
+  const candidates = ['https://a.example/?aff=1', 'https://b.example/?aff=1'];
+  act(() => {
+    PROMO.href = candidates;
+  });
+  const { rerender } = render(<TopBar />);
+
+  const first = screen.getByTestId('topbar-promo-link').getAttribute('href');
+  expect(candidates.includes(first as string)).toBe(true);
+
+  // store 更新会让顶栏重渲染：随机只在挂载时抽一次，链接不能跟着跳
+  rerender(<TopBar />);
+  expect(screen.getByTestId('topbar-promo-link').getAttribute('href')).toBe(first);
+});

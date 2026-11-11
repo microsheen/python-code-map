@@ -95,19 +95,28 @@ PayPal 个人账号 + 国内储蓄卡。两个硬事实：
 ### 4.1 配置驱动，`null` 即关闭
 
 ```tsx
-export const PROMO: { href: string | null; text: string; tag: string } = {
-  href: 'https://www.educative.io/unlimited?aff=XXXX',
+export const PROMO: { href: string | string[] | null; text: string; tag: string } = {
+  href: [
+    'https://www.educative.io/unlimited?aff=XXXX',
+    'https://www.educative.io/courses/...?aff=XXXX',
+    // …其余课程页同形，每条都只差一个路径
+  ],
   text: 'Deeper Python, one link away.',
   tag: 'Ad',
 };
 ```
 
 `href` 为 `null` 时整条不渲染，页面外观零变化。申请没批下来之前代码可以先合入，拿到链接后只改一个字符串。
+给数组时每次页面加载等概率随机取一条 —— **随机只在挂载时抽一次**，否则每个 store 更新都重渲染，链接会在
+用户眼皮底下跳变，分享出去的地址也会和打开时看到的不一致。
 
-**落地点选订阅页而不是课程页。** 后台默认给的两条链接都指向 `unlimited`，因为佣金只对订阅计
-`20%`（课程单独购买不计），课程页最终也要再跳到同一个结账页。落地页多一跳，就多一处流失面；
-而文案本身没写课程名，落地页与承诺不冲突。代价是「硬广感」更强 —— 这一条只能靠文案保持
-「描述动作、不描述商品」来抵消。
+**订阅页在候选里只占一条，但它是唯一直接对齐计费口径的落地点。** Educative 的佣金只对订阅计 `20%`
+（课程单独购买不计），课程页最终也要再跳到同一个结账页。一条订阅页 + N 条课程页等概率，等于把大部分
+曝光分给了多一跳的路径 —— 想给订阅页加权，最省事的做法是把它在数组里多写几条。
+
+**随机多条链接不等于能分出谁有效。** 后台按 `aff` 归因，这些链接在它眼里是同一个推广者；
+加上 last-click + 30 天 cookie，同一访客两次访问可能落到不同链接，成交只归最后一次。
+所以数组形态的用途是「分摊曝光」，不是 A/B —— 它能说明哪条更常被点，不能说明哪条更赚钱。
 
 ### 4.2 位置：标题与按钮组之间
 

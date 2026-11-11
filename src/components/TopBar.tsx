@@ -31,14 +31,31 @@ const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewS
  * 只用文字链接：对方提供的 banner 本身无害，但配套的 tracking pixel / JS 会触发
  * audit-egress 的门禁，也会破坏「页面自己不向第三方发请求」那条承诺。
  *
- * 落地页是 Unlimited 订阅页而不是某门课：Educative 的佣金只对订阅计，
- * 课程页最终也要再跳到同一个结账页，多一跳只会多一处流失。
+ * 落地页是订阅页 + 几门课，每次加载等概率抽一条。Educative 的佣金只对订阅计，
+ * 课程页最终也要再跳到同一个结账页 —— 课程页多一跳，所以订阅页在候选里单独占一条。
  */
-export const PROMO: { href: string | null; text: string; tag: string } = {
-  href: 'https://www.educative.io/unlimited?aff=K9An',
+export const PROMO: { href: string | string[] | null; text: string; tag: string } = {
+  href: [
+    'https://www.educative.io/unlimited?aff=K9An',
+    'https://www.educative.io/courses/learn-python-in-the-age-of-ai?aff=K9An',
+    'https://www.educative.io/courses/grokking-coding-interview?aff=K9An',
+    'https://www.educative.io/courses/grokking-the-system-design-interview?aff=K9An',
+    'https://www.educative.io/courses/machine-learning-system-design?aff=K9An',
+    'https://www.educative.io/courses/grokking-the-low-level-design-interview-using-ood-principles?aff=K9An',
+  ],
   text: 'Deeper Python, one link away.',
   tag: 'Ad',
 };
+
+/**
+ * 从候选里取一条。数组形态只为了两条落地页各占一半曝光 —— 后台按 aff 归因，
+ * 不会把两条链接分开统计，所以这不是 A/B，只是在分摊曝光。
+ */
+function pickPromoHref(href: string | string[] | null): string | null {
+  if (href === null || href.length === 0) return null;
+  if (typeof href === 'string') return href;
+  return href[Math.floor(Math.random() * href.length)] ?? null;
+}
 
 /** web 上的原生 <a>：DOM 不认 RN 的样式简写，按 CHIP_TOOLTIP_WEB 的先例写 CSS。 */
 const PROMO_LINK_WEB: CSSProperties = {
@@ -158,6 +175,9 @@ export function TopBar(): ReactNode {
   const navIndex = useAppStore((s) => s.navIndex);
   const navHistory = useAppStore((s) => s.navHistory);
   const [showFeedback, setShowFeedback] = useState(false);
+  // 随机只在挂载时取一次：每个 store 更新都重渲染，若每次重渲染都重抽，链接会在
+  // 用户眼皮底下跳变，收藏/分享出去的地址也会和打开时看到的不一致。
+  const [promoHref] = useState(() => pickPromoHref(PROMO.href));
   // 悬浮的 chip 与它的屏幕锚点。提示用 position:fixed 钉在 chip 下沿：chips 那一行
   // 是 overflow:hidden（7ff1333 为滚动按钮布局加的），提示挂在行内会被裁掉 ——
   // 实测截图里 DOM 有、屏幕上没有，所以锚点在悬浮那一刻量出来存着。
@@ -301,12 +321,12 @@ export function TopBar(): ReactNode {
           （它不是操作入口，只是文案）。宽度不够时先压缩自己（flexShrink + numberOfLines），
           不去挤「Select .py Files」。
         */}
-        {PROMO.href ? (
+        {promoHref ? (
           <View style={styles.promoInline} testID="topbar-promo">
             {Platform.OS === 'web' ? (
               <a
                 data-testid="topbar-promo-link"
-                href={PROMO.href}
+                href={promoHref}
                 target="_blank"
                 // sponsored 给搜索引擎，noopener/noreferrer 防止新页面拿到原窗口句柄
                 rel="sponsored noopener noreferrer"

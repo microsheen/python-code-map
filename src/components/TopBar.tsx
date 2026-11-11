@@ -25,36 +25,72 @@ const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewS
 /**
  * 联盟推广位（Educative / DataCamp 等）。
  *
- * href 为 null 时整条不渲染 —— 申请批下来之前页面没有任何变化；换广告只改这里，
- * 不动布局、测试与门禁。
- *
  * 只用文字链接：对方提供的 banner 本身无害，但配套的 tracking pixel / JS 会触发
  * audit-egress 的门禁，也会破坏「页面自己不向第三方发请求」那条承诺。
  *
- * 落地页是订阅页 + 几门课，每次加载等概率抽一条。Educative 的佣金只对订阅计，
- * 课程页最终也要再跳到同一个结账页 —— 课程页多一跳，所以订阅页在候选里单独占一条。
+ * 两种形态，二选一：
+ *   - 单条：{ href, text, tag } —— 只挂一个固定链接
+ *   - 候选数组：{ candidates: [{ href, text }], tag } —— 每次加载从数组里等概率抽一条；
+ *     文案跟着链接走，抽中谁就用谁的文案，不再全局共享
+ * candidates 为 null 或空数组时整条不渲染 —— 申请批下来之前页面没有任何变化；
+ * 换广告只改这里，不动布局、测试与门禁。
+ *
+ * Educative 的佣金只对订阅计（课程单独购买不计），课程页最终也要再跳到同一个结账页 ——
+ * 订阅页候选文案写"深入 Python 订阅"那一类，课程页候选写各自课程的主题。
  */
-export const PROMO: { href: string | string[] | null; text: string; tag: string } = {
-  href: [
-    'https://www.educative.io/unlimited?aff=K9An',
-    'https://www.educative.io/courses/learn-python-in-the-age-of-ai?aff=K9An',
-    'https://www.educative.io/courses/grokking-coding-interview?aff=K9An',
-    'https://www.educative.io/courses/grokking-the-system-design-interview?aff=K9An',
-    'https://www.educative.io/courses/machine-learning-system-design?aff=K9An',
-    'https://www.educative.io/courses/grokking-the-low-level-design-interview-using-ood-principles?aff=K9An',
+export interface PromoCandidate {
+  href: string;
+  text: string;
+}
+
+export type PromoConfig =
+  | { href: null }
+  | (PromoCandidate & { tag: string })
+  | { candidates: PromoCandidate[]; tag: string };
+
+export const PROMO: PromoConfig = {
+  candidates: [
+    {
+      href: 'https://www.educative.io/unlimited?aff=K9An',
+      text: 'All-you-can-learn dev library.',
+    },
+    {
+      href: 'https://www.educative.io/courses/learn-python-in-the-age-of-ai?aff=K9An',
+      text: 'Python in the age of AI.',
+    },
+    {
+      href: 'https://www.educative.io/courses/grokking-coding-interview?aff=K9An',
+      text: 'Ace coding interviews.',
+    },
+    {
+      href: 'https://www.educative.io/courses/grokking-the-system-design-interview?aff=K9An',
+      text: 'System design, grokked.',
+    },
+    {
+      href: 'https://www.educative.io/courses/machine-learning-system-design?aff=K9An',
+      text: 'ML systems that scale.',
+    },
+    {
+      href: 'https://www.educative.io/courses/grokking-the-low-level-design-interview-using-ood-principles?aff=K9An',
+      text: 'Low-level design, OOD-ready.',
+    },
   ],
-  text: 'Deeper Python, one link away.',
   tag: 'Ad',
 };
 
-/**
- * 从候选里取一条。数组形态只为了两条落地页各占一半曝光 —— 后台按 aff 归因，
- * 不会把两条链接分开统计，所以这不是 A/B，只是在分摊曝光。
- */
-function pickPromoHref(href: string | string[] | null): string | null {
-  if (href === null || href.length === 0) return null;
-  if (typeof href === 'string') return href;
-  return href[Math.floor(Math.random() * href.length)] ?? null;
+/** 从 PROMO 配置里抽一条候选；null / 空数组 / 单条形态都覆盖。 */
+export function pickPromo(cfg: PromoConfig): PromoCandidate | null {
+  if ('href' in cfg && cfg.href === null) return null;
+  if ('candidates' in cfg) {
+    if (!cfg.candidates || cfg.candidates.length === 0) return null;
+    return cfg.candidates[Math.floor(Math.random() * cfg.candidates.length)] ?? null;
+  }
+  return { href: cfg.href, text: cfg.text };
+}
+
+/** 取 tag：候选数组形态 tag 在顶层；单条形态同理；空态返回空串。 */
+export function promoTag(cfg: PromoConfig): string {
+  return 'tag' in cfg ? cfg.tag : '';
 }
 
 /** web 上的原生 <a>：DOM 不认 RN 的样式简写，按 CHIP_TOOLTIP_WEB 的先例写 CSS。 */
@@ -177,7 +213,7 @@ export function TopBar(): ReactNode {
   const [showFeedback, setShowFeedback] = useState(false);
   // 随机只在挂载时取一次：每个 store 更新都重渲染，若每次重渲染都重抽，链接会在
   // 用户眼皮底下跳变，收藏/分享出去的地址也会和打开时看到的不一致。
-  const [promoHref] = useState(() => pickPromoHref(PROMO.href));
+  const [promo] = useState(() => pickPromo(PROMO));
   // 悬浮的 chip 与它的屏幕锚点。提示用 position:fixed 钉在 chip 下沿：chips 那一行
   // 是 overflow:hidden（7ff1333 为滚动按钮布局加的），提示挂在行内会被裁掉 ——
   // 实测截图里 DOM 有、屏幕上没有，所以锚点在悬浮那一刻量出来存着。
@@ -321,27 +357,27 @@ export function TopBar(): ReactNode {
           （它不是操作入口，只是文案）。宽度不够时先压缩自己（flexShrink + numberOfLines），
           不去挤「Select .py Files」。
         */}
-        {promoHref ? (
+        {promo ? (
           <View style={styles.promoInline} testID="topbar-promo">
             {Platform.OS === 'web' ? (
               <a
                 data-testid="topbar-promo-link"
-                href={promoHref}
+                href={promo.href}
                 target="_blank"
                 // sponsored 给搜索引擎，noopener/noreferrer 防止新页面拿到原窗口句柄
                 rel="sponsored noopener noreferrer"
                 style={PROMO_LINK_WEB}
               >
                 <Text style={styles.promoText} numberOfLines={1}>
-                  {PROMO.text}
+                  {promo.text}
                 </Text>
               </a>
             ) : (
               <Text style={styles.promoText} numberOfLines={1}>
-                {PROMO.text}
+                {promo.text}
               </Text>
             )}
-            <Text style={styles.promoTag}>{PROMO.tag}</Text>
+            <Text style={styles.promoTag}>{promoTag(PROMO)}</Text>
           </View>
         ) : null}
 

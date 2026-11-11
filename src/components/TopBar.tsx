@@ -40,7 +40,10 @@ export const PROMO: { href: string | null; text: string; tag: string } = {
 /** web 上的原生 <a>：DOM 不认 RN 的样式简写，按 CHIP_TOOLTIP_WEB 的先例写 CSS。 */
 const PROMO_LINK_WEB: CSSProperties = {
   textDecoration: 'underline',
+  // 跟着标题同排：必须能收缩，否则优先级会跟「Select .py Files」抢宽度
+  display: 'flex',
   minWidth: 0,
+  overflow: 'hidden',
 };
 
 /**
@@ -290,6 +293,35 @@ export function TopBar(): ReactNode {
           </Text>
         </View>
 
+        {/*
+          联盟推广位：跟在标题右侧，同一行渲染。空态、有文件态都显示；不受 busy 门控
+          （它不是操作入口，只是文案）。宽度不够时先压缩自己（flexShrink + numberOfLines），
+          不去挤「Select .py Files」。
+        */}
+        {PROMO.href ? (
+          <View style={styles.promoInline} testID="topbar-promo">
+            {Platform.OS === 'web' ? (
+              <a
+                data-testid="topbar-promo-link"
+                href={PROMO.href}
+                target="_blank"
+                // sponsored 给搜索引擎，noopener/noreferrer 防止新页面拿到原窗口句柄
+                rel="sponsored noopener noreferrer"
+                style={PROMO_LINK_WEB}
+              >
+                <Text style={styles.promoText} numberOfLines={1}>
+                  {PROMO.text}
+                </Text>
+              </a>
+            ) : (
+              <Text style={styles.promoText} numberOfLines={1}>
+                {PROMO.text}
+              </Text>
+            )}
+            <Text style={styles.promoTag}>{PROMO.tag}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.actions}>
           <View style={styles.navGroup}>
             <Pressable
@@ -399,35 +431,6 @@ export function TopBar(): ReactNode {
           ) : null}
         </View>
       </View>
-
-      {/*
-        联盟推广位：单独一条细条，不挤进上面那行 actions —— 那行 flexWrap 在窄窗口已经会折行，
-        再塞一条外链会把「Select .py Files」推走。空态、有文件态都显示。
-        不受 busy 门控：解析中也能看得见（它不是操作入口，只是文案）。
-      */}
-      {PROMO.href ? (
-        <View style={styles.promoRow} testID="topbar-promo">
-          {Platform.OS === 'web' ? (
-            <a
-              data-testid="topbar-promo-link"
-              href={PROMO.href}
-              target="_blank"
-              // sponsored 给搜索引擎，noopener/noreferrer 防止新页面拿到原窗口句柄
-              rel="sponsored noopener noreferrer"
-              style={PROMO_LINK_WEB}
-            >
-              <Text style={styles.promoText} numberOfLines={1}>
-                {PROMO.text}
-              </Text>
-            </a>
-          ) : (
-            <Text style={styles.promoText} numberOfLines={1}>
-              {PROMO.text}
-            </Text>
-          )}
-          <Text style={styles.promoTag}>{PROMO.tag}</Text>
-        </View>
-      ) : null}
 
       {files.length > 0 ? (
         <View
@@ -927,7 +930,15 @@ const styles = StyleSheet.create({
   segText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 12 },
   segTextActive: { color: colors.onAccent, fontWeight: '600' },
 
-  promoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, height: 26 },
+  promoInline: {
+    // 占住标题与按钮组之间的剩余空间，内容居中 —— 视觉上落在两者中间
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    minWidth: 0,
+  },
   promoText: { color: colors.dim, fontFamily: fonts.ui, fontSize: 11, flexShrink: 1 },
   promoTag: {
     color: colors.faint,

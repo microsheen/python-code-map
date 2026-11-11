@@ -30,9 +30,12 @@ const SCROLL_X = { overflowX: 'auto', overflowY: 'visible' } as unknown as ViewS
  *
  * 只用文字链接：对方提供的 banner 本身无害，但配套的 tracking pixel / JS 会触发
  * audit-egress 的门禁，也会破坏「页面自己不向第三方发请求」那条承诺。
+ *
+ * 落地页是 Unlimited 订阅页而不是某门课：Educative 的佣金只对订阅计，
+ * 课程页最终也要再跳到同一个结账页，多一跳只会多一处流失。
  */
 export const PROMO: { href: string | null; text: string; tag: string } = {
-  href: 'https://www.educative.io/courses/learn-python-in-the-age-of-ai?aff=K9An',
+  href: 'https://www.educative.io/unlimited?aff=K9An',
   text: 'Deeper Python, one link away.',
   tag: 'Ad',
 };
